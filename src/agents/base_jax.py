@@ -39,7 +39,7 @@ from src.utils.dynamic_signature import SlidingSignatureJAX
 from src.networks.LQR_actor_critics import CriticFlaxQuadratic
 from src.utils.step_metrics import StepMetrics
 from src.utils.step_context import StepContextSignature, StepContextDelayed
-from src.configs import (
+from envs.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
 )
@@ -47,7 +47,7 @@ import jax.numpy as jnp
 import optax
 import scipy
 
-from src.env_rk_jax import JAXDDEEnv
+from envs.env_rk_jax import JAXDDEEnv
 
 
 class CTACJAX(CTACSignatureJAX):
