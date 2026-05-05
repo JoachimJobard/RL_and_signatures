@@ -1,0 +1,63 @@
+# CTACSignatureJAX Agent Configuration
+# Continuous-Time Actor-Critic with Path Signatures for Delayed Systems
+
+# =============================================================================
+# Training Hyperparameters
+# =============================================================================
+training_params:
+  n_episodes: 2000
+  max_time: 8.0
+  
+  # Optimization
+  actor_lr: 1e-3
+  critic_lr: 1e-2
+  
+  # Exploration
+  sigma: 0.1
+  scale: 1.0
+  
+  # Safety & Stability
+  clip_gradient: 5.0
+  clip_action: 5.0
+  divergence_threshold: 50.0
+  
+  # Normalization
+  normalize_entries: false   # Normalize state entries by divergence_threshold
+  normalize_sigs: false      # Use LayerNorm in actor/critic networks
+  
+  # Logging
+  log_interval: 10
+  init_log_interval: 50
+  memory_clear_interval: 20
+
+# =============================================================================
+# Signature Architecture
+# =============================================================================
+depth: 3
+window_size: 20
+time_augmentation: true
+origin_augmentation: true
+state_augmentation: false
+bias: false
+
+# =============================================================================
+# Algorithm Flags
+# =============================================================================
+discounted: false
+semi_gradient: true
+integral_td: false
+fix_initial_state: true
+decay_noise: false
+preheat: true
+actor_update_frequency: 10
+
+# =============================================================================
+# Noise Configuration
+# =============================================================================
+smooth_noise: true
+noise_length_scale: 1.0
+
+# =============================================================================
+# Random Seed
+# =============================================================================
+rng_key: 42

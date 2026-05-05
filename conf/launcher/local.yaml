@@ -1,0 +1,3 @@
+# @package hydra.launcher
+# Local launcher - no cluster submission
+_target_: hydra._internal.core_plugins.basic_launcher.BasicLauncher

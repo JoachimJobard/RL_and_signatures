@@ -1,0 +1,26 @@
+# CTAC variant selection via flags
+# Available flags: discounted, semi_gradient, integral_td, actor_oracle, critic_oracle
+discounted: false
+semi_gradient: true
+integral_td: false
+actor_oracle: false
+critic_oracle: false
+decay_noise: true
+fix_initial_state: false
+
+name: CTAC_simple
+lr_actor: 1e-2
+lr_critic: 5e-2
+tau: 1.2
+max_time: 5
+sigma: 0.1
+scale: 1.0
+train_episodes: 2000
+Q:
+  _target_: numpy.array
+  object: [[1, 0], [0, 1]]
+  dtype: float64
+R:
+  _target_: numpy.array
+  object: [[0.1]]
+  dtype: float64

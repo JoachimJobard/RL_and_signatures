@@ -1,0 +1,23 @@
+environment_params:
+  _target_: src.env.Environment
+  A:
+    _target_: numpy.array
+    object: [[0, -1], [1, 0]]
+    dtype: float64
+  B: 
+    _target_: numpy.array
+    object: [[0], [1]]
+    dtype: float64
+  A1:
+    _target_: numpy.zeros
+    _args_: 
+      - [2, 2]
+    dtype: float64
+  delay: 
+    _target_: numpy.zeros
+    _args_: 
+      - 2
+    dtype: float64
+  
+  step_size: 0.01
+  resolution: 10

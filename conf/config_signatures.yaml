@@ -1,0 +1,53 @@
+# Main configuration for Signature-based CTAC experiments
+# Use with: python main_signatures.py
+
+defaults:
+  - agent: signature_jax
+  - env: delay_jax
+  - _self_
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+seed: 42
+
+# =============================================================================
+# Evaluation Settings
+# =============================================================================
+eval:
+  x0_test: [3.0, 3.0]     # Initial state for evaluation trajectories
+  T_sim: 10.0             # Simulation time for evaluation
+  n_eval_trajectories: 5  # Number of different initial conditions to test
+
+# =============================================================================
+# Hydra Configuration
+# =============================================================================
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  output_subdir: null
+
+# =============================================================================
+# Weights & Biases Configuration
+# =============================================================================
+wandb:
+  project_name: CTAC_Signatures
+  entity: null
+  mode: online
+  name: sig_depth${agent.depth}_${now:%H%M%S}
+  group: delay_experiments
+
+# =============================================================================
+# Checkpointing / Eval data
+# =============================================================================
+save_checkpoint: true
+checkpoint_path: ${hydra:run.dir}/checkpoint_agent.pkl
+metrics_path: ${hydra:run.dir}/metrics.pkl
+
+# Sauvegarde des données d'évaluation
+save_eval_data: true
+eval_data_dir: eval_outputs  # Dossier relatif au projet (pas à hydra.run.dir)
+eval_data_name: ${wandb.name}  # Nom de base des fichiers (ex: "run_1" -> "run_1_eval.pkl")

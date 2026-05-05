@@ -1,0 +1,80 @@
+# CTACSignatureJAX Agent Configuration (env-specific: chemical reaction 4D)
+# Continuous-Time Actor-Critic with Path Signatures for Delayed Systems
+
+_target_: src.agents.signatures_jax.CTACSignatureJAX
+
+# =============================================================================
+# Training
+# =============================================================================
+training:
+  n_episodes: 1000
+  max_time: 2
+  actor_lr: 1e-3
+  critic_lr: 1e-2
+  scale: 1.0
+  clip_gradient: 5.0
+  clip_action: 5.0
+  divergence_threshold: 50.0
+  log_interval: 10
+  init_log_interval: 50
+  memory_clear_interval: 200000
+  eval_interval: 20
+
+# =============================================================================
+# Discount
+# =============================================================================
+discount:
+  discounted: false
+  tau: 1.0
+  V_bad: -10.0
+  V_target: 0.0
+
+# =============================================================================
+# Noise
+# =============================================================================
+noise:
+  sigma: 0.1
+  schedule: constant
+  decay: false
+  smooth: true
+  length_scale: 0.02
+
+# =============================================================================
+# Signature
+# =============================================================================
+signature:
+  depth: 3
+  window_size: 40
+  time_augmentation: true
+  origin_augmentation: true
+  state_augmentation: false
+  bias: false
+
+# =============================================================================
+# Network
+# =============================================================================
+network:
+  std_init: 0.01
+  normalize_entries: false
+  normalize_sigs: false
+
+# =============================================================================
+# Algorithm
+# =============================================================================
+algorithm:
+  semi_gradient: true
+  integral_td: false
+  fix_initial_state: true
+  actor_oracle: false
+  critic_oracle: false
+  actor_update_frequency: 10
+  preheat: true
+  burning_steps: 5
+
+# =============================================================================
+# Initial state
+# =============================================================================
+x0:
+  _target_: jax.numpy.array
+  object: [0.15, -0.03, 0.1, 0.0]
+  dtype: float64

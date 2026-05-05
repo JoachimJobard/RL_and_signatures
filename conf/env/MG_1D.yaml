@@ -1,0 +1,25 @@
+# Environment configuration for Mackey-Glass 1D
+# dx/dt = -mu*x + p*x_tau/(1 + x_tau^n)
+
+environment_params:
+  _target_: src.mackey_glass_1D.MackeyGlass1DEnv
+  
+  # Mackey-Glass parameters
+  delay: 17.0
+  mu: 0.1
+  n: 10
+  p: 0.2
+  x_target: 0.5
+  
+  # Cost matrices
+  Q:
+    _target_: numpy.eye
+    N: 1
+  
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+
+  # Solver parameters
+  step_size: 1
+  resolution: 5

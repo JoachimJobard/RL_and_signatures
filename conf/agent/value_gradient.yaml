@@ -1,0 +1,74 @@
+# ContinuousValueGradient Agent Configuration
+# Value Gradient method (no actor network, action derived from V gradient)
+
+_target_: src.agents.value_gradient_jax.ContinuousValueGradient
+
+# =============================================================================
+# Training
+# =============================================================================
+training:
+  n_episodes: 500
+  max_time: 15.0
+  critic_lr: 1e-3
+  scale: 1.0
+  clip_action: 10.0
+  divergence_threshold: 100.0
+  eval_interval: 20
+  tau_polyak: 0.01
+  log_interval: 10
+  init_log_interval: 50
+  memory_clear_interval: 1000
+
+# =============================================================================
+# Discount
+# =============================================================================
+discount:
+  discounted: false
+  tau: 100.0
+  V_target: 0.0
+  V_bad: -10.0
+
+# =============================================================================
+# Noise
+# =============================================================================
+noise:
+  sigma: 0.1
+  schedule: constant
+  decay: false
+  smooth: true
+  length_scale: 0.002
+
+# =============================================================================
+# Signature
+# =============================================================================
+signature:
+  depth: 2
+  window_size: 40
+  time_augmentation: true
+  origin_augmentation: true
+  bias: false
+  force_signature_window: false  # if true, override window_size to match max delay
+
+# =============================================================================
+# Network
+# =============================================================================
+network:
+  std_init: 0.01
+  hidden_dims: []
+  normalize_layers: false
+
+# =============================================================================
+# Algorithm
+# =============================================================================
+algorithm:
+  fix_initial_state: true
+  preheat: true
+  burning_steps: 100
+  delayed_state: false
+delayed_state: false
+tau: 1.0
+
+# =============================================================================
+# Noise Configuration
+# =============================================================================
+smooth_noise: true

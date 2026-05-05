@@ -1,0 +1,50 @@
+[project]
+name = "reinforcement-learning"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "distrax>=0.1.7",
+    "flax>=0.12.2",
+    "hydra-core>=1.3.2",
+    "hydra-submitit-launcher>=1.2.0",
+    "ipykernel>=7.1.0",
+    "jax>=0.8.2",
+    "jitcdde>=1.8.3",
+    "matplotlib>=3.7.5",
+    "nbformat>=5.10.4",
+    "omegaconf>=2.3.0",
+    "optax>=0.2.6",
+    "plotly>=6.5.0",
+    "scipy>=1.10.1",
+    "seaborn>=0.13.2",
+    # "signature-regression-delay",
+    "signax>=0.2.1",
+    "sympy>=1.13.3",
+    "tabulate>=0.9.0",
+    "torch>=2.9.1",
+    "tqdm>=4.67.1",
+    "wandb>=0.23.1",
+]
+
+[tool.uv.sources]
+signature-regression-delay = { path = "../signature_regression_delay", editable = true }
+# ... (your existing content) ...
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "memory-profiler>=0.61.0",
+    "memray>=1.19.1",
+]
+
+[tool.setuptools.packages.find]
+# Tell setuptools exactly which folders contain your python code
+include = ["src*", "RL_algos*"]
+# Explicitly tell it to ignore the config and log folders
+exclude = ["conf*", "wandb*", "tests*"]
+

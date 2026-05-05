@@ -1,0 +1,42 @@
+# Environment configuration for JAXDDEEnv (Delay Differential Equations)
+# This environment supports delayed dynamics: dx/dt = Ax + Bu + A1*x(t-delay)
+
+environment_params:
+  _target_: src.env_rk_jax.JAXDDEEnv
+  
+  # System matrices
+  A:
+    _target_: numpy.array
+    object: [[-0.5, -0.1], [0, -0.5]]
+    dtype: float64
+  
+  B:
+    _target_: numpy.array
+    object: [[0.0], [1.0]]
+    dtype: float64
+  
+  # Delayed dynamics matrix
+  A1:
+    _target_: numpy.array
+    object: [[0.26, 0.26], [0, 0.52]]
+    dtype: float64
+  
+  # Delay values (per state dimension)
+  delay:
+    _target_: numpy.array
+    object: [1.0, 1.0]
+    dtype: float64
+  
+  # Cost matrices
+  Q:
+    _target_: numpy.eye
+    N: 2
+  
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+    dtype: float64
+  
+  # Solver parameters
+  step_size: 0.1
+  resolution: 4

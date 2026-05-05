@@ -1,0 +1,64 @@
+# =============================================================================
+# Unified Configuration for Continuous-Time RL Experiments
+# =============================================================================
+# Usage:
+#   python main.py                           # Default: signatures agent + delay env
+#   python main.py agent=base_jax            # Use vanilla CTAC
+#   python main.py agent=csac                # Use Soft Actor-Critic
+#   python main.py agent=value_gradient      # Use Value Gradient
+#   python main.py env=mackey_glass          # Different environment
+#   python main.py agent.depth=4 agent.training_params.n_episodes=5000
+
+defaults:
+  - agent: signatures       # Options: signatures, base_jax, csac, value_gradient
+  - env: delay_jax          # Options: delay_jax, mackey_glass, stable_2d, etc.
+  - launcher: local         # Options: local, slurm
+  - _self_
+
+# =============================================================================
+# Global Settings
+# =============================================================================
+seed: 42
+
+# =============================================================================
+# Evaluation Settings
+# =============================================================================
+eval:
+  x0_test: [1.0, 1.0]         # Initial state for evaluation (overridden by env if needed)
+  T_sim: 15.0                 # Simulation time for evaluation
+  n_eval_trajectories: 5      # Number of different initial conditions to test
+  log_interval: 5            # Wandb logging subsampling
+  snapshot_interval: 100      # Evaluate trajectory every N episodes (wandb slider)
+  burning_steps: 0
+
+# =============================================================================
+# Hydra Configuration
+# =============================================================================
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  output_subdir: null
+
+# =============================================================================
+# Weights & Biases Configuration
+# =============================================================================
+wandb:
+  project_name: CTAC_Unified
+  entity: null
+  mode: online                # Options: online, offline, disabled
+  name: run_${now:%H%M%S}
+  group: experiments
+
+# =============================================================================
+# Checkpointing & Data Export
+# =============================================================================
+save_checkpoint: false
+checkpoint_path: ${hydra:run.dir}/checkpoint_agent.pkl
+metrics_path: ${hydra:run.dir}/metrics.pkl
+
+save_eval_data: true
+eval_data_dir: eval_outputs
+eval_data_name: ${wandb.name}

@@ -1,0 +1,82 @@
+# filepath: /home/joachim/Documents/workspace/Reinforcement_Learning/conf/agent/CTAC_sig_jax.yaml
+_target_: src.agents.base_jax.CTACJAX
+
+# =============================================================================
+# Environment & Setup
+# =============================================================================
+env: null  # Passed at runtime
+
+# Cost Matrices
+Q:
+  _target_: numpy.array
+  object: [[1]]
+  dtype: float64
+
+R:
+  _target_: numpy.array
+  object: [[1]]
+  dtype: float64
+
+# =============================================================================
+# Training Hyperparameters (passed as dict to __init__)
+# =============================================================================
+training_params:
+  n_episodes: 2000        # Previously 'train_episodes'
+  max_time: 150.0
+  
+  # Optimization
+  actor_lr: 1e-4         # Previously 'lr_actor'
+  critic_lr: 1e-3         # Previously 'lr_critic'
+  tau: 1.2                # Time constant for discounting
+  
+  # Exploration & Scaling
+  sigma: 0.05              # Noise standard deviation
+  scale: 1.0              # State scaling factor
+  
+  # Safety & Stability
+  clip_gradient: 5.0
+  clip_action: 5.0
+  divergence_threshold: 100.0
+
+  #normalization
+  normalize_entries: false   # Normalize state entries by divergence_threshold
+  normalize_sigs: false      # Use LayerNorm in actor/critic networks
+  
+  # Logging & Memory
+  log_interval: 10
+  init_log_interval: 50
+  memory_clear_interval: 20
+
+# =============================================================================
+# Signature Architecture
+# =============================================================================
+# depth: 3
+window_size: 200
+time_augmentation: false
+origin_augmentation: true
+bias: false
+state_augmentation: false  # Augment signature with current state x(t)
+
+# =============================================================================
+# Algorithm Variants & Oracles
+# =============================================================================
+# Core CTAC Flags
+discounted: false         # True: delta = r + V_dot - V/tau
+semi_gradient: true       # True: Stop gradient on V(s')
+integral_td: false        # True: delta = r*dt + delta_V
+
+# Oracles (use optimal solutions instead of networks)
+actor_oracle: false
+critic_oracle: false
+
+# =============================================================================
+# Exploration & Dynamics
+# =============================================================================
+smooth_noise: true        # Use GP noise instead of white noise
+noise_length_scale: 1     # Length scale for GP kernel
+decay_noise: false
+fix_initial_state: true
+preheat: true             # Fill buffer before training starts
+actor_update_frequency: 5 # Update actor every N steps
+delayed_state: false      # Use delayed state information
+burning_steps: 100          # Number of burning steps with zero action

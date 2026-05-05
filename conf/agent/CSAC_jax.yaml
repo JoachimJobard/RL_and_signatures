@@ -1,0 +1,91 @@
+# CSAC (Continuous Soft Actor-Critic) Agent Configuration
+# Based on: "Continuous Soft Actor-Critic" by Huimin Han et al.
+
+# =============================================================================
+# Training Hyperparameters
+# =============================================================================
+training_params:
+  n_episodes: 500        # Number of training episodes (data collection)
+  max_time: 4.0          # Maximum episode length (seconds)
+  
+  # Optimization
+  actor_lr: 1e-4         # Actor learning rate (scaled by dt internally)
+  critic_lr: 1e-3        # Critic learning rate (scaled by dt internally)
+  
+  # Entropy coefficient (lambda in the paper)
+  # Higher = more exploration, lower = more exploitation
+  
+  # Exploration noise (for policy)
+  sigma: 0.3
+  scale: 1.0
+  
+  # Safety & Stability
+  clip_gradient: 10.0
+  clip_action: 5.0
+  divergence_threshold: 10.0
+  
+  # Network architecture (hidden layers for actor/critic)
+  hidden_dims: []        # Empty = linear, e.g., [64, 64] for 2-layer MLP
+  
+  # Normalization
+  normalize_entries: false   # Normalize state entries by divergence_threshold
+  normalize_sigs: false      # Use LayerNorm in actor/critic networks
+  
+  # Experience Replay
+  replay_buffer_size: 3000
+  batch_size: 64
+  n_updates_per_epochs: 256  # Number of gradient updates per episode
+  
+  # Target network
+  tau_polyak: 0.05          # Polyak averaging coefficient
+  
+  # Discount factor (for discounted formulation)
+  tau: 100.0                   # 1/tau is the discount rate
+
+  # Logging (only used in standalone train.py, not in main_CSAC.py)
+  log_interval: 10
+  init_log_interval: 50
+  memory_clear_interval: 20
+
+# =============================================================================
+# Entropy/Temperature Parameter
+# =============================================================================
+lbda: 0.1                    # Initial entropy coefficient (alpha = e^log_alpha)
+                             # Auto-tuned during training
+
+# =============================================================================
+# Signature Architecture
+# =============================================================================
+depth: 3                     # Signature truncation depth
+window_size: 64              # Sliding window size (auto-computed if delay > 0)
+time_augmentation: true     # Add time as an extra dimension
+state_augmentation: false     # Concatenate current state to signature
+bias: false                   # Include bias term in signature expansion
+
+# =============================================================================
+# Algorithm Flags
+# =============================================================================
+discounted: false            # Use discounted (true) or undiscounted (false) TD
+semi_gradient: false         # Semi-gradient (stop critic gradient in actor loss)
+integral_td: false           # Use integral TD target instead of differential
+fix_initial_state: false      # Use fixed initial state for all episodes
+decay_noise: true            # Decay exploration noise over training
+preheat: true                # Fill replay buffer before training
+actor_update_frequency: 1    # Update actor every N critic updates
+
+# =============================================================================
+# Oracle Flags (for debugging/comparison)
+# =============================================================================
+actor_oracle: false          # Use optimal LQR policy (requires no delay)
+critic_oracle: false         # Use optimal value function (requires no delay)
+
+# =============================================================================
+# Noise Configuration
+# =============================================================================
+smooth_noise: false          # Use smooth (GP) noise instead of white noise
+noise_length_scale: 0.2      # GP kernel length scale (if smooth_noise=true)
+
+# =============================================================================
+# Random Seed
+# =============================================================================
+rng_key: 42

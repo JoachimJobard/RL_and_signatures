@@ -1,0 +1,21 @@
+# Environment configuration for the Chemical reaction described in S. Dadebo et al.,
+
+environment_params:
+  _target_: src.chemical_process.ChemicalReactionEnv
+  
+  delay: 0.2
+  
+  # Cost matrices
+  Q:
+    _target_: numpy.eye
+    N: 4
+  
+  R:
+    _target_: numpy.array
+    object: [[0.1, 0.0],
+           [0.0, 0.1]]
+
+  # Solver parameters
+  step_size: 0.01
+  resolution: 4
+  x_target: 0.0  #useless

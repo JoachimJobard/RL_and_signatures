@@ -1,0 +1,66 @@
+# CTACJAX Agent Configuration (env-specific: 2D delay system)
+# Continuous-Time Actor-Critic (vanilla, no signatures)
+_target_: src.agents.base_jax.CTACJAX
+
+# =============================================================================
+# Training
+# =============================================================================
+training:
+  n_episodes: 2000
+  max_time: 15.0
+  actor_lr: 3e-2
+  critic_lr: 1e-1
+  scale: 1.0
+  clip_gradient: 5.0
+  clip_action: 5.0
+  divergence_threshold: 100.0
+  log_interval: 1
+  init_log_interval: 50
+  memory_clear_interval: 20000
+  eval_interval: 20
+
+# =============================================================================
+# Discount
+# =============================================================================
+discount:
+  discounted: false
+  tau: 1.2
+  V_bad: -10.0
+  V_target: 0.0
+
+# =============================================================================
+# Noise
+# =============================================================================
+noise:
+  sigma: 0.2
+  schedule: constant
+  decay: false
+
+# =============================================================================
+# Signature (depth=2 forced by CTACJAX, kept for compatibility)
+# =============================================================================
+signature:
+  depth: 2
+  force_signature_window: false  # if true, override window_size to match max delay
+  window_size: 10
+
+# =============================================================================
+# Network
+# =============================================================================
+network:
+  std_init: 0.01
+
+# =============================================================================
+# Algorithm
+# =============================================================================
+algorithm:
+  semi_gradient: true
+  integral_td: false
+  fix_initial_state: true
+  actor_oracle: false
+  critic_oracle: false
+  preheat: true
+  delayed_state: false
+  whole_state_delay: false
+  burning_steps: 100
+  actor_update_frequency: 5

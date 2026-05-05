@@ -1,0 +1,25 @@
+_target_: src.agents.base.CTAC
+critic_oracle: true
+lr_actor: 1e-3
+lr_critic: 1e-3
+tau: 1.2
+max_time: 1
+sigma: 0.5
+scale: 1.0
+train_episodes: 1200
+Q:
+  _target_: numpy.array
+  object: [[1, 0], [0, 1]]
+  dtype: float64
+R:
+  _target_: numpy.array
+  object: [[0.1]]
+  dtype: float64
+gradient_method: euler # others: integral_td, precise_derivative, precise_integral_td, real_gradient
+init_method: zero # others: random, close_to_solution
+
+# euler : normal scheme 
+# integral td : multiply td error with dt (needs bigger learning rate)
+# precise_derivative : use the resolution of the environment to get a more precise estimate of the derivative
+# precise_integral_td : use the resolution of the environment to get a more precise estimate of the derivative and multiply td error with dt
+# real_gradient : use the real gradient from the environment

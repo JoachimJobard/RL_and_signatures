@@ -1,0 +1,41 @@
+# Unstable Harmonic Oscillator with Delay
+# This is a challenging benchmark: the system is unstable without control
+
+environment_params:
+  _target_: src.env_rk_jax.JAXDDEEnv
+  
+  # System matrices - harmonic oscillator structure
+  A:
+    _target_: numpy.array
+    object: [[0.0, 1.0], [0.0, -0.5]]
+    dtype: float64
+  
+  B:
+    _target_: numpy.array
+    object: [[0.0], [1.0]]
+    dtype: float64
+  
+  # Delayed dynamics - introduces instability
+  A1:
+    _target_: numpy.array
+    object: [[0.0, 0.0], [-5.0, 0.0]]
+    dtype: float64
+  
+  # Delay values
+  delay:
+    _target_: numpy.array
+    object: [0.65, 0.65]
+    dtype: float64
+  
+  # Cost matrices
+  Q:
+    _target_: numpy.eye
+    N: 2
+  
+  R:
+    _target_: numpy.eye
+    N: 1
+  
+  # Solver parameters
+  step_size: 0.05
+  resolution: 5

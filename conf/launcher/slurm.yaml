@@ -1,0 +1,19 @@
+# @package _global_
+defaults:
+  - override /hydra/launcher: submitit_slurm
+
+hydra:
+  launcher:
+    submitit_folder: ${hydra.sweep.dir}/.submitit/%j
+    timeout_min: 1440
+    cpus_per_task: 9
+    tasks_per_node: 1
+    nodes: 1
+    gpus_per_node: 1
+    mem_gb: 32
+    partition: tau
+    name: ${hydra.job.name}
+    setup:
+      - "source /home/tau/jjobard/rl_sig/master_thesis/Reinforcement_Learning/.venv/bin/activate"
+      - "export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK"
+      - "export TQDM_DISABLE=1"

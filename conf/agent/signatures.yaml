@@ -1,0 +1,76 @@
+# CTACSignatureJAX Agent Configuration
+# Continuous-Time Actor-Critic with Path Signatures for Delayed Systems
+
+_target_: src.agents.signatures_jax.CTACSignatureJAX
+
+# =============================================================================
+# Training (optimization, episodes, logging)
+# =============================================================================
+training:
+  n_episodes: 2000
+  max_time: 15.0
+  actor_lr: 1e-3
+  critic_lr: 1e-2
+  scale: 1.0
+  clip_gradient: 5.0
+  clip_action: 10.0
+  divergence_threshold: 50.0
+  eval_interval: 20
+  eval_start_episode: 0
+  patience: 0
+  log_interval: 1
+  init_log_interval: 50
+  memory_clear_interval: 200000
+  discretization_state: 0.01
+
+# =============================================================================
+# Discount (Doya continuous-time discounting)
+# =============================================================================
+discount:
+  discounted: false
+  tau: 1.0
+  V_target: 0.0
+  V_bad: -10.0
+
+# =============================================================================
+# Noise (exploration)
+# =============================================================================
+noise:
+  sigma: 0.1
+  schedule: constant      # 'constant', 'linear_decay', 'adaptive'
+  decay: false
+  smooth: true            # GP-sampled smooth noise
+  length_scale: 0.02
+
+# =============================================================================
+# Signature (path signature architecture)
+# =============================================================================
+signature:
+  depth: 3
+  window_size: 40
+  time_augmentation: true
+  origin_augmentation: true
+  state_augmentation: false
+  bias: false
+  force_signature_window: false  # if true, override window_size to match max delay
+
+# =============================================================================
+# Network (neural network setup)
+# =============================================================================
+network:
+  std_init: 0.01
+  normalize_entries: false
+  normalize_sigs: false
+
+# =============================================================================
+# Algorithm (variant flags)
+# =============================================================================
+algorithm:
+  semi_gradient: true
+  integral_td: false
+  actor_oracle: false
+  critic_oracle: false
+  actor_update_frequency: 10
+  preheat: true
+  burning_steps: 5
+  fix_initial_state: true
