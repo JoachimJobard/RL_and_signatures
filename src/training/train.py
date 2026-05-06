@@ -70,11 +70,6 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
     """
     Build agent from Hydra config using _target_.
     
-    Supports two YAML layouts:
-    
-    **New-style** (config sections):  training: {...}, noise: {...}, ...
-    **Legacy** (flat dict):           training_params: {...}
-    
     Parameters
     ----------
     cfg : DictConfig
@@ -89,94 +84,41 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
     """
     agent_cfg = cfg.agent
 
-    # ------------------------------------------------------------------
-    # Detect new-style config (has 'training' section, not 'training_params')
-    # ------------------------------------------------------------------
-    if 'training' in agent_cfg and 'training_params' not in agent_cfg:
-        def _make_config(cls, section):
-            if section is None:
-                return cls()
-            return cls(**OmegaConf.to_container(section, resolve=True))  # type: ignore
+    def _make_config(cls, section):
+        if section is None:
+            return cls()
+        return cls(**OmegaConf.to_container(section, resolve=True))  # type: ignore
 
-        agent_kwargs = {
-            'env': env,
-            'rng_key': agent_cfg.get('rng_key', cfg.seed),
-            'training': _make_config(TrainingConfig, agent_cfg.get('training')),
-            'discount': _make_config(DiscountConfig, agent_cfg.get('discount')),
-            'noise': _make_config(NoiseConfig, agent_cfg.get('noise')),
-            'signature': _make_config(SignatureConfig, agent_cfg.get('signature')),
-            'network': _make_config(NetworkConfig, agent_cfg.get('network')),
-            'algorithm': _make_config(AlgorithmConfig, agent_cfg.get('algorithm')),
-        }
-
-        # CSAC-specific: replay buffer config
-        if 'replay_buffer' in agent_cfg:
-            agent_kwargs['replay_buffer'] = _make_config(
-                ReplayBufferConfig, agent_cfg.get('replay_buffer'))
-
-        # Forward remaining agent-level keys (x0, eval_callback, ...)
-        config_keys = {
-            '_target_', 'training', 'discount', 'noise',
-            'signature', 'network', 'algorithm', 'rng_key',
-            'replay_buffer', 'env', 'Q', 'R',
-        }
-        for k, v in OmegaConf.to_container(agent_cfg, resolve=True).items():  # type: ignore
-            if k not in config_keys:
-                agent_kwargs[k] = v
-
-        agent = hydra.utils.instantiate(
-            {'_target_': agent_cfg._target_},
-            **agent_kwargs
-        )
-        return agent
-
-    # ------------------------------------------------------------------
-    # Legacy path: training_params dict + individual kwargs
-    # ------------------------------------------------------------------
-    # Convert training_params to dict
-    training_params: dict = OmegaConf.to_container(
-        agent_cfg.training_params, resolve=True
-    )  # type: ignore
-    
-    # Gather additional legacy scalar arguments (like discounted, window_size, etc.)
-    special_keys_for_args = {'_target_', 'training_params', 'Q', 'R', 'env', 'rng_key', 'replay_buffer'}
-    legacy_kwargs = {
-        k: v for k, v in OmegaConf.to_container(agent_cfg, resolve=True).items() # type: ignore
-        if k not in special_keys_for_args
-    }
-
-    # Use the helper to convert to dataclass
-    from src.configs import from_legacy_params
-    (
-        training_cfg, discount_cfg, noise_cfg,
-        signature_cfg, network_cfg, algorithm_cfg
-    ) = from_legacy_params(training_params, **legacy_kwargs)
-    
     agent_kwargs = {
         'env': env,
         'rng_key': agent_cfg.get('rng_key', cfg.seed),
-        'training': training_cfg,
-        'discount': discount_cfg,
-        'noise': noise_cfg,
-        'signature': signature_cfg,
-        'network': network_cfg,
-        'algorithm': algorithm_cfg,
+        'training': _make_config(TrainingConfig, agent_cfg.get('training')),
+        'discount': _make_config(DiscountConfig, agent_cfg.get('discount')),
+        'noise': _make_config(NoiseConfig, agent_cfg.get('noise')),
+        'signature': _make_config(SignatureConfig, agent_cfg.get('signature')),
+        'network': _make_config(NetworkConfig, agent_cfg.get('network')),
+        'algorithm': _make_config(AlgorithmConfig, agent_cfg.get('algorithm')),
     }
 
+    # CSAC-specific: replay buffer config
     if 'replay_buffer' in agent_cfg:
         agent_kwargs['replay_buffer'] = _make_config(
             ReplayBufferConfig, agent_cfg.get('replay_buffer'))
 
-    # Forward any remaining un-mapped agent-level keys if necessary (e.g., specific flags)
-    # Be careful not to forward legacy kwargs that have already been digested, 
-    # but for safety, we normally don't need them since they're in dataclasses now.
-    
-    # Instantiate using _target_
+    # Forward remaining agent-level keys (x0, eval_callback, ...)
+    config_keys = {
+        '_target_', 'training', 'discount', 'noise',
+        'signature', 'network', 'algorithm', 'rng_key',
+        'replay_buffer', 'env',
+    }
+    for k, v in OmegaConf.to_container(agent_cfg, resolve=True).items():  # type: ignore
+        if k not in config_keys:
+            agent_kwargs[k] = v
+
     agent = hydra.utils.instantiate(
         {'_target_': agent_cfg._target_},
         **agent_kwargs
     )
-    
     return agent
 
 
