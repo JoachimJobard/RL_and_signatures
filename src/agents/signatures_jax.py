@@ -1,34 +1,6 @@
 """
 Continuous-Time Actor-Critic (CTAC) - Modular Implementation
 
-This module builds from the CTAC implementation in src.agents.base
-but implements signature methods to control PO/delayed systems.
-The states becomes the signature from the history of the system
-rather than the current state only.
-Configuration via flags rather than subclassing for most variants.
-
-Flags (passed to __init__):
-    - discounted: Use discounted TD error (δ = r + V̇ - V/τ)
-    - semi_gradient: Use semi-gradient (only features(x), not features(x'))
-    - integral_td: Use integral form (δ = r·dt + ΔV)
-    - actor_oracle: Fix actor to optimal LQR policy
-    - critic_oracle: Fix critic to optimal value function
-
-Overridable methods (for custom behavior):
-    - _sample_initial_state(): How to initialize episodes
-    - _select_action(x): Action selection with exploration noise
-    - _compute_reward(x, u): Reward/cost function
-    - _compute_V_dot(ctx): Value derivative estimation
-    - _compute_td_error(ctx): TD error formulation
-    - _compute_critic_gradient(ctx): Critic gradient
-    - _update_critic(td_error, grad, dt): Critic weight update
-    - _compute_actor_gradient(ctx): Actor gradient
-    - _update_actor(td_error, grad, dt): Actor weight update
-    - _is_episode_done(x, t): Episode termination condition
-
-Usage:
-    # Oracle critic + semi-gradient + discounted
-    agent = CTAC(env, ..., critic_oracle=True, semi_gradient=True, discounted=True)
 """
 
 import jax
@@ -43,153 +15,41 @@ from src.utils.state_counter import StateCounter
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
-    from_legacy_params, configs_to_flat_dict,
+    configs_to_flat_dict,
 )
 import jax.numpy as jnp
 import optax
 import scipy
 
 
-from src.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
+from src.envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
 
 
 class CTACSignatureJAX:
-    """Continuous-Time Actor-Critic - Modular Implementation.
-    
-    All variants controlled via configuration flags:
-    - discounted: δ = r + V̇ - V/τ
-    - semi_gradient: ∇W uses only features(x)
-    - integral_td: δ = r·dt + ΔV
-    - actor_oracle: Fix actor to K*
-    - critic_oracle: Fix critic to V*
-    """
-    
+  
     def __init__(
         self,
         env: JAXDDEEnv,
-        # --- Legacy positional args (kept for CTACJAX backward compat) ---
-        training_params: dict | None = None,
-        Q: np.ndarray | None = None,
-        R: np.ndarray | None = None,
-        depth: int = 2,
+        training: TrainingConfig,
+        discount: DiscountConfig,
+        noise: NoiseConfig,
+        signature: SignatureConfig,
+        network: NetworkConfig,
+        algorithm: AlgorithmConfig,
         rng_key: int = 42,
-        discounted: bool = False,
-        semi_gradient: bool = False,
-        integral_td: bool = False,
-        fix_initial_state: bool = False,
-        decay_noise: bool = True,
-        time_augmentation: bool = True,
-        state_augmentation: bool = False,
-        origin_augmentation: bool = True,
-        time_origin: float = 1.0,
-        bias: bool = True,
-        actor_oracle: bool = False,
-        critic_oracle: bool = False,
-        preheat: bool = True,
-        actor_update_frequency: int = 1,
-        window_size: int = 10,
-        smooth_noise: bool = False,
-        noise_length_scale: float = 0.2,
         x0: jnp.ndarray | None = None,
-        burning_steps: int = 0,
         eval_callback=None,
-        # --- New-style config objects (take precedence if provided) ---
-        training: TrainingConfig | None = None,
-        discount: DiscountConfig | None = None,
-        noise: NoiseConfig | None = None,
-        signature: SignatureConfig | None = None,
-        network: NetworkConfig | None = None,
-        algorithm: AlgorithmConfig | None = None,
     ):
-        # =================================================================
-        # Config resolution: new-style dataclasses or legacy dict+kwargs
-        # =================================================================
-        if training is not None:
-            # New-style path — config objects provided directly
-            self.training = training
-            self.discount = discount or DiscountConfig()
-            self.noise = noise or NoiseConfig()
-            self.signature = signature or SignatureConfig()
-            self.network = network or NetworkConfig()
-            self.algorithm = algorithm or AlgorithmConfig()
-        elif training_params is not None:
-            # Legacy path — convert dict + kwargs to dataclasses
-            (self.training, self.discount, self.noise,
-             self.signature, self.network, self.algorithm) = from_legacy_params(
-                training_params,
-                depth=depth,
-                discounted=discounted,
-                semi_gradient=semi_gradient,
-                integral_td=integral_td,
-                fix_initial_state=fix_initial_state,
-                decay_noise=decay_noise,
-                time_augmentation=time_augmentation,
-                state_augmentation=state_augmentation,
-                origin_augmentation=origin_augmentation,
-                time_origin=time_origin,
-                bias=bias,
-                actor_oracle=actor_oracle,
-                critic_oracle=critic_oracle,
-                preheat=preheat,
-                actor_update_frequency=actor_update_frequency,
-                window_size=window_size,
-                smooth_noise=smooth_noise,
-                noise_length_scale=noise_length_scale,
-                burning_steps=burning_steps,
-            )
-        else:
-            raise ValueError(
-                "Either provide config objects (training=..., noise=..., etc.) "
-                "or a legacy training_params dict."
-            )
+        self.training = training
+        self.discount = discount
+        self.noise = noise
+        self.signature = signature
+        self.network = network
+        self.algorithm = algorithm
 
         # =================================================================
         # Flat aliases — keeps the rest of the class unchanged
         # =================================================================
-        # Training
-        self.n_episodes = self.training.n_episodes
-        self.max_time = self.training.max_time
-        self.actor_lr = self.training.actor_lr
-        self.critic_lr = self.training.critic_lr
-        self.scale = self.training.scale
-        self.clip_gradient = self.training.clip_gradient
-        self.clip_action = self.training.clip_action
-        self.divergence_threshold = self.training.divergence_threshold
-        self.eval_interval = self.training.eval_interval
-        self.eval_start_episode = self.training.eval_start_episode
-        self.patience = self.training.patience
-        self.discretization_state = self.training.discretization_state
-        # Discount
-        self.discounted = self.discount.discounted
-        self.tau = self.discount.tau
-        self.V_target = self.discount.V_target
-        self.V_bad = self.discount.V_bad
-        # Noise
-        self.sigma = self.noise.sigma
-        self.noise_schedule = self.noise.schedule
-        self.decay_noise = self.noise.decay
-        self.smooth_noise = self.noise.smooth
-        self.noise_length_scale = self.noise.length_scale
-        # Signature
-        self.depth = self.signature.depth
-        self.time_augmentation = self.signature.time_augmentation
-        self.time_origin = self.signature.time_origin
-        self.origin_augmentation = self.signature.origin_augmentation
-        self.state_augmentation = self.signature.state_augmentation
-        self.normalize_sigs = self.network.normalize_sigs
-        self.force_signature_window = self.signature.force_signature_window
-        # Network
-        self.std_network = self.network.std_init
-        self.normalize_entries = self.network.normalize_entries
-        # Algorithm
-        self.semi_gradient = self.algorithm.semi_gradient
-        self.integral_td = self.algorithm.integral_td
-        self.actor_oracle = self.algorithm.actor_oracle
-        self.critic_oracle = self.algorithm.critic_oracle
-        self.actor_update_frequency = self.algorithm.actor_update_frequency
-        self.preheat = self.algorithm.preheat
-        self.burning_steps = self.algorithm.burning_steps
-        self.fix_initial_state = self.algorithm.fix_initial_state
 
         # =================================================================
         # Environment
@@ -204,86 +64,12 @@ class CTACSignatureJAX:
             'step_size': env.step_size,
             'resolution': env.resolution,
         }
-        self.env = env
-        self.wrapper = JAXEnvWrapper(env, rng_key=jax.random.PRNGKey(rng_key))
-        self.episode = 0
 
-        # Oracle setup
-        self.window_size = self.signature.window_size
-        if self.actor_oracle:
-            P = scipy.linalg.solve_continuous_are(
-                self.env.A, self.env.B, self.env.Q, self.env.R
-            )
-            print("P matrix for optimal LQR policy:\n", P)
-            self.P = jnp.array(P)
-            self.optimal_K = jnp.array(np.linalg.inv(self.env.R) @ self.env.B.T @ P)
-
-        if self.critic_oracle:
-            P = scipy.linalg.solve_continuous_are(
-                self.env.A, self.env.B, self.env.Q, self.env.R
-            )
-            self.P = jnp.array(P)
-            print("P matrix for optimal value function:\n", P)
-
-        # Runtime state
-        self.step_counter = 0
-        self.current_noise = None
-        self.episode_noise_trajectory = None
-        self.x0 = x0
-        self.eval_callback = eval_callback
-
-        # Best checkpoint & early stopping
-        self._best_eval_reward = -float('inf')
-        self._best_actor_params = None
-        self._best_critic_params = None
-        self._best_episode = 0
-        self._patience_counter = 0
-        self._nan_detected = False
-        self.state_counter = StateCounter(resolution=self.discretization_state)
-
-        if self.normalize_entries:
-            self.scale = self.divergence_threshold
-            print("normalize_entries is True: scaling states by ", self.scale)
-            print("normalize_sigs is ", self.normalize_sigs)
-
-        # Signature setup
-        max_delay = float(jnp.max(self.env.delay)) if self.env.delay is not None else 0
-        window_size_from_delay = int(np.ceil(max_delay / self.env.step_size)) + 1 if max_delay > 0 else 10
-        if not self.force_signature_window:
-            self.window_size = window_size_from_delay
-        else:
-            print(f"force_signature_window is True: setting window_size to {self.window_size} to cover max delay of {max_delay}")
-        self.sliding_signature = SlidingSignatureJAX(
-            depth=self.depth, window_size=self.window_size, d=env.N,
-            time_augmentation=self.time_augmentation,
-            origin_augmentation=self.origin_augmentation,
-            time_origin=self.time_origin, bias=self.signature.bias,
-        )
-        self._sigma_effective = self.sigma
-
-        # Cost matrices
-        self.Q = Q
-        self.R = R
-
-        # Random generator
         self.key = jax.random.PRNGKey(rng_key)
-                
-        # Build networks
-        self.actor = self._build_actor()
-        self.critic = self._build_critic()
-        key_a, key_c = jax.random.split(self.key)
-        if self.state_augmentation:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
-            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
-        else:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size))
-            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size))
-
-        #optimizers — absorb dt into learning rate for correct continuous-time scaling
-        self.actor_optimizer = optax.adam(self.actor_lr * self.env.step_size, b1=0.1)
-        self.critic_optimizer = optax.adam(self.critic_lr * self.env.step_size)
-        self.actor_opt_state = self.actor_optimizer.init(self.actor_params)
-        self.critic_opt_state = self.critic_optimizer.init(self.critic_params)
+        self._init_oracle()
+        self._init_env(env, rng_key)
+        self._init_episode_state(x0, eval_callback=eval_callback)
+        self._init_checkpoints()
         
         # JIT-compiled update functions (created once)
         self._jit_critic_update = self._make_critic_update_fn()
@@ -291,6 +77,79 @@ class CTACSignatureJAX:
         self._jit_select_action = self._make_select_action_fn()
         self._jit_compute_values = self._make_compute_values_fn()
 
+    def _init_env(self, env: JAXDDEEnv, rng_key: int) -> None:
+        self.env = env
+        self.wrapper = JAXEnvWrapper(env, rng_key=jax.random.PRNGKey(rng_key))
+        self.episode = 0
+        if self.network.normalize_entries:
+            self.training.scale = self.training.divergence_threshold
+            print("normalize_entries is True: scaling states by ", self.training.scale)
+            print("normalize_sigs is ", self.network.normalize_sigs)
+
+    def _init_oracle(self)-> None:
+        # Oracle setup
+        if self.algorithm.actor_oracle:
+            P = scipy.linalg.solve_continuous_are(
+                self.env.A, self.env.B, self.env.Q, self.env.R
+            )
+            print("P matrix for optimal LQR policy:\n", P)
+            self.P = jnp.array(P)
+            self.optimal_K = jnp.array(np.linalg.inv(self.env.R) @ self.env.B.T @ P)
+
+        if self.algorithm.critic_oracle:
+            P = scipy.linalg.solve_continuous_are(
+                self.env.A, self.env.B, self.env.Q, self.env.R
+            )
+            self.P = jnp.array(P)
+            print("P matrix for optimal value function:\n", P)
+    
+    def _init_episode_state(self, x0: jnp.ndarray | None, eval_callback=None) -> None:
+        self.step_counter = 0
+        self.current_noise = None
+        self.episode_noise_trajectory = None
+        self.x0 = x0
+        self.eval_callback = eval_callback
+    
+    def _init_checkpoints(self) -> None:
+        self._best_eval_reward = -float('inf')
+        self._best_actor_params = None
+        self._best_critic_params = None
+        self._best_episode = 0
+        self._patience_counter = 0
+        self._nan_detected = False
+        self.state_counter = StateCounter(resolution=self.training.discretization_state)
+
+    def _init_signatures(self) -> None:
+        max_delay = float(jnp.max(self.env.delay)) if self.env.delay is not None else 0
+        window_size_from_delay = int(np.ceil(max_delay / self.env.step_size)) + 1 if max_delay > 0 else 10
+        if not self.signature.force_signature_window:
+            self.signature.window_size = window_size_from_delay
+        else:
+            print(f"force_signature_window is True: setting window_size to {self.signature.window_size} to cover max delay of {max_delay}")
+        self.sliding_signature = SlidingSignatureJAX(
+            depth=self.signature.depth, window_size=self.signature.window_size, d=self.env.N,
+            time_augmentation=self.signature.time_augmentation,
+            origin_augmentation=self.signature.origin_augmentation,
+            time_origin=self.signature.time_origin, bias=self.signature.bias,
+        )
+        self._sigma_effective = self.noise.sigma
+
+    def _init_networks(self) -> None:
+        self.actor = self._build_actor()
+        self.critic = self._build_critic()
+        key_a, key_c = jax.random.split(self.key)
+        if self.signature.state_augmentation:
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
+            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
+        else:
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size))
+            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size))
+
+        #optimizers — absorb dt into learning rate for correct continuous-time scaling
+        self.actor_optimizer = optax.adam(self.training.actor_lr * self.env.step_size, b1=0.1)
+        self.critic_optimizer = optax.adam(self.training.critic_lr * self.env.step_size)
+        self.actor_opt_state = self.actor_optimizer.init(self.actor_params)
+        self.critic_opt_state = self.critic_optimizer.init(self.critic_params)
 
     # =========================================================================
     # Network Construction
@@ -299,18 +158,18 @@ class CTACSignatureJAX:
     def _build_actor(self) -> ActorFlax | ActorFlaxLayerNorm:
         """Build the actor network."""
         output_dim = self.env.B.shape[1]
-        if self.normalize_sigs:
-            actor = ActorFlaxLayerNorm(output_dim=output_dim, stddev=self.std_network/10)
+        if self.network.normalize_sigs:
+            actor = ActorFlaxLayerNorm(output_dim=output_dim, stddev=self.network.std_init/10)
         else:
-            actor = ActorFlax(output_dim=output_dim, stddev=self.std_network/10)
+            actor = ActorFlax(output_dim=output_dim, stddev=self.network.std_init/10)
         return actor
 
     def _build_critic(self) -> CriticFlax | CriticFlaxLayerNorm:
         """Build the critic network."""       
-        if self.normalize_sigs:
-            critic = CriticFlaxLayerNorm(stddev=self.std_network)
+        if self.network.normalize_sigs:
+            critic = CriticFlaxLayerNorm(stddev=self.network.std_init)
         else:
-            critic = CriticFlax(stddev=self.std_network)
+            critic = CriticFlax(stddev=self.network.std_init)
         return critic
 
     # =========================================================================
@@ -330,7 +189,7 @@ class CTACSignatureJAX:
             # Subsample by resolution to match window size
             # Apply scaling to be consistent with training
             for x in history_data[::self.env.resolution]:
-                self.sliding_signature.append(x / self.scale)
+                self.sliding_signature.append(x / self.training.scale)
             self.sliding_signature._signature_dirty = True
 
     # =========================================================================
@@ -340,8 +199,8 @@ class CTACSignatureJAX:
     def _make_select_action_fn(self):
         """Create JIT-compiled action selection function."""
         actor = self.actor
-        clip_action = self.clip_action
-        smooth_noise = self.smooth_noise  # Capture static config
+        clip_action = self.training.clip_action
+        smooth_noise = self.noise.smooth  # Capture static config
         @jax.jit
         def select_action_fn(actor_params, sig, key, sigma, noise_state, dt, explicit_noise_val):
             """
@@ -354,8 +213,6 @@ class CTACSignatureJAX:
             key, subkey = jax.random.split(key)
             
             if smooth_noise:
-                 # Use the pre-computed GP noise passed from Python
-                 # We ignore 'sigma' here because scaling is already in the GP trajectory
                  noise = explicit_noise_val
             else:
                 noise = sigma * jax.random.normal(subkey, shape=mu.shape) # type: ignore
@@ -386,26 +243,23 @@ class CTACSignatureJAX:
         """Select action with exploration noise."""
         
         # --- Compute effective noise level based on schedule ---
-        if self.noise_schedule == 'adaptive':
+        if self.noise.schedule == 'adaptive':
             V_t = self._compute_value_function(self.sliding_signature.current_signature)
-            V_TARGET = self.V_target
-            V_BAD = self.V_bad
+            V_TARGET = self.discount.V_target
+            V_BAD = self.discount.V_bad
             noise_scale = jnp.clip((V_TARGET - V_t) / (V_TARGET - V_BAD + 1e-6), 0.1, 1.0)
-            self._sigma_effective = self.sigma * noise_scale
-        elif self.noise_schedule == 'linear_decay':
-            progress = min(self.episode / max(self.n_episodes, 1), 1.0)
-            self._sigma_effective = self.sigma * max(0.05, 1.0 - 0.9 * progress)
+            self._sigma_effective = self.noise.sigma * noise_scale
+        elif self.noise.schedule == 'linear_decay':
+            progress = min(self.episode / max(self.training.n_episodes, 1), 1.0)
+            self._sigma_effective = self.noise.sigma * max(0.05, 1.0 - 0.9 * progress)
         else:
             # 'constant'
-            self._sigma_effective = self.sigma
-        if self.actor_oracle:
+            self._sigma_effective = self.noise.sigma
+        if self.algorithm.actor_oracle:
             mu = - self.optimal_K @ jnp.array(self.wrapper.state.x) #type: ignore
             self.key, subkey = jax.random.split(self.key)
-            # noise = self._sigma_effective * jax.random.normal(subkey, shape=mu.shape) # type: ignore
             noise = jnp.zeros_like(mu)
             action = mu + noise
-            # action = jnp.clip(action, -self.clip_action, self.clip_action)
-            # Update current_noise to zeros to keep consistency if we switch modes
             self.current_noise = jnp.zeros_like(noise)
         else:
             if self.current_noise is None:
@@ -413,7 +267,7 @@ class CTACSignatureJAX:
             
             # Prepare explicit noise value if GP mode is active
             explicit_noise_val = jnp.zeros_like(self.current_noise)
-            if self.smooth_noise and self.episode_noise_trajectory is not None:
+            if self.noise.smooth and self.episode_noise_trajectory is not None:
                 # Find index corresponding to current time
                 t_idx = int(round(self.wrapper.state.t / self.env.step_size)) #type: ignore
                 # Clamp to avoid overflow
@@ -445,18 +299,18 @@ class CTACSignatureJAX:
     
     def _compute_td_error(self, ctx: StepContextSignature) -> float:
         """Compute temporal difference error based on flags."""
-        if self.integral_td:
+        if self.algorithm.integral_td:
             # Integral form: δ = r·dt + ΔV (- V·dt/τ if discounted)
             delta_V = ctx.V_next - ctx.V_t
             td = ctx.reward * ctx.dt + delta_V
-            if self.discounted:
-                td -= ctx.V_t * ctx.dt / self.tau
+            if self.discount.discounted:
+                td -= ctx.V_t * ctx.dt / self.discount.tau
             return td
         else:
             # Differential form: δ = r + V̇ (- V/τ if discounted)
             td = ctx.reward + ctx.V_dot
-            if self.discounted:
-                td -= ctx.V_t / self.tau
+            if self.discount.discounted:
+                td -= ctx.V_t / self.discount.tau
             return td
 
     # =========================================================================
@@ -465,7 +319,7 @@ class CTACSignatureJAX:
     
     
     def critic_loss_fn(self, sig_t, sig_next,x, x_next, reward, dt): 
-        if self.state_augmentation:
+        if self.signature.state_augmentation:
             sig_t = jnp.concatenate([sig_t, jnp.array(x)])  # type: ignore
             sig_next = jnp.concatenate([sig_next, jnp.array(x_next)])  # type: ignore
         V_t_raw = self.critic.apply(self.critic_params, sig_t)
@@ -474,8 +328,8 @@ class CTACSignatureJAX:
         V_next = jnp.asarray(V_next_raw[0] if isinstance(V_next_raw, tuple) else V_next_raw).squeeze()
         target = (reward + (V_next - V_t) / dt) # type: ignore
         td_error = target
-        if self.discounted:
-            td_error -= V_t / self.tau
+        if self.discount.discounted:
+            td_error -= V_t / self.discount.tau
         loss = 0.5 * td_error ** 2
         return loss, td_error
 
@@ -485,7 +339,7 @@ class CTACSignatureJAX:
     # =========================================================================
     
     def actor_loss_fn(self, sig_t, td_error, noise):
-        if self.state_augmentation:
+        if self.signature.state_augmentation:
             sig_t = jnp.concatenate([sig_t, jnp.array(self.wrapper.state.x)])  # type: ignore
         mu = self.actor.apply(self.actor_params, sig_t) #type: ignore
         loss = - jax.lax.stop_gradient(td_error) * jax.lax.stop_gradient(noise) * mu
@@ -505,11 +359,11 @@ class CTACSignatureJAX:
         if self.wrapper.state is None:
             return False
         if time_only:
-            done = self.wrapper.state.t >= self.max_time
+            done = self.wrapper.state.t >= self.training.max_time
         else:
             done = jnp.logical_or(
-                self.wrapper.state.t >= self.max_time,
-                jnp.linalg.norm(x) > self.divergence_threshold,
+                self.wrapper.state.t >= self.training.max_time,
+                jnp.linalg.norm(x) > self.training.divergence_threshold,
             )
         return bool(done)
 
@@ -528,8 +382,8 @@ class CTACSignatureJAX:
         Returns:
             (x_next, metrics, context): Next state, step metrics, and full context
         """
-        x_scaled = x_t / self.scale
-        if self.state_augmentation:
+        x_scaled = x_t / self.training.scale
+        if self.signature.state_augmentation:
             state = jnp.concatenate([self.sliding_signature.current_signature, x_scaled])  # type: ignore
         else:
             state = self.sliding_signature.current_signature
@@ -544,18 +398,18 @@ class CTACSignatureJAX:
             x_next = jnp.array([x_next])
         else:
             x_next = jnp.array(x_next)
-        x_next_scaled = x_next / self.scale
+        x_next_scaled = x_next / self.training.scale
         dt = self.env.step_size
         if dt <= 1e-9:
             dt = 1e-4  # Avoid division by zero
         sig_t = self.sliding_signature.current_signature
         self.sliding_signature.append(x_next_scaled)
         sig_next = self.sliding_signature.current_signature
-        if self.state_augmentation:
+        if self.signature.state_augmentation:
             sig_t = jnp.concatenate([sig_t, x_scaled])  # type: ignore
             sig_next = jnp.concatenate([sig_next, x_next_scaled])  # type: ignore
         # Value function evaluations (JIT-compiled, no float() sync)
-        if self.critic_oracle:
+        if self.algorithm.critic_oracle:
             V_t = x_t.T @ self.P @ x_t
             V_next = x_next.T @ self.P @ x_next
         else:
@@ -583,7 +437,7 @@ class CTACSignatureJAX:
         
         # Compute V dot and TD error (keep as JAX arrays)
         ctx.V_dot = (ctx.V_next - ctx.V_t) / ctx.dt
-        ctx.td_error = ctx.reward + ctx.V_dot - (ctx.V_t / self.tau if self.discounted else 0.0)
+        ctx.td_error = ctx.reward + ctx.V_dot - (ctx.V_t / self.discount.tau if self.discount.discounted else 0.0)
         
         # update networks (returns JAX arrays, no float() sync)
         loss_critic, actor_grad_norm, critic_grad_norm = self._update_networks(ctx)
@@ -606,8 +460,8 @@ class CTACSignatureJAX:
         """Create a JIT-compiled critic update function."""
         critic = self.critic
         optimizer = self.critic_optimizer
-        discounted = self.discounted
-        tau = self.tau
+        discounted = self.discount.discounted
+        tau = self.discount.tau
         
         def critic_loss(critic_params, sig_t, sig_next, reward, dt):
             V_t = critic.apply(critic_params, sig_t).squeeze() # type: ignore
@@ -673,7 +527,7 @@ class CTACSignatureJAX:
         td_error = ctx.td_error
         c_loss = jnp.array(0.)
         # Critic update (JIT-compiled)
-        if not self.critic_oracle:
+        if not self.algorithm.critic_oracle:
             self.critic_params, self.critic_opt_state, c_loss, td_error, critic_grad_norm = \
                 self._jit_critic_update(
                     self.critic_params, self.critic_opt_state, 
@@ -681,7 +535,7 @@ class CTACSignatureJAX:
                 )
         
         # Actor update (JIT-compiled)
-        if not self.actor_oracle and (step % self.actor_update_frequency == 0):
+        if not self.algorithm.actor_oracle and (step % self.algorithm.actor_update_frequency == 0):
             self.actor_params, self.actor_opt_state, actor_grad_norm = \
                 self._jit_actor_update(
                     self.actor_params, self.actor_opt_state,
@@ -697,13 +551,13 @@ class CTACSignatureJAX:
     
     def _on_episode_start(self, episode: int, x_init: np.ndarray) -> None:
         """Hook called at the start of each episode. Override for custom logic."""
-        if self.smooth_noise:
+        if self.noise.smooth:
             # Generate pre-sampled Gaussian Process noise
             # Kernel: Squared Exponential (RBF): k(t, t') = sigma^2 * exp(-|t-t'|^2 / (2 * l^2))
             
             # 1. Define time points
             # Add a small buffer to max_time to avoid index out of bounds at the very last step
-            ts = np.arange(0, self.max_time + 5 * self.env.step_size, self.env.step_size)
+            ts = np.arange(0, self.training.max_time + 5 * self.env.step_size, self.env.step_size)
             n_points = len(ts)
             action_dim = self.env.B.shape[1]
             
@@ -712,7 +566,7 @@ class CTACSignatureJAX:
             ts_col = ts[:, np.newaxis]
             dist_sq = (ts_col - ts_col.T)**2
             # Use unit variance for stability, scale later
-            K = 1.0 * np.exp(-dist_sq / (2 * self.noise_length_scale**2))
+            K = 1.0 * np.exp(-dist_sq / (2 * self.noise.length_scale**2))
             
             # 3. Add small epsilon for Cholesky stability
             K += 1e-6 * np.eye(n_points)
@@ -744,11 +598,11 @@ class CTACSignatureJAX:
     def _format_progress(self, episode: int, episode_metrics: dict) -> str:
         """Format progress bar description."""
         flags = []
-        if self.discounted: 
+        if self.discount.discounted: 
             flags.append("disc")
-        if self.semi_gradient: 
+        if self.algorithm.semi_gradient: 
             flags.append("semi")
-        if self.integral_td: 
+        if self.algorithm.integral_td: 
             flags.append("int")
         flag_str = f"[{','.join(flags)}] " if flags else ""
         
@@ -788,12 +642,12 @@ class CTACSignatureJAX:
         init_log_interval = self.training.init_log_interval
         memory_clear_interval = self.training.memory_clear_interval
         
-        iterator = tqdm.trange(self.n_episodes, desc="Training", leave=True)
+        iterator = tqdm.trange(self.training.n_episodes, desc="Training", leave=True)
         
         for episode in iterator:
             # Episode initialization
             self.episode = episode
-            if not self.fix_initial_state:
+            if not self.algorithm.fix_initial_state:
                 x_init = self._sample_initial_state()
             else:
                 x_init = self.x0 if self.x0 is not None else jnp.zeros(self.env.N)
@@ -807,20 +661,20 @@ class CTACSignatureJAX:
             self._fill_buffer_initial()  # Refill signature buffer after reset
             self.current_noise = jnp.zeros(self.env.B.shape[1]) # Initialize noise state
             self._on_episode_start(episode, np.array(x_t, dtype=np.float64))
-            for _ in range(self.burning_steps):
+            for _ in range(self.algorithm.burning_steps):
                 action = jnp.zeros(self.env.B.shape[1]) #burning with zero action
                 t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
-                self.sliding_signature.append(x_t / self.scale)
-            if self.preheat:
+                self.sliding_signature.append(x_t / self.training.scale)
+            if self.algorithm.preheat:
                 for _ in range(self.sliding_signature.window_size):
-                    if self.state_augmentation:
-                        _ = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.scale])  # type: ignore
+                    if self.signature.state_augmentation:
+                        _ = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.training.scale])  # type: ignore
                     else:
                         _ = self.sliding_signature.current_signature
                     # action, _, _ = self._select_action(state, self.env.step_size)
                     action = jnp.zeros(self.env.B.shape[1]) #preheat with zero action
                     t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
-                    self.sliding_signature.append(x_t / self.scale)
+                    self.sliding_signature.append(x_t / self.training.scale)
             # Episode accumulators (as JAX arrays to avoid sync)
             episode_loss = jnp.array(0.0)
             episode_cost = jnp.array(0.0)
@@ -893,7 +747,7 @@ class CTACSignatureJAX:
                     metrics_history['critic_weights'].append(critic_w)
             
             # --- Periodic noiseless evaluation & best checkpoint ---
-            if episode >= self.eval_start_episode and episode % self.eval_interval == 0:
+            if episode >= self.training.eval_start_episode and episode % self.training.eval_interval == 0:
                 eval_reward = self._evaluate_noiseless()
                 metrics_history.setdefault('eval_reward', []).append(eval_reward)
                 metrics_history.setdefault('eval_episodes', []).append(episode)
@@ -910,8 +764,8 @@ class CTACSignatureJAX:
                 else:
                     self._patience_counter += 1
                 
-                if self.patience > 0 and self._patience_counter >= self.patience:
-                    print(f"\n[Early stop] No improvement for {self.patience} evals. "
+                if self.training.patience > 0 and self._patience_counter >= self.training.patience:
+                    print(f"\n[Early stop] No improvement for {self.training.patience} evals. "
                           f"Best at ep {self._best_episode} (reward={self._best_eval_reward:.4f})")
                     break
             
@@ -962,34 +816,34 @@ class CTACSignatureJAX:
         x_t = self.wrapper.reset(subkey, x0=np.array(x_init), t0=0.0)
         self._fill_buffer_initial()
         
-        for _ in range(self.burning_steps):
+        for _ in range(self.algorithm.burning_steps):
             action = jnp.zeros(self.env.B.shape[1])
             _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-            self.sliding_signature.append(x_t / self.scale)
-        if self.preheat:
+            self.sliding_signature.append(x_t / self.training.scale)
+        if self.algorithm.preheat:
             for _ in range(self.sliding_signature.window_size):
                 action = jnp.zeros(self.env.B.shape[1])  # zero action, consistent with training
                 _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-                self.sliding_signature.append(x_t / self.scale)
+                self.sliding_signature.append(x_t / self.training.scale)
         
         total_reward = 0.0
         
         while not self._is_episode_done(x_t, time_only=True):
-            if self.state_augmentation:
-                sig_input = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.scale])
+            if self.signature.state_augmentation:
+                sig_input = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.training.scale])
             else:
                 sig_input = self.sliding_signature.current_signature
             
-            if self.actor_oracle:
+            if self.algorithm.actor_oracle:
                 mu = -self.optimal_K @ jnp.array(self.wrapper.state.x)  # type: ignore
             else:
                 mu = self.actor.apply(self.actor_params, sig_input) #type: ignore
-            mu = jnp.clip(mu, -self.clip_action, self.clip_action)
+            mu = jnp.clip(mu, -self.training.clip_action, self.training.clip_action)
             
             _, x_next, reward = self.wrapper.step(self.wrapper.state, mu)  # type: ignore
             if x_next.ndim == 0:
                 x_next = jnp.array([x_next])
-            self.sliding_signature.append(x_next / self.scale)
+            self.sliding_signature.append(x_next / self.training.scale)
             total_reward += float(reward) * self.env.step_size
             x_t = x_next
         
@@ -1021,17 +875,17 @@ class CTACSignatureJAX:
                 self.training, self.discount, self.noise,
                 self.signature, self.network, self.algorithm,
             ),
-            'discounted': self.discounted,
-            'semi_gradient': self.semi_gradient,
-            'integral_td': self.integral_td,
-            'fix_initial_state': self.fix_initial_state,
-            'decay_noise': self.decay_noise,
-            'time_augmentation': self.time_augmentation,
-            'depth': self.depth,
+            'discounted': self.discount.discounted,
+            'semi_gradient': self.algorithm.semi_gradient,
+            'integral_td': self.algorithm.integral_td,
+            'fix_initial_state': self.algorithm.fix_initial_state,
+            'decay_noise': self.noise.decay,
+            'time_augmentation': self.signature.time_augmentation,
+            'depth': self.signature.depth,
         }
         # Save delayed_state flag if it exists (for CTACJAX)
         if hasattr(self, 'delayed_state'):
-            save_dict['delayed_state'] = self.delayed_state # type: ignore
+            save_dict['delayed_state'] = self.algorithm.delayed_state # type: ignore
         
         with open(filename, 'wb') as f:
             pickle.dump(save_dict, f)
@@ -1051,101 +905,3 @@ class CTACSignatureJAX:
         self.critic_params = data['critic_params']
         
         print(f"Agent loaded from {filename}")
-
-
-# =============================================================================
-# MAIN (for testing)
-# =============================================================================
-
-if __name__ == "__main__":
-    
-    # Simple 2D stable system (oscillator with damping)
-    # dx/dt = A*x + B*u, naturellement stable sans contrôle
-    A = np.array([[-0.1]])
-    B = np.array([[1]])
-    A1 = np.zeros_like(A)
-    delay = np.array([0])
-    x0 = np.array([1.0])
-    Q = np.eye(1)
-    R = np.eye(1)
-    depth = 3
-    
-    env = JAXDDEEnv(A=A, B=B, Q=Q, R=R, A1=A1, delay=delay, step_size=0.05, resolution=5)
-    
-    agent = CTACSignatureJAX(
-        env=env,
-        training_params={
-            'n_episodes': 1000,
-            'max_time': 1.0,
-            'sigma': 0.1,
-            'actor_lr': 1e-1,
-            'critic_lr': 1e-1,
-            'scale': 1.0,
-            'clip_gradient': 5.0,
-            'clip_action': 5.0,
-            'divergence_threshold': 50.0,
-            'log_interval': 10,
-            'init_log_interval': 50,
-            'memory_clear_interval': 20,
-        },
-        Q=Q,
-        R=R,
-        depth=depth,
-        discounted=False,
-        semi_gradient=True,
-        integral_td=False,
-        fix_initial_state=True,
-        decay_noise=True,
-        time_augmentation=False,
-        bias=False,
-        actor_oracle=True,
-        critic_oracle=False, 
-        preheat=True, 
-        state_augmentation=True,
-        smooth_noise=True,
-    )
-    metrics = agent.train()
-
-    import matplotlib.pyplot as plt
-    plt.plot(metrics['cost_episodic'])
-    plt.xlabel('Episode (x10)')
-    plt.ylabel('Episodic Cost')
-    plt.title('CTAC Signature Episodic Cost over Training')
-    plt.show()
-
-    plt.plot(metrics['loss_episodic'])
-    plt.xlabel('Episode (x10)')
-    plt.ylabel('Episodic Loss')
-    plt.title('CTAC Signature Episodic Loss over Training')
-    plt.show()
-
-    plt.figure(figsize=(10, 6))
-    critic_weights = np.array(metrics['critic_weights'])
-    for i in range(critic_weights.shape[1]):  # Plot all weights
-        plt.plot(critic_weights[:, i, 0], label=f'Weight {i}')
-    print(critic_weights.shape)
-    plt.xlabel('Episode (x10)')
-    plt.ylabel('Critic Weight Value')
-    plt.title('CTAC Signature Critic Weights over Training')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-    plt.figure(figsize=(10, 6))
-    plt.plot(metrics['gradient_critic'])
-    plt.xlabel('Episode (x10)')
-    plt.ylabel('Critic Gradient Magnitude')
-    plt.title('CTAC Signature Critic Gradient Magnitude over Training')
-    plt.grid(True)
-    plt.show()
-
-    plt.figure(figsize=(10, 6))
-    signature_weights = np.array(metrics['signature_weights'])
-    for i in range(min(6, signature_weights.shape[1])):  # Plot first 6 signature features
-        plt.plot(signature_weights[:, i], label=f'Signature {i}', alpha=0.7)
-    plt.xlabel('Step (x100)')
-    plt.ylabel('Signature Feature Value')
-    plt.title('CTAC Signature Features over Training')
-    plt.legend()
-    plt.grid(True)
-    plt.show()

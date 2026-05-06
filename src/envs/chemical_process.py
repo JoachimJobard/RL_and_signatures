@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax
 
 
-from envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
+from src.envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
 from src.utils.solver_buffer_jax import get_delayed_interpolated
 
 class ChemicalReactionEnv(JAXDDEEnv):

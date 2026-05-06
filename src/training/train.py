@@ -17,7 +17,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from wandb import agent
 
-from src.env_rk_jax import JAXDDEEnv
+from src.envs.env_rk_jax import JAXDDEEnv
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
@@ -100,8 +100,6 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
 
         agent_kwargs = {
             'env': env,
-            'Q': np.array(env.Q),
-            'R': np.array(env.R),
             'rng_key': agent_cfg.get('rng_key', cfg.seed),
             'training': _make_config(TrainingConfig, agent_cfg.get('training')),
             'discount': _make_config(DiscountConfig, agent_cfg.get('discount')),
@@ -140,29 +138,43 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
         agent_cfg.training_params, resolve=True
     )  # type: ignore
     
-    # Build common kwargs
-    common_kwargs = {
-        'env': env,
-        'training_params': training_params,
-        'Q': np.array(env.Q),
-        'R': np.array(env.R),
-        'rng_key': agent_cfg.get('rng_key', cfg.seed),
+    # Gather additional legacy scalar arguments (like discounted, window_size, etc.)
+    special_keys_for_args = {'_target_', 'training_params', 'Q', 'R', 'env', 'rng_key', 'replay_buffer'}
+    legacy_kwargs = {
+        k: v for k, v in OmegaConf.to_container(agent_cfg, resolve=True).items() # type: ignore
+        if k not in special_keys_for_args
     }
+
+    # Use the helper to convert to dataclass
+    from src.configs import from_legacy_params
+    (
+        training_cfg, discount_cfg, noise_cfg,
+        signature_cfg, network_cfg, algorithm_cfg
+    ) = from_legacy_params(training_params, **legacy_kwargs)
     
-    # Get all agent config keys except special ones
-    special_keys = {'_target_', 'training_params', 'Q', 'R', 'env'}
     agent_kwargs = {
-        k: v for k, v in OmegaConf.to_container(agent_cfg, resolve=True).items()  # type: ignore
-        if k not in special_keys
+        'env': env,
+        'rng_key': agent_cfg.get('rng_key', cfg.seed),
+        'training': training_cfg,
+        'discount': discount_cfg,
+        'noise': noise_cfg,
+        'signature': signature_cfg,
+        'network': network_cfg,
+        'algorithm': algorithm_cfg,
     }
-    
-    # Merge common kwargs with agent-specific kwargs
-    all_kwargs = {**common_kwargs, **agent_kwargs}
+
+    if 'replay_buffer' in agent_cfg:
+        agent_kwargs['replay_buffer'] = _make_config(
+            ReplayBufferConfig, agent_cfg.get('replay_buffer'))
+
+    # Forward any remaining un-mapped agent-level keys if necessary (e.g., specific flags)
+    # Be careful not to forward legacy kwargs that have already been digested, 
+    # but for safety, we normally don't need them since they're in dataclasses now.
     
     # Instantiate using _target_
     agent = hydra.utils.instantiate(
         {'_target_': agent_cfg._target_},
-        **all_kwargs
+        **agent_kwargs
     )
     
     return agent

@@ -5,7 +5,7 @@
 import distrax
 import numpy as np
 import tqdm
-from src.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
+from envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
 from src.utils.dynamic_signature import SlidingSignatureJAX
 import jax
 import jax.numpy as jnp
@@ -14,7 +14,7 @@ import scipy
 from src.networks.LQR_actor_critics import ActorFlaxLayerNormSTD, ActorFlaxSTD, AlphaModel, CriticFlax, CriticFlaxLayerNorm
 from src.utils.experience_replay_buffer import ExperienceReplayBuffer, Transition
 from flax.training.train_state import TrainState
-from src.configs import (
+from configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
     ReplayBufferConfig, from_legacy_params, configs_to_flat_dict,

@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax
 
 
-from src.env_rk_jax import EnvState, JAXDDEEnv, JAXEnvWrapper
+from src.envs.env_rk_jax import EnvState, JAXDDEEnv, JAXEnvWrapper
 from src.utils.solver_buffer_jax import buffer_append, get_delayed_interpolated
 
 class MackeyGlass1DEnv(JAXDDEEnv):
