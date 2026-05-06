@@ -1,6 +1,6 @@
 from typing import Optional
 import scipy
-from env_rk import Environment # type: ignore
+from legacy_code.env_rk import Environment # type: ignore
 import numpy as np
 import tqdm
 import gc

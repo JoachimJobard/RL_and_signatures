@@ -20,7 +20,7 @@ Usage:
 from typing import Type
 from omegaconf import DictConfig
 
-from src.agents.base import CTAC
+from legacy_code.RL_algos_legacy.base import CTAC
 
 
 def get_agent_class(agent_cfg: DictConfig) -> Type[CTAC]:

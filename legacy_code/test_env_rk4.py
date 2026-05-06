@@ -1,5 +1,5 @@
-from src.env_rk import Environment
-from src.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
+from legacy_code.env_rk import Environment
+from envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
 import unittest
 import numpy as np
 import jax

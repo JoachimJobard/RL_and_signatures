@@ -1,7 +1,7 @@
 """Env to patch jitcdde problems, runge kutta 4"""
 import numpy as np
 from typing import Callable, Optional
-from src.utils.solver_buffer import NumpyRingBuffer
+from legacy_code.solver_buffer import NumpyRingBuffer
 
 # from src.history import HistoryUtils
 
