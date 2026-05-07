@@ -36,21 +36,21 @@ class CTACJAX(CTACSignatureJAX):
         training: TrainingConfig,
         discount: DiscountConfig,
         noise: NoiseConfig,
-        signature: SignatureConfig,
+        signature_conf: SignatureConfig,
         network: NetworkConfig,
         algorithm: AlgorithmConfig,
         rng_key: int = 42,
         x0: jnp.ndarray | None = None,
         eval_callback=None,
     ):
-        signature.depth = 2
+        signature_conf.depth = 2
 
         super().__init__(
             env=env,
             training=training,
             discount=discount,
             noise=noise,
-            signature=signature,
+            signature_conf=signature_conf,
             network=network,
             algorithm=algorithm,
             rng_key=rng_key,
@@ -402,5 +402,23 @@ class CTACJAX(CTACSignatureJAX):
             buf.buffer = saved_buf  # type: ignore[union-attr]
         
         return total_reward
+
+    def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
+        if getattr(self.algorithm, 'actor_oracle', False):
+            assert self.wrapper.state is not None
+            return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
+            
+        assert self.actor_params is not None
+        if getattr(self.algorithm, 'whole_state_delay', False):
+            buf = self.sliding_signature.buffer
+            x_augmented = jnp.array(buf.to_array()).flatten()
+            action = self.actor.apply(self.actor_params, x_augmented)
+        elif getattr(self.algorithm, 'delayed_state', False):
+            x_delayed = self.wrapper.current_delayed_state
+            x_augmented = jnp.concatenate([x_scaled, x_delayed / self.training.scale], axis=0)
+            action = self.actor.apply(self.actor_params, x_augmented)
+        else:
+            action = self.actor.apply(self.actor_params, x_scaled)
+        return jnp.array(action)
 
 

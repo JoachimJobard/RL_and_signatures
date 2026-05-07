@@ -33,7 +33,7 @@ class CTACSignatureJAX:
         training: TrainingConfig,
         discount: DiscountConfig,
         noise: NoiseConfig,
-        signature: SignatureConfig,
+        signature_conf: SignatureConfig,
         network: NetworkConfig,
         algorithm: AlgorithmConfig,
         rng_key: int = 42,
@@ -43,7 +43,7 @@ class CTACSignatureJAX:
         self.training = training
         self.discount = discount
         self.noise = noise
-        self.signature = signature
+        self.signature_conf = signature_conf
         self.network = network
         self.algorithm = algorithm
 
@@ -70,6 +70,8 @@ class CTACSignatureJAX:
         self._init_env(env, rng_key)
         self._init_episode_state(x0, eval_callback=eval_callback)
         self._init_checkpoints()
+        self._init_signatures()
+        self._init_networks()
         
         # JIT-compiled update functions (created once)
         self._jit_critic_update = self._make_critic_update_fn()
@@ -122,15 +124,15 @@ class CTACSignatureJAX:
     def _init_signatures(self) -> None:
         max_delay = float(jnp.max(self.env.delay)) if self.env.delay is not None else 0
         window_size_from_delay = int(np.ceil(max_delay / self.env.step_size)) + 1 if max_delay > 0 else 10
-        if not self.signature.force_signature_window:
-            self.signature.window_size = window_size_from_delay
+        if not self.signature_conf.force_signature_window:
+            self.signature_conf.window_size = window_size_from_delay
         else:
-            print(f"force_signature_window is True: setting window_size to {self.signature.window_size} to cover max delay of {max_delay}")
+            print(f"force_signature_window is True: setting window_size to {self.signature_conf.window_size} to cover max delay of {max_delay}")
         self.sliding_signature = SlidingSignatureJAX(
-            depth=self.signature.depth, window_size=self.signature.window_size, d=self.env.N,
-            time_augmentation=self.signature.time_augmentation,
-            origin_augmentation=self.signature.origin_augmentation,
-            time_origin=self.signature.time_origin, bias=self.signature.bias,
+            depth=self.signature_conf.depth, window_size=self.signature_conf.window_size, d=self.env.N,
+            time_augmentation=self.signature_conf.time_augmentation,
+            origin_augmentation=self.signature_conf.origin_augmentation,
+            time_origin=self.signature_conf.time_origin, bias=self.signature_conf.bias,
         )
         self._sigma_effective = self.noise.sigma
 
@@ -138,7 +140,7 @@ class CTACSignatureJAX:
         self.actor = self._build_actor()
         self.critic = self._build_critic()
         key_a, key_c = jax.random.split(self.key)
-        if self.signature.state_augmentation:
+        if self.signature_conf.state_augmentation:
             self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
             self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
         else:
@@ -319,7 +321,7 @@ class CTACSignatureJAX:
     
     
     def critic_loss_fn(self, sig_t, sig_next,x, x_next, reward, dt): 
-        if self.signature.state_augmentation:
+        if self.signature_conf.state_augmentation:
             sig_t = jnp.concatenate([sig_t, jnp.array(x)])  # type: ignore
             sig_next = jnp.concatenate([sig_next, jnp.array(x_next)])  # type: ignore
         V_t_raw = self.critic.apply(self.critic_params, sig_t)
@@ -339,7 +341,7 @@ class CTACSignatureJAX:
     # =========================================================================
     
     def actor_loss_fn(self, sig_t, td_error, noise):
-        if self.signature.state_augmentation:
+        if self.signature_conf.state_augmentation:
             sig_t = jnp.concatenate([sig_t, jnp.array(self.wrapper.state.x)])  # type: ignore
         mu = self.actor.apply(self.actor_params, sig_t) #type: ignore
         loss = - jax.lax.stop_gradient(td_error) * jax.lax.stop_gradient(noise) * mu
@@ -383,7 +385,7 @@ class CTACSignatureJAX:
             (x_next, metrics, context): Next state, step metrics, and full context
         """
         x_scaled = x_t / self.training.scale
-        if self.signature.state_augmentation:
+        if self.signature_conf.state_augmentation:
             state = jnp.concatenate([self.sliding_signature.current_signature, x_scaled])  # type: ignore
         else:
             state = self.sliding_signature.current_signature
@@ -405,7 +407,7 @@ class CTACSignatureJAX:
         sig_t = self.sliding_signature.current_signature
         self.sliding_signature.append(x_next_scaled)
         sig_next = self.sliding_signature.current_signature
-        if self.signature.state_augmentation:
+        if self.signature_conf.state_augmentation:
             sig_t = jnp.concatenate([sig_t, x_scaled])  # type: ignore
             sig_next = jnp.concatenate([sig_next, x_next_scaled])  # type: ignore
         # Value function evaluations (JIT-compiled, no float() sync)
@@ -619,6 +621,25 @@ class CTACSignatureJAX:
             f"A: {[f'{w:.2f}' for w in actor_w[:6]]}"  # Show first 6 weights
         )
 
+    def update_buffer(self, x: np.ndarray) -> None:
+        self.sliding_signature.append(x / self.training.scale)
+        if hasattr(self, '_path_data_dirty'):
+            setattr(self, '_path_data_dirty', True)
+            
+    def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
+        if getattr(self.algorithm, 'actor_oracle', False):
+            assert self.wrapper.state is not None
+            return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
+            
+        sig = self.sliding_signature.current_signature
+        if getattr(self.signature_conf, 'state_augmentation', False):
+            sig_input = jnp.concatenate([sig, x_scaled])
+        else:
+            sig_input = sig
+        assert self.actor_params is not None
+        action = self.actor.apply(self.actor_params, sig_input)
+        return jnp.array(action)
+
     def train(self) -> dict:
         """Main training loop.
         
@@ -667,7 +688,7 @@ class CTACSignatureJAX:
                 self.sliding_signature.append(x_t / self.training.scale)
             if self.algorithm.preheat:
                 for _ in range(self.sliding_signature.window_size):
-                    if self.signature.state_augmentation:
+                    if self.signature_conf.state_augmentation:
                         _ = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.training.scale])  # type: ignore
                     else:
                         _ = self.sliding_signature.current_signature
@@ -829,7 +850,7 @@ class CTACSignatureJAX:
         total_reward = 0.0
         
         while not self._is_episode_done(x_t, time_only=True):
-            if self.signature.state_augmentation:
+            if self.signature_conf.state_augmentation:
                 sig_input = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.training.scale])
             else:
                 sig_input = self.sliding_signature.current_signature
@@ -867,21 +888,21 @@ class CTACSignatureJAX:
             'training': self.training,
             'discount': self.discount,
             'noise': self.noise,
-            'signature': self.signature,
+            'signature': self.signature_conf,
             'network': self.network,
             'algorithm': self.algorithm,
             # Flat copies for backward-compat checkpoint loading
             'training_params': configs_to_flat_dict(
                 self.training, self.discount, self.noise,
-                self.signature, self.network, self.algorithm,
+                self.signature_conf, self.network, self.algorithm,
             ),
             'discounted': self.discount.discounted,
             'semi_gradient': self.algorithm.semi_gradient,
             'integral_td': self.algorithm.integral_td,
             'fix_initial_state': self.algorithm.fix_initial_state,
             'decay_noise': self.noise.decay,
-            'time_augmentation': self.signature.time_augmentation,
-            'depth': self.signature.depth,
+            'time_augmentation': self.signature_conf.time_augmentation,
+            'depth': self.signature_conf.depth,
         }
         # Save delayed_state flag if it exists (for CTACJAX)
         if hasattr(self, 'delayed_state'):

@@ -15,8 +15,6 @@ import numpy as np
 import jax.numpy as jnp
 from typing import Any, Protocol, runtime_checkable
 
-from wandb import agent
-
 from src.envs.env_rk_jax import JAXDDEEnv
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
@@ -33,11 +31,14 @@ from src.configs import (
 class TrainableAgent(Protocol):
     """Protocol defining the interface all agents must implement."""
     env: Any
+    x0: Any
     
     def train(self) -> dict:
         """Train the agent and return metrics dictionary."""
         ...
-
+    def eval_callback(self, episode: int) -> None:
+        """Optional callback for periodic evaluation during training."""
+        ...
 
 # =============================================================================
 # Environment Building
@@ -95,7 +96,7 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
         'training': _make_config(TrainingConfig, agent_cfg.get('training')),
         'discount': _make_config(DiscountConfig, agent_cfg.get('discount')),
         'noise': _make_config(NoiseConfig, agent_cfg.get('noise')),
-        'signature': _make_config(SignatureConfig, agent_cfg.get('signature')),
+        'signature_conf': _make_config(SignatureConfig, agent_cfg.get('signature')),
         'network': _make_config(NetworkConfig, agent_cfg.get('network')),
         'algorithm': _make_config(AlgorithmConfig, agent_cfg.get('algorithm')),
     }
@@ -111,9 +112,11 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
         'signature', 'network', 'algorithm', 'rng_key',
         'replay_buffer', 'env',
     }
-    for k, v in OmegaConf.to_container(agent_cfg, resolve=True).items():  # type: ignore
-        if k not in config_keys:
-            agent_kwargs[k] = v
+    agent_cfg_dict = OmegaConf.to_container(agent_cfg, resolve=True)
+    if isinstance(agent_cfg_dict, dict):
+        for k, v in agent_cfg_dict.items(): 
+            if k not in config_keys:
+                agent_kwargs[str(k)] = v
 
     agent = hydra.utils.instantiate(
         {'_target_': agent_cfg._target_},
@@ -189,7 +192,7 @@ def train(cfg: DictConfig, eval_callback=None) -> tuple[TrainableAgent, dict]:
 
     # Attach periodic evaluation callback if provided
     if eval_callback is not None:
-        agent.eval_callback = eval_callback  # type: ignore
+        agent.eval_callback = eval_callback 
     
     # Train
     print("\n" + "=" * 60)
@@ -213,7 +216,7 @@ def train(cfg: DictConfig, eval_callback=None) -> tuple[TrainableAgent, dict]:
 # Standalone Entry Point
 # =============================================================================
 
-@hydra.main(config_path="../conf", config_name="config_unified", version_base=None)
+@hydra.main(config_path="../../conf", config_name="config_unified", version_base=None)
 def main(cfg: DictConfig):
     """Standalone training entry point."""
     print("\n" + "=" * 60)

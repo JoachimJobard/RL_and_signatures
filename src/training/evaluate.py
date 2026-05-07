@@ -15,6 +15,8 @@ import wandb
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import matplotlib
+
+from utils.dynamic_signature import SlidingSignature
 matplotlib.use('Agg')  # Non-interactive backend for wandb logging
 import matplotlib.pyplot as plt
 import matplotlib.figure
@@ -32,9 +34,14 @@ class EvaluableAgent(Protocol):
     """Protocol for agents that can be evaluated."""
     env: Any
     wrapper: Any
-    scale: float
+    training: Any
+    algorithm: Any  
+    sliding_signature: SlidingSignature
+    signature_conf: Any
     
     def _fill_buffer_initial(self) -> None: ...
+    def update_buffer(self, x: np.ndarray) -> None: ...
+    def get_eval_action(self, x_scaled: np.ndarray) -> np.ndarray: ...
 
 
 def _resolve_burning_steps(agent: EvaluableAgent, burning_steps: int | None) -> int:
@@ -42,9 +49,9 @@ def _resolve_burning_steps(agent: EvaluableAgent, burning_steps: int | None) -> 
     if burning_steps is not None:
         return max(0, int(burning_steps))
 
-    if hasattr(agent, 'algorithm') and hasattr(agent.algorithm, 'burning_steps'):  # type: ignore
+    if hasattr(agent, 'algorithm') and hasattr(agent.algorithm, 'burning_steps'):
         try:
-            return max(0, int(agent.algorithm.burning_steps))  # type: ignore
+            return max(0, int(agent.algorithm.burning_steps))  
         except (TypeError, ValueError):
             pass
 
@@ -164,7 +171,7 @@ def simulate_trajectory(
     Works with any agent that has:
     - env, wrapper, scale attributes
     - _fill_buffer_initial() method
-    - actor (or equivalent action computation)
+    - update_buffer() and get_eval_action() handling the internal state
     
     Parameters
     ----------
@@ -190,28 +197,19 @@ def simulate_trajectory(
     
     # Reset agent state
     if hasattr(agent, 'sliding_signature'):
-        agent.sliding_signature.reset() # type: ignore
+        agent.sliding_signature.reset() 
     
     key = jax.random.PRNGKey(seed)
     x_t = agent.wrapper.reset(key, x0=x0, t0=0.0)
     agent._fill_buffer_initial()
     
-    uses_signatures = (
-        hasattr(agent, 'sliding_signature') and 
-        agent.__class__.__name__ not in ['CTACJAX']
-    )
-    is_csac = agent.__class__.__name__ == 'CSAC'
-    is_whole_state = hasattr(agent, 'whole_state_delay') and agent.whole_state_delay  # type: ignore
     burn_steps = _resolve_burning_steps(agent, burning_steps)
 
     # Burn-in: advance system with zero action before trajectory logging.
     for _ in range(burn_steps):
         action_burn = jnp.zeros(env.B.shape[1])
         _, x_t, _ = agent.wrapper.step(agent.wrapper.state, action_burn)
-        if uses_signatures or is_whole_state:
-            agent.sliding_signature.append(np.array(x_t) / agent.scale)  # type: ignore
-            if hasattr(agent, '_path_data_dirty'):
-                agent._path_data_dirty = True  # type: ignore
+        agent.update_buffer(np.array(x_t))
     
     # Initialize states and times AFTER preheat
     states = [np.array(x_t).flatten()]
@@ -219,58 +217,22 @@ def simulate_trajectory(
     times = [float(agent.wrapper.state.t)]
     
     for step in range(n_steps):
-        x_scaled = x_t / agent.scale
+        x_scaled = x_t / agent.training.scale
         
-        if hasattr(agent, 'actor'):
-            if uses_signatures:
-                # Signature-based agents (CTACSignatureJAX, CSAC)
-                sig = agent.sliding_signature.current_signature # type: ignore
-                if hasattr(agent, 'state_augmentation') and agent.state_augmentation: # type: ignore
-                    sig_input = jnp.concatenate([sig, x_scaled])
-                else:
-                    sig_input = sig
-                
-                if is_csac:
-                    # CSAC returns (mu, sigma), use mu as deterministic action
-                    mu, _ = agent.actor.apply(agent.actor_params, sig_input) # type: ignore
-                    action = mu * agent.clip_action  # type: ignore # Apply same scaling as training
-                else:
-                    action = agent.actor.apply(agent.actor_params, sig_input) # type: ignore
-            elif is_whole_state:
-                # Whole-state agents: actor receives entire flattened buffer path
-                buf = agent.sliding_signature.buffer  # type: ignore
-                x_augmented = jnp.array(buf.to_array()).flatten()
-                action = agent.actor.apply(agent.actor_params, x_augmented) # type: ignore
-            elif hasattr(agent, 'delayed_state') and agent.delayed_state: # type: ignore
-                # Delayed state agents
-                x_delayed = agent.wrapper.current_delayed_state
-                x_augmented = jnp.concatenate([x_scaled, x_delayed / agent.scale], axis=0)
-                action = agent.actor.apply(agent.actor_params, x_augmented) # type: ignore
-            else:
-                # State-based agents (CTACJAX)
-                action = agent.actor.apply(agent.actor_params, x_scaled) # type: ignore
-        elif hasattr(agent, '_select_action_jit'):
-            # Value gradient agents
-            if uses_signatures:
-                data_path = jnp.array(agent.sliding_signature.buffer.to_array()) # type: ignore
-                action, _ = agent._select_action_jit(agent.critic_params, data_path, agent.R, agent.wrapper.state.x) # type: ignore
-            else:
-                print("I have no action!!!")
-                action = jnp.zeros(env.B.shape[1])
-        else:
-            print("I did no actions!!!")
-            action = jnp.zeros(env.B.shape[1])
-        action = jnp.clip(action, -10, 10) # type: ignore
-        actions.append(np.array(action).flatten())
+        # Delegate action generation to the agent itself
+        action = agent.get_eval_action(x_scaled)
+        action = np.clip(np.array(action).flatten(), -10, 10)
+        actions.append(action)
+        
         t, x_next, _ = agent.wrapper.step(agent.wrapper.state, action)
         
-        # Update signature/path buffer
-        if uses_signatures or is_whole_state:
-            agent.sliding_signature.append(np.array(x_next) / agent.scale) # type: ignore
+        # Delegate buffer updates to the agent
+        agent.update_buffer(np.array(x_next))
         
         x_t = x_next
         states.append(np.array(x_next).flatten())
         times.append(float(t))
+        
     return np.array(states), np.array(actions), np.array(times)
 
 
@@ -285,30 +247,22 @@ def simulate_uncontrolled_trajectory(
     env = agent.env
     n_steps = int(T_sim / env.step_size)
     action_dim = env.B.shape[1]
+    
     # Reset agent state
     if hasattr(agent, 'sliding_signature'):
-        agent.sliding_signature.reset() # type: ignore
+        agent.sliding_signature.reset() 
     
     key = jax.random.PRNGKey(seed)
     x_t = agent.wrapper.reset(key, x0=x0, t0=0.0)
     agent._fill_buffer_initial()
     
-    # Apply preheat if agent uses signatures (to match simulate_trajectory)
-    uses_signatures = (
-        hasattr(agent, 'sliding_signature') and 
-        agent.__class__.__name__ not in ['CTACJAX']
-    )
-    is_whole_state = hasattr(agent, 'whole_state_delay') and agent.whole_state_delay  # type: ignore
     burn_steps = _resolve_burning_steps(agent, burning_steps)
 
     # Burn-in: advance uncontrolled system before logging trajectories.
     for _ in range(burn_steps):
         action_burn = jnp.zeros(action_dim)
         _, x_t, _ = agent.wrapper.step(agent.wrapper.state, action_burn)
-        if uses_signatures or is_whole_state:
-            agent.sliding_signature.append(np.array(x_t) / agent.scale)  # type: ignore
-            if hasattr(agent, '_path_data_dirty'):
-                agent._path_data_dirty = True  # type: ignore
+        agent.update_buffer(np.array(x_t))
     
     # Initialize states and times AFTER preheat
     states = [np.array(x_t).flatten()]
@@ -317,9 +271,10 @@ def simulate_uncontrolled_trajectory(
     for step in range(n_steps):
         action_zero = jnp.zeros(action_dim)
         t, x_next, _ = agent.wrapper.step(agent.wrapper.state, action_zero)
+        
         # Update buffer so it stays consistent (same as controlled trajectory)
-        if uses_signatures or is_whole_state:
-            agent.sliding_signature.append(np.array(x_next) / agent.scale)  # type: ignore
+        agent.update_buffer(np.array(x_next))
+        
         x_t = x_next
         states.append(np.array(x_next).flatten())
         times.append(float(t))

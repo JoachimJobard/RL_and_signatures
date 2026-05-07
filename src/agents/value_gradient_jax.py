@@ -21,7 +21,7 @@ class ContinuousValueGradient:
         training: TrainingConfig,
         discount: DiscountConfig,
         noise: NoiseConfig,
-        signature: SignatureConfig,
+        signature_conf: SignatureConfig,
         network: NetworkConfig,
         algorithm: AlgorithmConfig,
         rng_key: int = 42,
@@ -31,7 +31,7 @@ class ContinuousValueGradient:
         self.training = training
         self.discount = discount
         self.noise = noise
-        self.signature = signature
+        self.signature_conf = signature_conf
         self.network = network
         self.algorithm = algorithm
         self.eval_callback = eval_callback
@@ -49,8 +49,8 @@ class ContinuousValueGradient:
         self.key = jax.random.PRNGKey(rng_key)
         self.dt = env.step_size
         self.x0 = jnp.array(x0) if x0 is not None else None
-        if not self.signature.force_signature_window:
-            self.signature.window_size = self._compute_window_size()
+        if not self.signature_conf.force_signature_window:
+            self.signature_conf.window_size = self._compute_window_size()
 
     def _compute_window_size(self) -> int:
         max_delay = self.env.delay.max() if self.env.delay is not None else 0.0
@@ -74,9 +74,9 @@ class ContinuousValueGradient:
 
     def _init_networks(self) -> None:
         self.sliding_signature = SlidingSignatureJAX(
-            depth=self.signature.depth, window_size=self.signature.window_size, d=self.env.N,
-            time_augmentation=self.signature.time_augmentation,
-            origin_augmentation=self.signature.origin_augmentation, bias=self.signature.bias,
+            depth=self.signature_conf.depth, window_size=self.signature_conf.window_size, d=self.env.N,
+            time_augmentation=self.signature_conf.time_augmentation,
+            origin_augmentation=self.signature_conf.origin_augmentation, bias=self.signature_conf.bias,
         )
         self.critic = self._build_network()
         self.target = self._build_network()
@@ -368,6 +368,17 @@ class ContinuousValueGradient:
             
             self.episode_noise_trajectory = gp_sample
     
+    def update_buffer(self, x: np.ndarray) -> None:
+        self.sliding_signature.append(x / self.training.scale)
+        if hasattr(self, '_path_data_dirty'):
+            setattr(self, '_path_data_dirty', True)
+            
+    def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
+        data_path = jnp.array(self.sliding_signature.buffer.to_array())
+        assert self.wrapper.state is not None
+        assert self.critic_params is not None
+        action, _ = self._select_action_jit(self.critic_params, data_path, self.env.R, self.wrapper.state.x)
+        return jnp.array(action)
 
     def train(self) -> dict:
         """Main training loop.

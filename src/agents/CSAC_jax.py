@@ -511,6 +511,22 @@ class CSAC:
         # Update signature buffer
         return x_next, reward, done
 
+    def update_buffer(self, x: np.ndarray) -> None:
+        self.sliding_signature.append(x / self.training.scale)
+        if hasattr(self, '_path_data_dirty'):
+            setattr(self, '_path_data_dirty', True)
+
+    def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
+        if getattr(self, 'actor_oracle', False) or getattr(self.algorithm, 'actor_oracle', False):
+            return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
+            
+        sig = self.sliding_signature.current_signature
+        if getattr(self.signature_conf, 'state_augmentation', False):
+            sig_input = jnp.concatenate([sig, x_scaled])
+        else:
+            sig_input = sig
+        mu, _ = self.actor.apply(self.actor_params, sig_input)
+        return jnp.array(mu * getattr(self.training, 'clip_action', 1.0))
 
     def train(self) -> dict:
         """Train the agent and return metrics dict."""
