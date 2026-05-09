@@ -19,8 +19,6 @@ from src.configs import (
 class ContinuousValueGradient:
     def __init__(self,
         env,
-        Q: jnp.ndarray,
-        R: jnp.ndarray,
         training: TrainingConfig,
         discount: DiscountConfig,
         noise: NoiseConfig,
@@ -39,16 +37,16 @@ class ContinuousValueGradient:
         self.algorithm = algorithm
         self.eval_callback = eval_callback
 
-        self._init_env(env, Q, R, rng_key, x0)
+        self._init_env(env, rng_key, x0)
         self._init_episode_state()
         self._init_checkpoint_state()
         self._init_networks()
 
-    def _init_env(self, env, Q, R, rng_key: int, x0) -> None:
+    def _init_env(self, env, rng_key: int, x0) -> None:
         self.env = env
         self.wrapper = JAXEnvWrapper(env, rng_key=jax.random.PRNGKey(rng_key))
-        self.Q = Q if Q is not None else env.Q
-        self.R = R if R is not None else env.R
+        self.Q = env.Q
+        self.R = env.R
         self.key = jax.random.PRNGKey(rng_key)
         self.dt = env.step_size
         self.x0 = jnp.array(x0) if x0 is not None else None

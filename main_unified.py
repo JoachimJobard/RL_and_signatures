@@ -146,10 +146,11 @@ def run_experiment(cfg: DictConfig) -> None:
     # Save Checkpoint & Evaluation Data
     # =========================================================================
     if cfg.get('save_checkpoint', True):
+        base_name = cfg.get('eval_data_name', 'run')
         print("\n  - Saving checkpoint...")
         checkpoint_path = cfg.get('checkpoint_path', 'checkpoint_agent.pkl')
         if hasattr(agent, 'save'):
-            agent.save(checkpoint_path) #type: ignore
+            agent.save(checkpoint_path + f"_{base_name}") #type: ignore
         else:
             import pickle
             Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
