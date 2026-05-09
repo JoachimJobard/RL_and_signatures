@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import matplotlib
 
-from utils.dynamic_signature import SlidingSignature
+from src.utils.dynamic_signature import SlidingSignature
 matplotlib.use('Agg')  # Non-interactive backend for wandb logging
 import matplotlib.pyplot as plt
 import matplotlib.figure
