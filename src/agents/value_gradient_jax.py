@@ -10,6 +10,7 @@ from src.networks.value_gradient_nets import CriticFlax, CriticFlaxLayerNorm
 from src.utils.dynamic_signature import SlidingSignatureJAX
 from src.utils.step_context import StepContextSignature
 from src.utils.step_metrics import StepMetrics
+from src.utils.state_counter import StateCounter
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,)
@@ -72,6 +73,8 @@ class ContinuousValueGradient:
         self._best_target_params = None
         self._best_episode = 0
         self._patience_counter = 0
+        self.discretization_state = self.training.discretization_state
+        self.state_counter = StateCounter(resolution=self.training.discretization_state)
 
     def _init_networks(self) -> None:
         self.sliding_signature = SlidingSignatureJAX(

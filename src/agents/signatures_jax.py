@@ -119,6 +119,7 @@ class CTACSignatureJAX:
         self._best_episode = 0
         self._patience_counter = 0
         self._nan_detected = False
+        self.discretization_state = self.training.discretization_state
         self.state_counter = StateCounter(resolution=self.training.discretization_state)
 
     def _init_signatures(self) -> None:
