@@ -18,7 +18,8 @@ Hydra YAML layout (agent config):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, is_dataclass
+from typing import Any, cast
 
 
 # =============================================================================
@@ -220,5 +221,12 @@ def configs_to_flat_dict(*configs) -> dict:
     """Merge all config objects into a single flat dict (for save/checkpoint compat)."""
     d: dict = {}
     for cfg in configs:
-        d.update(asdict(cfg))
+        if cfg is None:
+            continue
+        if is_dataclass(cfg):
+            d.update(asdict(cast(Any, cfg)))
+        elif isinstance(cfg, dict):
+            d.update(cfg)
+        else:
+            d.update(vars(cfg))
     return d

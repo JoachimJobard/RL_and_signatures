@@ -421,4 +421,12 @@ class CTACJAX(CTACSignatureJAX):
             action = self.actor.apply(self.actor_params, x_scaled)
         return jnp.array(action)
 
+    def save(self, filename: str) -> None:
+        """Save the base agent checkpoint using the shared implementation."""
+        super().save(filename)
+
+    def load(self, filename: str) -> None:
+        """Load the base agent checkpoint using the shared implementation."""
+        super().load(filename)
+
 
