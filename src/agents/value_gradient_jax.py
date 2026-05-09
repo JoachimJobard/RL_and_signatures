@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 import tqdm
+import pickle
 
 from src.envs.env_rk_jax import JAXEnvWrapper
 from src.networks.value_gradient_nets import CriticFlax, CriticFlaxLayerNorm
@@ -645,4 +646,40 @@ class ContinuousValueGradient:
     def _on_episode_end(self, episode: int, episode_metrics: dict) -> None:
         """Hook called at the end of each episode. Override for custom logic."""
         pass
+
+    def save(self, filename: str) -> None:
+        """Save critic/target parameters and configs to a file."""
+        save_dict = {
+            'critic_params': self.critic_params,
+            'target_params': self.target_params,
+            'env_params': {
+                'A': np.array(self.env.A),
+                'B': np.array(self.env.B),
+                'Q': np.array(self.env.Q),
+                'R': np.array(self.env.R),
+                'A1': np.array(self.env.A1),
+                'delay': np.array(self.env.delay) if self.env.delay is not None else None,
+                'step_size': self.env.step_size,
+                'resolution': self.env.resolution,
+            },
+            'training': self.training,
+            'discount': self.discount,
+            'noise': self.noise,
+            'signature': self.signature_conf,
+            'network': self.network,
+            'algorithm': self.algorithm,
+        }
+
+        with open(filename, 'wb') as f:
+            pickle.dump(save_dict, f)
+        print(f"Agent saved to {filename}")
+
+    def load(self, filename: str) -> None:
+        """Load critic/target parameters from a file."""
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+
+        self.critic_params = data['critic_params']
+        self.target_params = data['target_params']
+        print(f"Agent loaded from {filename}")
 

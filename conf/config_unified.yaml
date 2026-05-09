@@ -55,7 +55,7 @@ wandb:
 # =============================================================================
 # Checkpointing & Data Export
 # =============================================================================
-save_checkpoint: false
+save_checkpoint: true
 checkpoint_path: ${hydra:run.dir}/checkpoint_agent.pkl
 metrics_path: ${hydra:run.dir}/metrics.pkl
 
