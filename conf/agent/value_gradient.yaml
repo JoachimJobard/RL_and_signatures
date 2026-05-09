@@ -64,11 +64,3 @@ algorithm:
   fix_initial_state: true
   preheat: true
   burning_steps: 100
-  delayed_state: false
-delayed_state: false
-tau: 1.0
-
-# =============================================================================
-# Noise Configuration
-# =============================================================================
-smooth_noise: true
