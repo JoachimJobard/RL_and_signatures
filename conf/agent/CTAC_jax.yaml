@@ -42,7 +42,7 @@ noise:
 signature:
   depth: 2
   force_signature_window: false  # if true, override window_size to match max delay
-  window_size: 10
+  window_size: 40
 
 # =============================================================================
 # Network
