@@ -2,7 +2,7 @@
 # dx/dt = -mu*x + p*x_tau/(1 + x_tau^n)
 
 environment_params:
-  _target_: src.mackey_glass_1D.MackeyGlass1DEnv
+  _target_: src.envs.mackey_glass_1D.MackeyGlass1DEnv
   
   # Mackey-Glass parameters
   delay: 17.0
