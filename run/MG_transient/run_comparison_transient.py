@@ -27,7 +27,7 @@ COMMON = {
     "eval.x0_test": "[0.1]",
     "eval.T_sim": "1400",
     "eval.snapshot_interval": "100",
-    "wandb.group": "comparison_signature_mg_burning_13_03",
+    "wandb.group": "comparison_signature_mg_burning_09_05",
     "wandb.mode": "online",
     "eval_data_dir": "outputs/comparison_signatures_MG_burning_09_05",
     "agent.algorithm.burning_steps": "400",

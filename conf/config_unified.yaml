@@ -46,7 +46,7 @@ hydra:
 # Weights & Biases Configuration
 # =============================================================================
 wandb:
-  project_name: CTAC_Unified
+  project_name: RL_and_Signatures_new_runs
   entity: null
   mode: online                # Options: online, offline, disabled
   name: run_${now:%H%M%S}
