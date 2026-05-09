@@ -32,12 +32,23 @@ class TrainableAgent(Protocol):
     """Protocol defining the interface all agents must implement."""
     env: Any
     x0: Any
+    wrapper: Any
+    training: Any
+    algorithm: Any
+    sliding_signature: Any
+    signature_conf: Any
     
     def train(self) -> dict:
         """Train the agent and return metrics dictionary."""
         ...
     def eval_callback(self, episode: int) -> None:
         """Optional callback for periodic evaluation during training."""
+        ...
+    def _fill_buffer_initial(self) -> None:
+        ...
+    def update_buffer(self, x: Any) -> None:
+        ...
+    def get_eval_action(self, x_scaled: Any) -> Any:
         ...
 
 # =============================================================================

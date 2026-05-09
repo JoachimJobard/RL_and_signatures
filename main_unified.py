@@ -152,6 +152,7 @@ def run_experiment(cfg: DictConfig) -> None:
             agent.save(checkpoint_path) #type: ignore
         else:
             import pickle
+            Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
             with open(checkpoint_path, 'wb') as f:
                 pickle.dump({
                     'agent_params': getattr(agent, 'actor_params', None),

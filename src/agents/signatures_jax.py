@@ -7,6 +7,7 @@ import jax
 import numpy as np
 import tqdm
 import pickle
+from pathlib import Path
 from src.utils.dynamic_signature import SlidingSignatureJAX
 from src.networks.LQR_actor_critics import ActorFlax, ActorFlaxLayerNorm, CriticFlax, CriticFlaxLayerNorm
 from src.utils.step_metrics import StepMetrics
@@ -881,6 +882,7 @@ class CTACSignatureJAX:
 
     def save(self, filename: str):
         """Save agent parameters to a file."""
+        Path(filename).parent.mkdir(parents=True, exist_ok=True)
         save_dict = {
             'actor_params': self.actor_params,
             'critic_params': self.critic_params,

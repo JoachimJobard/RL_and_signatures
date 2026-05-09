@@ -4,6 +4,7 @@ import numpy as np
 import optax
 import tqdm
 import pickle
+from pathlib import Path
 
 from src.envs.env_rk_jax import JAXEnvWrapper
 from src.networks.value_gradient_nets import CriticFlax, CriticFlaxLayerNorm
@@ -652,6 +653,7 @@ class ContinuousValueGradient:
 
     def save(self, filename: str) -> None:
         """Save critic/target parameters and configs to a file."""
+        Path(filename).parent.mkdir(parents=True, exist_ok=True)
         save_dict = {
             'critic_params': self.critic_params,
             'target_params': self.target_params,
