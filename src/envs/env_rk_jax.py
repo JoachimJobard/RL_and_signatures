@@ -90,14 +90,14 @@ class JAXDDEEnv:
     
     def compute_reward(self, state: EnvState, u: jnp.ndarray) -> jnp.ndarray:
         reward_kernel = self.reward_kernel
-        def body_fun(curr_state: EnvState, _) -> jnp.ndarray:
+        def body_fun(curr_state: EnvState, _) -> tuple[EnvState, jnp.ndarray]:
             reward = jax.lax.cond(reward_kernel is not None,
                          lambda s: (s.x.T @ self.Q @ s.x + u.T @ self.R @ u),
                          lambda s: -(s.x.T @ self.Q @ s.x + u.T @ self.R @ u),
                          curr_state)
-            return reward
-        reward = jax.lax.scan(body_fun, state, None, length=self.resolution)[0]
-        return reward
+            return curr_state, reward
+        _, rewards = jax.lax.scan(body_fun, state, None, length=self.resolution)
+        return rewards[-1]
 
 class JAXEnvWrapper:
     def __init__(self, env: JAXDDEEnv, rng_key=None):
@@ -142,6 +142,7 @@ class JAXEnvWrapper:
     def record_step(self, x: jnp.ndarray, u: jnp.ndarray) -> None:
         """Manually record a step for post-episode analysis (forces GPU→CPU)."""
         self._data.append(np.array(x))
+        assert self.state is not None
         self._time.append(float(self.state.t))
         self._u_history.append(np.array(u))
     
