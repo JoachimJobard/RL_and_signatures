@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 COMMON = {
     "env": "MG_1D",
     "env.environment_params.x_target": "0.",
-    "env.environment_params.delay": "8, 17,",
+    "env.environment_params.delay": "8, 17",
     "eval.x0_test": "[0.1]",
     "eval.T_sim": "1400",
     "eval.snapshot_interval": "100",
