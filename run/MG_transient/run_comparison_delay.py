@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 COMMON = {
     "env": "MG_1D",
     "env.environment_params.x_target": "0.",
-    "env.environment_params.delay": "17",
+    "env.environment_params.delay": "8, 17,",
     "eval.x0_test": "[0.1]",
     "eval.T_sim": "1400",
     "eval.snapshot_interval": "100",
@@ -135,7 +135,6 @@ def build_cmd(overrides: dict, seeds: str, delays: str = "30") -> list[str]:
     cmd = ["python", "main_unified.py", "-m", "launcher=slurm"]
     all_overrides = {**COMMON, **overrides}
     all_overrides["seed"] = seeds
-    all_overrides["env.environment_params.delay"] = delays
     for k, v in all_overrides.items():
         cmd.append(f"{k}={v}")
     return cmd
