@@ -161,7 +161,7 @@ def build_seed_csv(seed_range: tuple[int, int]) -> str:
 
 
 def build_cmd(overrides: dict[str, str], seed_csv: str) -> list[str]:
-    cmd = ["uv", "run", "python", "main_unified.py", "-m"]
+    cmd = ["uv", "run", "python", "main_unified.py", "-m", "launcher=slurm"]
     all_overrides = {**COMMON, **overrides, "seed": seed_csv}
     for key, value in all_overrides.items():
         cmd.append(f"{key}={value}")
