@@ -686,3 +686,11 @@ class ContinuousValueGradient:
         self.target_params = data['target_params']
         print(f"Agent loaded from {filename}")
 
+# =====================================================
+# ================== Only in Inference=================
+# =====================================================
+
+    def get_value(self) -> float:
+        """Compute value function for a current state."""
+        sig = self.sliding_signature.current_signature
+        return float(jnp.asarray(self.critic.apply(self.critic_params, sig)).squeeze()) # type: ignore

@@ -634,13 +634,23 @@ class CTACSignatureJAX:
             return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
             
         sig = self.sliding_signature.current_signature
-        if getattr(self.signature_conf, 'state_augmentation', False):
-            sig_input = jnp.concatenate([sig, x_scaled])
-        else:
-            sig_input = sig
         assert self.actor_params is not None
-        action = self.actor.apply(self.actor_params, sig_input)
+        action = self.actor.apply(self.actor_params, sig)
         return jnp.array(action)
+
+    def get_value(self) -> float:
+        """Compute value function for a given state."""
+        if getattr(self.algorithm, 'critic_oracle', False):
+            assert self.wrapper.state is not None
+            x_val = jnp.array(self.wrapper.state.x)
+            return float(-x_val.T @ self.P @ x_val)
+            
+        sig = self.sliding_signature.current_signature
+        
+        assert self.critic_params is not None
+        V_raw = self.critic.apply(self.critic_params, sig)
+        V = V_raw[0] if isinstance(V_raw, tuple) else V_raw
+        return float(jnp.asarray(V).squeeze())
 
     def train(self) -> dict:
         """Main training loop.

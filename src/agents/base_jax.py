@@ -421,6 +421,32 @@ class CTACJAX(CTACSignatureJAX):
             action = self.actor.apply(self.actor_params, x_scaled)
         return jnp.array(action)
 
+    def get_value(self) -> float:
+        """Compute value function for a given state."""
+        if getattr(self.algorithm, 'critic_oracle', False):
+            assert self.wrapper.state is not None
+            x_val = jnp.array(self.wrapper.state.x)
+            return float(-x_val.T @ self.P @ x_val)
+            
+        assert self.critic_params is not None
+        if getattr(self.algorithm, 'whole_state_delay', False):
+            buf = self.sliding_signature.buffer
+            x_augmented = jnp.array(buf.to_array()).flatten()
+            V_raw = self.critic.apply(self.critic_params, x_augmented)
+        elif getattr(self.algorithm, 'delayed_state', False):
+            assert self.wrapper.state is not None
+            x_current = jnp.array(self.wrapper.state.x) / self.training.scale
+            x_delayed = self.wrapper.current_delayed_state
+            x_augmented = jnp.concatenate([x_current, x_delayed / self.training.scale], axis=0)
+            V_raw = self.critic.apply(self.critic_params, x_augmented)
+        else:
+            assert self.wrapper.state is not None
+            x_current = jnp.array(self.wrapper.state.x) / self.training.scale
+            V_raw = self.critic.apply(self.critic_params, x_current)
+            
+        V = V_raw[0] if isinstance(V_raw, tuple) else V_raw
+        return float(jnp.asarray(V).squeeze())
+
     def save(self, filename: str) -> None:
         """Save the base agent checkpoint using the shared implementation."""
         super().save(filename)
