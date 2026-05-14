@@ -32,7 +32,7 @@ COMMON = {
     "wandb.mode": "online",
     "eval_data_dir": "outputs/comparison_delay_MG_14_05",
     # "agent.algorithm.burning_steps": "100",
-    "eval.burning_steps": "400",
+    # "eval.burning_steps": "400",
 
 }
 
