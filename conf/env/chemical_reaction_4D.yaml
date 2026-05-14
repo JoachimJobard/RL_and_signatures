@@ -1,7 +1,7 @@
 # Environment configuration for the Chemical reaction described in S. Dadebo et al.,
 
 environment_params:
-  _target_: src.chemical_process.ChemicalReactionEnv
+  _target_: src.envs.chemical_process.ChemicalReactionEnv
   
   delay: 0.2
   
