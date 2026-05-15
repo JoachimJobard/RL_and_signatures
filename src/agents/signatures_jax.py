@@ -637,6 +637,7 @@ class CTACSignatureJAX:
             assert self.actor_params is not None
             action = self.actor.apply(self.actor_params, sig)
             
+        action = jnp.asarray(action)
         action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
         return jnp.array(action)
 
