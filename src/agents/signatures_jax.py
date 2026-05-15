@@ -631,11 +631,13 @@ class CTACSignatureJAX:
     def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
         if getattr(self.algorithm, 'actor_oracle', False):
             assert self.wrapper.state is not None
-            return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
-            
-        sig = self.sliding_signature.current_signature
-        assert self.actor_params is not None
-        action = self.actor.apply(self.actor_params, sig)
+            action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
+        else:
+            sig = self.sliding_signature.current_signature
+            assert self.actor_params is not None
+            action = self.actor.apply(self.actor_params, sig)
+        assert type(action) is jnp.ndarray, f"Expected action to be jnp.ndarray, got {type(action)}" 
+        action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
         return jnp.array(action)
 
     def get_value(self) -> float:

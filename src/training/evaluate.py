@@ -307,9 +307,9 @@ def compute_trajectory_cost(
     
     total = 0.0
     for i in range(len(actions)):
-        error = states[i] - x_target
+        error_next = states[i+1] - x_target
         ut = actions[i].reshape(-1)
-        total += (error.T @ Q @ error + ut.T @ R @ ut) * step_size
+        total += (error_next.T @ Q @ error_next + ut.T @ R @ ut) * step_size
     return float(total)
 
 
@@ -351,15 +351,15 @@ def compare_with_no_control(
         burning_steps=burning_steps,
     )
     
-    # Compute costs (relative to x_ref)
+    # Compute costs (relative to x_ref) matching the RK4 environment logic
     n_actions = len(actions_agent)
     cost_agent = [
-        (states_agent[i] - x_ref).T @ Q @ (states_agent[i] - x_ref) + 
+        (states_agent[i+1] - x_ref).T @ Q @ (states_agent[i+1] - x_ref) + 
         actions_agent[i].reshape(-1).T @ R @ actions_agent[i].reshape(-1) 
         for i in range(n_actions)
     ]
     cost_no_ctrl = [
-        (states_no_ctrl[i] - x_ref).T @ Q @ (states_no_ctrl[i] - x_ref) 
+        (states_no_ctrl[i+1] - x_ref).T @ Q @ (states_no_ctrl[i+1] - x_ref) 
         for i in range(min(n_actions, len(states_no_ctrl)-1))
     ]
     cum_cost_agent = np.cumsum(cost_agent) * step_size
@@ -566,12 +566,12 @@ def create_trajectory_snapshot(
     # --- Cumulative cost ---
     n_actions = len(actions_agent)
     cost_agent = np.array([
-        (states_agent[i] - x_ref) @ Q @ (states_agent[i] - x_ref)
+        (states_agent[i+1] - x_ref) @ Q @ (states_agent[i+1] - x_ref)
         + actions_agent[i].reshape(-1) @ R_mat @ actions_agent[i].reshape(-1)
         for i in range(n_actions)
     ])
     cost_no_ctrl = np.array([
-        (states_no_ctrl[i] - x_ref) @ Q @ (states_no_ctrl[i] - x_ref)
+        (states_no_ctrl[i+1] - x_ref) @ Q @ (states_no_ctrl[i+1] - x_ref)
         for i in range(min(n_actions, len(states_no_ctrl) - 1))
     ])
     cum_cost_agent = np.cumsum(cost_agent) * env.step_size
@@ -762,12 +762,12 @@ def collect_evaluation_data(
     
     n_actions = len(actions_agent)
     cost_agent = [
-        states_agent[i].T @ Q @ states_agent[i] + 
+        states_agent[i+1].T @ Q @ states_agent[i+1] + 
         actions_agent[i].reshape(-1).T @ R @ actions_agent[i].reshape(-1) 
         for i in range(n_actions)
     ]
     cost_no_ctrl = [
-        states_no_ctrl[i].T @ Q @ states_no_ctrl[i] 
+        states_no_ctrl[i+1].T @ Q @ states_no_ctrl[i+1] 
         for i in range(min(n_actions, len(states_no_ctrl)-1))
     ]
     

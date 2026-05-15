@@ -17,7 +17,10 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 import wandb
 import numpy as np
+import jax
 from pathlib import Path
+
+
 
 from src.training.train import train
 from src.training.evaluate import (
@@ -33,7 +36,8 @@ from src.training.evaluate import (
     make_eval_callback,
     get_statistics_visited_states,
 )
-
+# Enable float64 for JAX
+jax.config.update("jax_enable_x64", True)
 
 def run_experiment(cfg: DictConfig) -> None:
     """

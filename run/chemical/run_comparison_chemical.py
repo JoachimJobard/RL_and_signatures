@@ -66,7 +66,7 @@ EXPERIMENTS = {
     },
     2: {
         "name": "No Signatures",
-        "default_seed_range": (100, 110),
+        "default_seed_range": (100, 150),
         "overrides": {
             "agent": "CTAC_jax",
             "agent.algorithm.delayed_state": "false",
@@ -114,8 +114,8 @@ EXPERIMENTS = {
             "agent.training.n_episodes": "1300",
             "agent.training.critic_lr": "1e-3",
             "agent.discount.discounted": "false",
-            "agent.noise.sigma": "0.4",
-            "agent.signature.depth": "4",
+            "agent.noise.sigma": "0.2",
+            "agent.signature.depth": "2,3,4",
             "agent.signature.time_augmentation": "false",
             "agent.signature.origin_augmentation": "true",
             "agent.discount.V_bad": "-0.1",
