@@ -406,19 +406,22 @@ class CTACJAX(CTACSignatureJAX):
     def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
         if getattr(self.algorithm, 'actor_oracle', False):
             assert self.wrapper.state is not None
-            return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
-            
-        assert self.actor_params is not None
-        if getattr(self.algorithm, 'whole_state_delay', False):
-            buf = self.sliding_signature.buffer
-            x_augmented = jnp.array(buf.to_array()).flatten()
-            action = self.actor.apply(self.actor_params, x_augmented)
-        elif getattr(self.algorithm, 'delayed_state', False):
-            x_delayed = self.wrapper.current_delayed_state
-            x_augmented = jnp.concatenate([x_scaled, x_delayed / self.training.scale], axis=0)
-            action = self.actor.apply(self.actor_params, x_augmented)
+            action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
         else:
-            action = self.actor.apply(self.actor_params, x_scaled)
+            assert self.actor_params is not None
+            if getattr(self.algorithm, 'whole_state_delay', False):
+                buf = self.sliding_signature.buffer
+                x_augmented = jnp.array(buf.to_array()).flatten()
+                action = self.actor.apply(self.actor_params, x_augmented)
+            elif getattr(self.algorithm, 'delayed_state', False):
+                x_delayed = self.wrapper.current_delayed_state
+                x_augmented = jnp.concatenate([x_scaled, x_delayed / self.training.scale], axis=0)
+                action = self.actor.apply(self.actor_params, x_augmented)
+            else:
+                action = self.actor.apply(self.actor_params, x_scaled)
+            
+        action = jnp.asarray(action)
+        action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
         return jnp.array(action)
 
     def get_value(self) -> float:

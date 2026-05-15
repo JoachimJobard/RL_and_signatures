@@ -636,7 +636,7 @@ class CTACSignatureJAX:
             sig = self.sliding_signature.current_signature
             assert self.actor_params is not None
             action = self.actor.apply(self.actor_params, sig)
-        assert type(action) is jnp.ndarray, f"Expected action to be jnp.ndarray, got {type(action)}" 
+            
         action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
         return jnp.array(action)
 
