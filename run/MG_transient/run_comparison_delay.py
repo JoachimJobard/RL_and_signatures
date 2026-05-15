@@ -28,11 +28,11 @@ COMMON = {
     "eval.x0_test": "[0.1]",
     "eval.T_sim": "1400",
     "eval.snapshot_interval": "100",
-    "wandb.group": "comparison_delay_burning_more_ep_MG_15_05",
+    "wandb.group": "comparison_delay_burning_400_more_ep_MG_15_05",
     "wandb.mode": "online",
-    "eval_data_dir": "outputs/comparison_delay_burning_more_ep_MG_15_05",
-    # "agent.algorithm.burning_steps": "100",
-    # "eval.burning_steps": "400",
+    "eval_data_dir": "outputs/comparison_delay_burning_400_more_ep_MG_15_05",
+    "agent.algorithm.burning_steps": "400",
+    "eval.burning_steps": "400",
 
 }
 
