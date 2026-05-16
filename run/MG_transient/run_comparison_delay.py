@@ -93,7 +93,7 @@ EXPERIMENTS = {
         "name": "Value Gradient",
         "overrides": {
             "agent": "value_gradient",
-            "agent.training.critic_lr": "1e-4",
+            "agent.training.critic_lr": "1e-3",
             "agent.training.max_time": "1000",
             "agent.training.n_episodes": "500",
             "agent.training.eval_interval": "20",
