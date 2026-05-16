@@ -212,16 +212,17 @@ def simulate_trajectory(
         agent.update_buffer(np.array(x_t))
     
     # Initialize states and times AFTER preheat
+    t0 = float(agent.wrapper.state.t)
     states = [np.array(x_t).flatten()]
     actions = []
-    times = [float(agent.wrapper.state.t)]
+    times = [0.0]
     
     for step in range(n_steps):
         x_scaled = x_t / agent.training.scale
         
         # Delegate action generation to the agent itself
         action = agent.get_eval_action(x_scaled)
-        action = np.clip(np.array(action).flatten(), -10, 10)
+        action = np.array(action).flatten()
         actions.append(action)
         
         t, x_next, _ = agent.wrapper.step(agent.wrapper.state, action)
@@ -231,7 +232,7 @@ def simulate_trajectory(
         
         x_t = x_next
         states.append(np.array(x_next).flatten())
-        times.append(float(t))
+        times.append(float(t) - t0)
         
     return np.array(states), np.array(actions), np.array(times)
 
@@ -265,8 +266,9 @@ def simulate_uncontrolled_trajectory(
         agent.update_buffer(np.array(x_t))
     
     # Initialize states and times AFTER preheat
+    t0 = float(agent.wrapper.state.t)
     states = [np.array(x_t).flatten()]
-    times = [float(agent.wrapper.state.t)]
+    times = [0.0]
     
     for step in range(n_steps):
         action_zero = jnp.zeros(action_dim)
@@ -277,7 +279,7 @@ def simulate_uncontrolled_trajectory(
         
         x_t = x_next
         states.append(np.array(x_next).flatten())
-        times.append(float(t))
+        times.append(float(t) - t0)
     
     return np.array(states), np.array(times)
 
@@ -478,7 +480,7 @@ def evaluate_multiple_trajectories(
         
         norm = np.linalg.norm(states, axis=1)
         cum_cost = np.cumsum([
-            states[i].T @ Q @ states[i] + actions[i].reshape(-1).T @ R @ actions[i].reshape(-1) 
+            states[i+1].T @ Q @ states[i+1] + actions[i].reshape(-1).T @ R @ actions[i].reshape(-1)
             for i in range(len(actions))
         ]) * step_size
         color = colors[idx % len(colors)]
