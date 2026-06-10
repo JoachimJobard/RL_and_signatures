@@ -175,13 +175,19 @@ class ContinuousValueGradient:
         grad_V_fn = self._gradient_value_fn
         get_B_fn = self.env.get_B
         clip_action = self.training.clip_action
+        # Action clipping is opt-in: clip_action None/<=0 means NO clipping (default
+        # preference). For a well-initialised critic the value-gradient control law
+        # u = 1/2 R^-1 B^T dV/dx is naturally bounded (dV/dx ~ 0 at init), so no clip
+        # is needed; the flag is only a safeguard for diverging plants.
+        do_clip = clip_action is not None and clip_action > 0
         @jax.jit
         def select_action(critic_params, path_data, R, x_current):
             B = get_B_fn(x_current)
             grad_path = grad_V_fn(critic_params, path_data)
             end_gradient = grad_path[-1]
             u = 1/2*jnp.linalg.inv(R) @ B.T @ end_gradient #Doya LQR development
-            u = jnp.clip(u, -clip_action, clip_action) #arbitrary but should be enough
+            if do_clip:
+                u = jnp.clip(u, -clip_action, clip_action)
             return u, end_gradient
         return select_action
     

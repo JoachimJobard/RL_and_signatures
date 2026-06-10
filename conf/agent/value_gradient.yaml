@@ -11,7 +11,7 @@ training:
   max_time: 15.0
   critic_lr: 1e-3
   scale: 1.0
-  clip_action: 10.0
+  clip_action: null  # null/<=0: no action clipping (default preference); else bound |u|
   clip_gradient: null  # null/<=0: no gradient clipping (default); else global-norm bound on the critic gradient
   divergence_threshold: 100.0
   eval_interval: 20

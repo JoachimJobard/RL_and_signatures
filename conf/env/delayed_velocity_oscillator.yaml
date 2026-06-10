@@ -1,0 +1,44 @@
+# Delayed-velocity oscillator (linear DDE) — a LEARNABLE H1 test.
+#
+# dx/dt = A x + A1 x(t-tau) + B u, with A = [[0,1],[-4,-0.2]] (damped oscillator,
+# eigenvalues -0.1 +/- 2.0i -> open-loop BOUNDED, peak ~1.6) and A1 = [[0,0],[0,-4]]
+# (delayed VELOCITY feedback: -4 x2(t-tau) into the acceleration). tau=0.3.
+#
+# Design rationale (see documents/methodology/experimental_design.md): the first
+# strong-H1 attempt (strongly_delayed_oscillator, ~84% gap) used an open-loop
+# UNSTABLE plant that the critic-only value-gradient agent could not stabilise from
+# scratch (every episode diverged). Among open-loop-BOUNDED (learnable) plants the
+# oracle gap caps at ~20%; this env sits near that ceiling (~18% gap, measured via
+# src.solvers.delayed_lqr.markovian_oracle_gap) while staying bounded, so both the
+# Markovian and history controllers keep episodes finite and the agent can learn.
+# The oracle's own max|u| ~ 1.9, so the action clip must be sized accordingly
+# (agent.training.clip_action ~ 3) rather than the default 10 (which is ~5x the
+# optimal action magnitude and causes destabilising early-training overshoot).
+# tau=0.3, step_size=0.05 -> window of K=6 control-step taps.
+environment_params:
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
+  A:
+    _target_: numpy.array
+    object: [[0.0, 1.0], [-4.0, -0.2]]
+    dtype: float64
+  B:
+    _target_: numpy.array
+    object: [[0.0], [1.0]]
+    dtype: float64
+  A1:
+    _target_: numpy.array
+    object: [[0.0, 0.0], [0.0, -4.0]]
+    dtype: float64
+  delay:
+    _target_: numpy.array
+    object: [0.3, 0.3]
+    dtype: float64
+  Q:
+    _target_: numpy.eye
+    N: 2
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+    dtype: float64
+  step_size: 0.05
+  resolution: 4
