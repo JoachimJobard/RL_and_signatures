@@ -81,8 +81,12 @@ def _save_figure(fig, path_without_ext: Path) -> None:
     """Persist a Plotly or Matplotlib figure to disk (so figures survive without wandb)."""
     if fig is None:
         return
-    if hasattr(fig, "write_html"):  # Plotly
-        fig.write_html(str(path_without_ext) + ".html")
+    if hasattr(fig, "write_html"):  # Plotly — include MathJax so LaTeX labels render
+        fig.write_html(str(path_without_ext) + ".html", include_mathjax="cdn")
+        try:  # best-effort static export (paper-ready); requires kaleido
+            fig.write_image(str(path_without_ext) + ".png", width=1200, height=700)
+        except Exception as exc:  # noqa: BLE001 — HTML is the primary artefact
+            print(f"    (static PNG export skipped: {type(exc).__name__})")
     elif hasattr(fig, "savefig"):  # Matplotlib
         fig.savefig(str(path_without_ext) + ".png", dpi=150, bbox_inches="tight")
 

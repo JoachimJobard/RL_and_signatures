@@ -17,6 +17,10 @@ from plotly.subplots import make_subplots
 import matplotlib
 
 from src.utils.dynamic_signature import SlidingSignature
+from src.utils.plot_style import (
+    STROKE_TRAINED, STROKE_REFERENCE, STROKE_AUXILIARY,
+    sequential_colors, apply_external_legend, add_formula_textbox,
+)
 matplotlib.use('Agg')  # Non-interactive backend for wandb logging
 import matplotlib.pyplot as plt
 import matplotlib.figure
@@ -97,7 +101,7 @@ def plot_training_metrics(metrics: dict) -> go.Figure:
     fig = make_subplots(
         rows=n_rows, cols=n_cols,
         subplot_titles=subplot_titles,
-        vertical_spacing=0.12, horizontal_spacing=0.08
+        vertical_spacing=0.16, horizontal_spacing=0.08
     )
     
     # Row 1: Scalars
@@ -132,7 +136,20 @@ def plot_training_metrics(metrics: dict) -> go.Figure:
                 fig.add_trace(go.Scatter(y=sig_weights[:max_points, i], mode='lines', 
                                         name=f'Sig{i}', opacity=0.7), row=2, col=3)
     
-    fig.update_layout(height=350 * n_rows, width=1200, title_text='Training Metrics', showlegend=False)
+    fig.update_layout(height=350 * n_rows + 140, width=1200, title_text='Training metrics')
+    # Axis labels (LaTeX via MathJax). All curves are measured training quantities (solid).
+    for col in range(1, n_cols + 1):
+        fig.update_xaxes(title_text=r"$\text{episode}$", row=n_rows, col=col)
+    fig.update_yaxes(title_text=r"$\sum_t (x^\top Q x + u^\top R u)$", row=1, col=1)
+    fig.update_yaxes(title_text=r"$\tfrac{1}{2}\,\delta^2$", row=1, col=2)
+    fig.update_yaxes(title_text=r"$\|\nabla\|_2$", row=1, col=3)
+    apply_external_legend(fig)
+    add_formula_textbox(
+        fig,
+        r"$\delta = r + \dot V - V/\tau$ (continuous-time TD error); "
+        r"running cost $x^\top Q x + u^\top R u$. All curves are measured training "
+        r"quantities (solid stroke).",
+    )
     return fig
 
 
@@ -430,7 +447,26 @@ def compare_with_no_control(
     
     # Title with target info only if has_target
     target_str = f", target={x_ref}" if has_target else ""
-    fig.update_layout(height=700, width=1200, title_text=f'Agent vs No Control (x0={x0}{target_str})', showlegend=True)
+    fig.update_layout(height=820, width=1200,
+                      title_text=f"Agent vs no control ($x_0={x0}{target_str}$)")
+    # Axis labels (LaTeX via MathJax)
+    fig.update_xaxes(title_text=r"$t$", row=1, col=1); fig.update_yaxes(title_text=r"$x(t)$", row=1, col=1)
+    fig.update_xaxes(title_text=r"$t$", row=1, col=2); fig.update_yaxes(title_text=r"$u(t)$", row=1, col=2)
+    fig.update_xaxes(title_text=r"$t$", row=1, col=3)
+    fig.update_yaxes(title_text=r"$\int_0^t c\,ds$", row=1, col=3)
+    fig.update_xaxes(title_text=(r"$x_1$" if states_agent.shape[1] >= 2 else r"$t$"), row=2, col=1)
+    fig.update_yaxes(title_text=(r"$x_2$" if states_agent.shape[1] >= 2 else r"$x(t)$"), row=2, col=1)
+    fig.update_xaxes(title_text=r"$t$", row=2, col=2)
+    fig.update_yaxes(title_text=(r"$\|x-x_{\mathrm{ref}}\|_2$" if has_target else r"$\|x\|_2$"), row=2, col=2)
+    fig.update_xaxes(title_text=r"$t$", row=2, col=3); fig.update_yaxes(title_text=r"$c(t)$", row=2, col=3)
+    apply_external_legend(fig)
+    add_formula_textbox(
+        fig,
+        r"Controlled (agent) trajectory: solid; uncontrolled baseline: dashed; "
+        r"target / set-point: dotted. Instantaneous cost "
+        r"$c=(x-x_{\mathrm{ref}})^\top Q (x-x_{\mathrm{ref}}) + u^\top R u$; "
+        r"cumulative cost $\int_0^t c\,ds$.",
+    )
     
     # Metrics
     cost_reduction_pct = 100 * (cum_cost_no_ctrl[-1] - cum_cost_agent[-1]) / cum_cost_no_ctrl[-1] \
@@ -463,7 +499,8 @@ def evaluate_multiple_trajectories(
     step_size = env.step_size
     
     fig = make_subplots(rows=1, cols=3, subplot_titles=('State Norms', 'Cumulative Costs', 'Final Costs'))
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'cyan', 'magenta']
+    # Sweep over initial conditions is encoded in colour (sequential viridis), stroke stays solid.
+    colors = sequential_colors(len(x0_list))
     
     costs, final_norms = [], []
     for idx, x0 in enumerate(x0_list):
@@ -490,9 +527,22 @@ def evaluate_multiple_trajectories(
         fig.add_trace(go.Scatter(x=times[:-1], y=cum_cost, mode='lines', 
                                 line=dict(color=color), showlegend=False), row=1, col=2)
     
-    fig.add_trace(go.Bar(x=[f'x0_{i}' for i in range(len(costs))], y=costs, 
-                        marker_color=colors[:len(costs)]), row=1, col=3)
-    fig.update_layout(height=400, width=1200, title_text='Multiple Initial Conditions')
+    fig.add_trace(go.Bar(x=[f'x0_{i}' for i in range(len(costs))], y=costs,
+                        marker_color=colors[:len(costs)], showlegend=False), row=1, col=3)
+    fig.update_layout(height=520, width=1200, title_text='Multiple initial conditions')
+    # Axis labels (LaTeX via MathJax)
+    fig.update_xaxes(title_text=r"$t$", row=1, col=1); fig.update_yaxes(title_text=r"$\|x(t)\|_2$", row=1, col=1)
+    fig.update_xaxes(title_text=r"$t$", row=1, col=2)
+    fig.update_yaxes(title_text=r"$\int_0^t (x^\top Q x + u^\top R u)\,ds$", row=1, col=2)
+    fig.update_xaxes(title_text=r"$\text{initial condition}$", row=1, col=3)
+    fig.update_yaxes(title_text=r"$\text{total cost}$", row=1, col=3)
+    apply_external_legend(fig)
+    add_formula_textbox(
+        fig,
+        r"One controlled trajectory per initial condition (solid; colour = "
+        r"initial-condition index, viridis). Total cost "
+        r"$\int_0^T (x^\top Q x + u^\top R u)\,ds$.",
+    )
     
     metrics = {
         "eval/multi_cost_mean": float(np.mean(costs)),
@@ -868,6 +918,13 @@ def load_training_metrics(filepath: str | Path) -> dict:
 
 def get_statistics_visited_states(metrics, discretization_state) -> go.Figure:
     state_counts = metrics['state_counts'].counter
+    if not state_counts:
+        # No states were recorded (e.g. a very short run): return an annotated
+        # empty figure rather than crashing on next(iter(...)).
+        fig = go.Figure()
+        fig.update_layout(title_text='Visited states distribution (no data)')
+        add_formula_textbox(fig, r"No visited-state counts were recorded for this run.")
+        return fig
     tuple_size = len(next(iter(state_counts)))
 
     fig = make_subplots(
@@ -891,5 +948,13 @@ def get_statistics_visited_states(metrics, discretization_state) -> go.Figure:
             col=dim + 1
         )
     
-    fig.update_layout(height=400, width=1200, title_text='Visited States Distribution')
+    fig.update_layout(height=480, width=1200, title_text='Visited states distribution')
+    for dim in range(tuple_size):
+        fig.update_xaxes(title_text=rf"$x_{dim}$", row=1, col=dim + 1)
+        fig.update_yaxes(title_text=r"$\text{visit count}$", row=1, col=dim + 1)
+    add_formula_textbox(
+        fig,
+        r"Empirical visitation histogram per state dimension over training "
+        r"(states binned at resolution $\Delta x$). Diagnostic / auxiliary.",
+    )
     return fig
