@@ -414,8 +414,11 @@ class CTACSignatureJAX:
             sig_next = jnp.concatenate([sig_next, x_next_scaled])  # type: ignore
         # Value function evaluations (JIT-compiled, no float() sync)
         if self.algorithm.critic_oracle:
-            V_t = x_t.T @ self.P @ x_t
-            V_next = x_next.T @ self.P @ x_next
+            # Value = expected discounted reward (reward = -(x'Qx + u'Ru)), so the LQR
+            # oracle value is the *negative* quadratic form V*(x) = -x' P x, matching
+            # get_value() and base_jax.py. A positive sign here corrupts V_dot and the TD error.
+            V_t = -x_t.T @ self.P @ x_t
+            V_next = -x_next.T @ self.P @ x_next
         else:
             V_t, V_next = self._jit_compute_values(self.critic_params, sig_t, sig_next)
         
