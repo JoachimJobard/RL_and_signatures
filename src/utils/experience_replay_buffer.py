@@ -16,12 +16,12 @@ class Transition:
     x_next: jnp.ndarray
 
 class ExperienceReplayBuffer:
-    def __init__(self, capacity: int, dummy_transition: Transition):
+    def __init__(self, capacity: int, dummy_transition: Transition) -> None:
         self.capacity = capacity
         self.ptr = 0
         self.size = 0
-        
-        def make_storage(x):
+
+        def make_storage(x: object) -> np.ndarray:
             # Handle scalars (float, int, bool) that don't have .shape
             x_arr = np.asarray(x)
             return np.zeros((capacity,) + x_arr.shape, dtype=x_arr.dtype)
@@ -29,8 +29,8 @@ class ExperienceReplayBuffer:
         # Use numpy arrays for mutable in-place storage
         self.storage = jax.tree_util.tree_map(make_storage, dummy_transition)
     
-    def add(self, transition: Transition):
-        def set_item(storage_arr, new_data):
+    def add(self, transition: Transition) -> None:
+        def set_item(storage_arr: np.ndarray, new_data: object) -> None:
             storage_arr[self.ptr] = new_data
         
         jax.tree_util.tree_map(set_item, self.storage, transition)

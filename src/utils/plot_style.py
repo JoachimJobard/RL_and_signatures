@@ -20,6 +20,7 @@ the maths renders in the saved figure.
 from __future__ import annotations
 
 import matplotlib
+import plotly.graph_objects as go
 from matplotlib.colors import to_hex
 
 # Plotly line-dash values for the stroke convention.
@@ -41,7 +42,8 @@ def sequential_colors(n: int, cmap_name: str = "viridis") -> list[str]:
     return [to_hex(cmap(i / (n - 1))) for i in range(n)]
 
 
-def apply_external_legend(fig, *, title: str | None = None, bottom_margin: int = 160):
+def apply_external_legend(fig: go.Figure, *, title: str | None = None,
+                          bottom_margin: int = 160) -> go.Figure:
     """Place the legend outside the axes (centered below them)."""
     fig.update_layout(
         legend=dict(
@@ -56,7 +58,8 @@ def apply_external_legend(fig, *, title: str | None = None, bottom_margin: int =
     return fig
 
 
-def add_formula_textbox(fig, text: str, *, y: float = -0.34, bottom_margin: int = 230):
+def add_formula_textbox(fig: go.Figure, text: str, *, y: float = -0.34,
+                        bottom_margin: int = 230) -> go.Figure:
     """Add an explanatory formula text box below the axes (paper coordinates)."""
     fig.add_annotation(
         text=text,

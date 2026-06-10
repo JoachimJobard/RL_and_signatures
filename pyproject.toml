@@ -41,11 +41,29 @@ dev = [
     "memory-profiler>=0.61.0",
     "memray>=1.19.1",
     "pytest>=8.0",
+    "mypy>=1.11",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
 addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "main_unified.py"]
+# CSAC is quarantined / unsupported (outside the thesis scope) — not type-checked.
+exclude = "src/agents/CSAC_jax.py"
+# JAX / Flax / signax / hydra carry few type stubs; don't fail on their imports.
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+no_implicit_optional = true
+# Pragmatic for a JAX research codebase: type the interfaces, don't require every
+# local helper to be fully annotated (jax arrays are largely `Any` upstream).
+disallow_untyped_defs = false
+disallow_incomplete_defs = true
+warn_return_any = false
 
 [tool.setuptools.packages.find]
 # Tell setuptools exactly which folders contain your python code

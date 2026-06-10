@@ -156,7 +156,7 @@ def _jax_devices() -> dict[str, Any]:
         info["device_count"] = len(devices)
         info["devices"] = [str(d) for d in devices]
         info["default_backend"] = jax.default_backend()
-        info["x64_enabled"] = bool(jax.config.jax_enable_x64)
+        info["x64_enabled"] = bool(getattr(jax.config, "jax_enable_x64", False))
     except Exception:  # noqa: BLE001
         info["devices"] = "jax not available"
     return info
