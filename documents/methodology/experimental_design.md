@@ -84,6 +84,26 @@ present with the past. For the linear-quadratic Bellman functional (Kolmanovskii
 2.4), $\partial_x V = 2P\,\psi(0) + 2\int_{-h}^0 Q(\theta)\psi(\theta)\,d\theta$,
 recovering eq. 2.7: the cross-kernel $Q$ falls out of the *endpoint* derivative.
 
+> **TODO (notation convention — value functional 2.4).** When eq. 2.4 is written
+> out in full here, fix and document the cross-term convention. The value is the
+> quadratic form of a self-adjoint operator on $M_2=\mathbb{R}^n\times
+> L^2([-h,0];\mathbb{R}^n)$ with symmetric block
+> $\begin{psmallmatrix}P & Q\\ Q^{*} & R\end{psmallmatrix}$. Its two off-diagonal
+> blocks $(1,2)$ and $(2,1)$ are mutual transposes; since each cross term is a
+> scalar, $\psi(0)^\top Q\psi(\theta)=\psi(\theta)^\top Q^\top\psi(0)$, so the two
+> add to $2\,\psi(0)^\top\!\int_{-h}^0 Q(t,\theta)\psi(\theta)\,d\theta$.
+> Kolmanovskii lists the term **and its transpose separately** (no explicit 2);
+> the factor-2 single-term form used at line 84 above is the collapsed equivalent.
+> The "2" is exactly what makes $\partial_{\psi(0)}V=2[P\psi(0)+\int Q\psi]$ cancel
+> the $\tfrac12$ in eq. 2.7 to give a unit-coefficient control law. Pick **one**
+> convention and carry it consistently into the kernel Riccati system (2.5)–(2.6):
+> with the factor-2 form $Q$ appears once and must not be double-counted; with the
+> split form each off-diagonal block contributes. The only genuine error is mixing
+> them (keeping both transposed terms *and* a factor of 2). Verify against the book
+> typography directly — the Kolmanovskii–Myshkis PDF is not yet in
+> `documents/references/`, so this note rests on the algebraic identity, not a
+> direct read of eq. 2.4.
+
 In the implementation, with a linear readout $V=\theta^\top\Phi(x_t)$ and the window
 holding the discretised path ($\text{window}[-1]=x(t)$), the control gradient is the
 **discrete vertical derivative** $\theta^\top\,\partial\Phi/\partial\,\text{window}[-1]$
