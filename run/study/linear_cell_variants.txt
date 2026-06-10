@@ -1,9 +1,10 @@
 # Linear-cell study — 5 arms, value-gradient backbone. Env is set in --common
-# (strongly_delayed_oscillator: ~84% oracle gap, so the history genuinely matters).
+# (delayed_velocity_oscillator: open-loop BOUNDED so learnable; Markovian
+# representational ceiling ~28% sub-opt at x0=[1,1] vs the delayed-LQR oracle).
 #
-# H1 (predicted POSITIVE on this env, unlike the weak-delay delay_jax where it was
-# null): the history reps (raw_history, signature) should beat the Markovian rep,
-# because a current-state-only controller is ~1.8x the delayed-LQR oracle here.
+# H1 (predicted POSITIVE; local raw_deg2 reached 20.8% < the 27.8% Markovian
+# ceiling): the history reps (raw_history, signature) should beat the Markovian rep,
+# because a current-state-only controller cannot reach the delayed-LQR oracle here.
 # H2 (predicted NULL, per Kolmanovskii 6.2): signature should NOT beat raw-history,
 # since the optimal control on a linear delayed plant is a LINEAR functional of the
 # history (raw-history already spans it). Critical pair: raw deg 2 vs signature
