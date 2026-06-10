@@ -679,7 +679,7 @@ def create_trajectory_snapshot(
     return fig
 
 
-def conform_initial_state(x0, env_dim: int | None) -> np.ndarray:
+def conform_initial_state(x0: Any, env_dim: int | None) -> np.ndarray:
     """Resize an initial-condition vector to the environment's state dimension.
 
     The configured ``eval.x0_test`` may not match the dimension of the selected
@@ -910,7 +910,7 @@ def save_training_metrics(metrics: dict, filepath: str | Path) -> None:
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     
-    data = {}
+    data: dict[Any, Any] = {}
     for key, value in metrics.items():
         if isinstance(value, list) and len(value) > 0:
             try:
@@ -931,7 +931,9 @@ def load_training_metrics(filepath: str | Path) -> dict:
         return pickle.load(f)
 
 
-def get_statistics_visited_states(metrics, discretization_state) -> go.Figure:
+def get_statistics_visited_states(
+    metrics: dict, discretization_state: float
+) -> go.Figure:
     state_counts = metrics['state_counts'].counter
     if not state_counts:
         # No states were recorded (e.g. a very short run): return an annotated
@@ -949,7 +951,7 @@ def get_statistics_visited_states(metrics, discretization_state) -> go.Figure:
     )
 
     for dim in range(tuple_size):
-        agg = defaultdict(int)
+        agg: defaultdict[Any, int] = defaultdict(int)
         for state, count in state_counts.items():
             agg[state[dim]] += count
 

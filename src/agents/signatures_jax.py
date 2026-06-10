@@ -8,9 +8,12 @@ import numpy as np
 import tqdm
 import pickle
 from pathlib import Path
-from src.utils.dynamic_signature import SlidingSignatureJAX
+from typing import Any, Callable
+from src.utils.dynamic_signature import SlidingSignatureJAX, DequeBuffer
 from src.utils.optim import build_adam
-from src.networks.LQR_actor_critics import ActorFlax, ActorFlaxLayerNorm, CriticFlax, CriticFlaxLayerNorm
+from src.networks.LQR_actor_critics import (
+    ActorFlax, ActorFlaxLayerNorm, CriticFlax, CriticFlaxLayerNorm, CriticFlaxQuadratic,
+)
 from src.utils.step_metrics import StepMetrics
 from src.utils.step_context import StepContextSignature
 from src.utils.state_counter import StateCounter
@@ -40,7 +43,7 @@ class CTACSignatureJAX:
         algorithm: AlgorithmConfig,
         rng_key: int = 42,
         x0: jnp.ndarray | None = None,
-        eval_callback=None,
+        eval_callback: Callable[..., Any] | None = None,
     ):
         self.training = training
         self.discount = discount
@@ -107,10 +110,12 @@ class CTACSignatureJAX:
             self.P = jnp.array(P)
             print("P matrix for optimal value function:\n", P)
     
-    def _init_episode_state(self, x0: jnp.ndarray | None, eval_callback=None) -> None:
+    def _init_episode_state(
+        self, x0: jnp.ndarray | None, eval_callback: Callable[..., Any] | None = None
+    ) -> None:
         self.step_counter = 0
-        self.current_noise = None
-        self.episode_noise_trajectory = None
+        self.current_noise: jax.Array | None = None
+        self.episode_noise_trajectory: jax.Array | None = None
         self.x0 = x0
         self.eval_callback = eval_callback
     
@@ -137,11 +142,13 @@ class CTACSignatureJAX:
             origin_augmentation=self.signature_conf.origin_augmentation,
             time_origin=self.signature_conf.time_origin, bias=self.signature_conf.bias,
         )
-        self._sigma_effective = self.noise.sigma
+        self._sigma_effective: float | jax.Array = self.noise.sigma
 
     def _init_networks(self) -> None:
-        self.actor = self._build_actor()
-        self.critic = self._build_critic()
+        # `critic` is widened to include CriticFlaxQuadratic so the state-based
+        # subclass (CTACJAX in base_jax.py) can override it without a type error.
+        self.actor: ActorFlax | ActorFlaxLayerNorm = self._build_actor()
+        self.critic: CriticFlax | CriticFlaxLayerNorm | CriticFlaxQuadratic = self._build_critic()
         key_a, key_c = jax.random.split(self.key)
         if self.signature_conf.state_augmentation:
             self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
@@ -168,6 +175,7 @@ class CTACSignatureJAX:
     def _build_actor(self) -> ActorFlax | ActorFlaxLayerNorm:
         """Build the actor network."""
         output_dim = self.env.B.shape[1]
+        actor: ActorFlax | ActorFlaxLayerNorm
         if self.network.normalize_sigs:
             actor = ActorFlaxLayerNorm(output_dim=output_dim, stddev=self.network.std_init/10)
         else:
@@ -175,7 +183,8 @@ class CTACSignatureJAX:
         return actor
 
     def _build_critic(self) -> CriticFlax | CriticFlaxLayerNorm:
-        """Build the critic network."""       
+        """Build the critic network."""
+        critic: CriticFlax | CriticFlaxLayerNorm
         if self.network.normalize_sigs:
             critic = CriticFlaxLayerNorm(stddev=self.network.std_init)
         else:
@@ -249,7 +258,7 @@ class CTACSignatureJAX:
     def _compute_value_function(self, sig):
         return self.critic.apply(self.critic_params, sig).squeeze() # type: ignore
 
-    def _select_action(self, state, dt: float) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def _select_action(self, state: jnp.ndarray, dt: float) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Select action with exploration noise."""
         
         # --- Compute effective noise level based on schedule ---
@@ -274,8 +283,9 @@ class CTACSignatureJAX:
         else:
             if self.current_noise is None:
                  self.current_noise = jnp.zeros(self.env.B.shape[1])
-            
+
             # Prepare explicit noise value if GP mode is active
+            assert self.current_noise is not None  # guaranteed by the block above
             explicit_noise_val = jnp.zeros_like(self.current_noise)
             if self.noise.smooth and self.episode_noise_trajectory is not None:
                 # Find index corresponding to current time
@@ -300,7 +310,7 @@ class CTACSignatureJAX:
     # Episode Termination
     # =========================================================================
     
-    def _is_episode_done(self, x: jnp.ndarray, time_only=False) -> bool:
+    def _is_episode_done(self, x: jnp.ndarray, time_only: bool = False) -> bool:
         """Check if episode should terminate.
 
         Uses jax.device_get once to fetch both t and the norm check in a
@@ -308,6 +318,7 @@ class CTACSignatureJAX:
         """
         if self.wrapper.state is None:
             return False
+        done: jax.Array | bool
         if time_only:
             done = self.wrapper.state.t >= self.training.max_time
         else:
@@ -573,6 +584,7 @@ class CTACSignatureJAX:
             setattr(self, '_path_data_dirty', True)
             
     def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
+        action: Any
         if getattr(self.algorithm, 'actor_oracle', False):
             assert self.wrapper.state is not None
             action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
@@ -580,7 +592,7 @@ class CTACSignatureJAX:
             sig = self.sliding_signature.current_signature
             assert self.actor_params is not None
             action = self.actor.apply(self.actor_params, sig)
-            
+
         action = jnp.asarray(action)
         action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
         return jnp.array(action)
@@ -606,7 +618,7 @@ class CTACSignatureJAX:
             Dictionary of training metrics
         """
         # Metric storage
-        metrics_history = {
+        metrics_history: dict[str, Any] = {
             'loss_episodic': [],
             'cost_episodic': [],
             'gradient_actor': [],
@@ -785,11 +797,13 @@ class CTACSignatureJAX:
         # Save state
         saved_state = self.wrapper.state
         buf = self.sliding_signature.buffer
+        saved_buf: Any  # tuple (JAXCircularBuffer state) or deque (DequeBuffer), per branch below
         if hasattr(buf, '_data'):
             saved_buf = (buf._data.copy(), buf._count, buf._head)  # type: ignore[union-attr]
         else:
             from collections import deque
-            saved_buf = deque(buf.buffer, maxlen=buf.size)  # type: ignore[union-attr]
+            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
+            saved_buf = deque(buf.buffer, maxlen=buf.size)
         saved_sig = self.sliding_signature.current_signature
         
         self.key, subkey = jax.random.split(self.key)
@@ -832,12 +846,13 @@ class CTACSignatureJAX:
         if hasattr(buf, '_data'):
             buf._data, buf._count, buf._head = saved_buf  # type: ignore[union-attr]
         else:
-            buf.buffer = saved_buf  # type: ignore[union-attr]
+            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
+            buf.buffer = saved_buf
         self.sliding_signature.current_signature = saved_sig
-        
+
         return total_reward
 
-    def save(self, filename: str):
+    def save(self, filename: str) -> None:
         """Save agent parameters to a file."""
         Path(filename).parent.mkdir(parents=True, exist_ok=True)
         save_dict = {
@@ -872,7 +887,7 @@ class CTACSignatureJAX:
             pickle.dump(save_dict, f)
         print(f"Agent saved to {filename}")
 
-    def load(self, filename: str):
+    def load(self, filename: str) -> None:
         """Load agent parameters from a file.
         
         Args:

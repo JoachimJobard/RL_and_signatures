@@ -118,6 +118,19 @@ Standalone `sbatch` launchers live under `bash_scripts/cluster/jeanzay/` (see it
 
 These replace the Inria-`tau` Hydra submitit launcher (`conf/launcher/slurm.yaml`).
 
+## Type checking
+
+The code is annotated and checked with mypy (config in `pyproject.toml`,
+`[tool.mypy]`):
+
+```bash
+uv run mypy            # checks src/ and main_unified.py (must stay clean)
+```
+
+The config is pragmatic for a JAX codebase (third-party stubs are ignored,
+`disallow_incomplete_defs`), and the quarantined `CSAC_jax.py` is excluded. New
+code should carry type annotations and keep `uv run mypy` clean.
+
 ## Code style
 
 Documentation and comments in English; mathematics in LaTeX in Markdown.

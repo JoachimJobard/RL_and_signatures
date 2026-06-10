@@ -26,6 +26,7 @@ this script's filename via ``run_context.resolve_run_dir``.
 
 import pickle
 from pathlib import Path
+from typing import Any, cast
 
 import hydra
 from hydra.core.hydra_config import HydraConfig
@@ -48,6 +49,7 @@ from src.training.evaluate import (
     load_training_metrics,
     make_eval_callback,
     get_statistics_visited_states,
+    EvaluableAgent,
 )
 from src.utils.run_context import (
     resolve_run_dir,
@@ -68,7 +70,7 @@ SMOKE_TEST_N_EPISODES_THRESHOLD = 100
 SEED_ROLES = ("agent", "eval_init", "eval_x0_fallback")
 
 
-def _training_cfg(cfg: DictConfig):
+def _training_cfg(cfg: DictConfig) -> Any:
     """Return the agent's training block, tolerating both the nested
     (``training:``) and legacy flat (``training_params:``) config schemas."""
     block = cfg.agent.get("training", None)
@@ -77,7 +79,7 @@ def _training_cfg(cfg: DictConfig):
     return block if block is not None else {}
 
 
-def _save_figure(fig, path_without_ext: Path) -> None:
+def _save_figure(fig: Any, path_without_ext: Path) -> None:
     """Persist a Plotly or Matplotlib figure to disk (so figures survive without wandb)."""
     if fig is None:
         return
@@ -119,6 +121,10 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
     )
 
     agent, metrics = train(cfg, eval_callback=snapshot_cb)
+    # The trained agent satisfies both the TrainableAgent and EvaluableAgent
+    # protocols at runtime; expose it under the evaluation interface for the
+    # evaluation/plotting helpers below (no runtime change — same object).
+    agent_eval = cast(EvaluableAgent, agent)
 
     # Log scalars (subsampled for efficiency)
     log_interval = cfg.eval.get("log_interval", 20)
@@ -152,8 +158,8 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
     # Agent vs No Control comparison
     print("  - Comparing with no control...")
     fig_comparison, eval_metrics = compare_with_no_control(
-        agent, x0_test, T_sim, burning_steps=eval_burning_steps,
-    )  # type: ignore
+        agent_eval, x0_test, T_sim, burning_steps=eval_burning_steps,
+    )
     wandb.log({"Agent vs No Control": fig_comparison})
     _save_figure(fig_comparison, run_dir / "figure_agent_vs_no_control")
 
@@ -179,8 +185,8 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
     ]
 
     fig_multi, multi_metrics = evaluate_multiple_trajectories(
-        agent, x0_list, T_sim, burning_steps=eval_burning_steps,
-    )  # type: ignore
+        agent_eval, x0_list, T_sim, burning_steps=eval_burning_steps,
+    )
     wandb.log({"Multiple Trajectories": fig_multi})
     _save_figure(fig_multi, run_dir / "figure_multiple_trajectories")
 
@@ -211,8 +217,8 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
         print("  - Saving evaluation data...")
 
         eval_data = collect_evaluation_data(
-            agent, x0_test, T_sim, burning_steps=eval_burning_steps,
-        )  # type: ignore
+            agent_eval, x0_test, T_sim, burning_steps=eval_burning_steps,
+        )
         eval_data["training_metrics"] = {
             "cost_episodic": np.array(metrics.get("cost_episodic", [])),
             "loss_episodic": np.array(metrics.get("loss_episodic", [])),
@@ -222,8 +228,8 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
         save_evaluation_data(eval_data, run_dir / "eval.pkl")
 
         multi_data = collect_multiple_trajectories_data(
-            agent, x0_list, T_sim, burning_steps=eval_burning_steps,
-        )  # type: ignore
+            agent_eval, x0_list, T_sim, burning_steps=eval_burning_steps,
+        )
         multi_data["config"] = OmegaConf.to_container(cfg, resolve=True)
         save_evaluation_data(multi_data, run_dir / "multi.pkl")
 
@@ -257,7 +263,7 @@ def run_replot(run_dir: Path) -> None:
 
 
 @hydra.main(config_path="conf", config_name="config_unified", version_base=None)
-def main(cfg: DictConfig):
+def main(cfg: DictConfig) -> None:
     """Main entry point with reproducible run context and wandb integration."""
 
     # --- Replot mode: rebuild figures from an existing run directory and exit ---
@@ -298,7 +304,9 @@ def main(cfg: DictConfig):
     context = capture_run_context(
         master_seed=master_seed,
         derived_seeds=derived_seeds,
-        hyperparameters=OmegaConf.to_container(cfg, resolve=True),
+        # to_container returns a broad union; the top-level config resolves to a
+        # mapping at runtime, so narrow it for capture_run_context's signature.
+        hyperparameters=cast("dict[str, Any]", OmegaConf.to_container(cfg, resolve=True)),
         extra={"run_dir": str(run_dir), "agent": agent_name, "env": env_name},
     )
     (run_dir / "run_context.yaml").write_text(OmegaConf.to_yaml(OmegaConf.create(context)))

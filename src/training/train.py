@@ -13,7 +13,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 import numpy as np
 import jax.numpy as jnp
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
 from src.envs.env_rk_jax import JAXDDEEnv
 from src.training.evaluate import conform_initial_state
@@ -141,7 +141,10 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
 # Training Function
 # =============================================================================
 
-def train(cfg: DictConfig, eval_callback=None) -> tuple[TrainableAgent, dict]:
+def train(
+    cfg: DictConfig,
+    eval_callback: Optional[Callable[..., None]] = None,
+) -> tuple[TrainableAgent, dict]:
     """
     Train an agent and return it with metrics.
     
@@ -206,7 +209,10 @@ def train(cfg: DictConfig, eval_callback=None) -> tuple[TrainableAgent, dict]:
 
     # Attach periodic evaluation callback if provided
     if eval_callback is not None:
-        agent.eval_callback = eval_callback 
+        # ``eval_callback`` is declared as a method on the ``TrainableAgent``
+        # Protocol; attaching it as an instance attribute is intentional and
+        # supported at runtime, so the method-assign check is suppressed here.
+        agent.eval_callback = eval_callback  # type: ignore[method-assign]
     
     # Train
     print("\n" + "=" * 60)
@@ -231,7 +237,7 @@ def train(cfg: DictConfig, eval_callback=None) -> tuple[TrainableAgent, dict]:
 # =============================================================================
 
 @hydra.main(config_path="../../conf", config_name="config_unified", version_base=None)
-def main(cfg: DictConfig):
+def main(cfg: DictConfig) -> tuple[TrainableAgent, dict]:
     """Standalone training entry point."""
     print("\n" + "=" * 60)
     print("Configuration")

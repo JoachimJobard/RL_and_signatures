@@ -104,8 +104,8 @@ class MackeyGlass1DEnvWrapper(JAXEnvWrapper):
         n: int = 10,
         p: float = 0.2,
         mu: float = 0.1,
-        x0 = 0.1
-    ):
+        x0: float = 0.1,
+    ) -> None:
         env = MackeyGlass1DEnv(
             delay=delay,
             step_size=step_size,
@@ -169,6 +169,7 @@ if __name__ == "__main__":
         reward_list.append(reward)
         base_delay_steps = env.delay / env.solver_step_size
         adjusted_delay_steps = base_delay_steps
+        assert env_wrapped.state is not None  # reset() above guarantees state is set
         x_delayed = get_delayed_interpolated(env_wrapped.state.buffer, adjusted_delay_steps)  # Store the delayed state for analysis
         delayed_state.append(x_delayed)
 

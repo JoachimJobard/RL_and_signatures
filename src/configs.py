@@ -217,7 +217,7 @@ def from_legacy_params(
     return training, discount, noise, sig, net, algo
 
 
-def configs_to_flat_dict(*configs) -> dict:
+def configs_to_flat_dict(*configs: Any) -> dict:
     """Merge all config objects into a single flat dict (for save/checkpoint compat)."""
     d: dict = {}
     for cfg in configs:

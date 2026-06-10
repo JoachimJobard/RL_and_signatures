@@ -1,4 +1,5 @@
-import jax 
+from typing import Any, Callable
+import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
@@ -6,9 +7,9 @@ import tqdm
 import pickle
 from pathlib import Path
 
-from src.envs.env_rk_jax import JAXEnvWrapper
+from src.envs.env_rk_jax import JAXEnvWrapper, JAXDDEEnv
 from src.networks.LQR_actor_critics import CriticFlax, CriticFlaxLayerNorm
-from src.utils.dynamic_signature import SlidingSignatureJAX
+from src.utils.dynamic_signature import SlidingSignatureJAX, DequeBuffer
 from src.utils.optim import build_adam
 from src.utils.step_context import StepContextSignature
 from src.utils.step_metrics import StepMetrics
@@ -19,7 +20,7 @@ from src.configs import (
 
 class ContinuousValueGradient:
     def __init__(self,
-        env,
+        env: JAXDDEEnv,
         training: TrainingConfig,
         discount: DiscountConfig,
         noise: NoiseConfig,
@@ -28,7 +29,7 @@ class ContinuousValueGradient:
         algorithm: AlgorithmConfig,
         rng_key: int = 42,
         x0: jnp.ndarray | None = None,
-        eval_callback=None,
+        eval_callback: Callable[..., Any] | None = None,
     ):
         self.training = training
         self.discount = discount
@@ -43,7 +44,7 @@ class ContinuousValueGradient:
         self._init_checkpoint_state()
         self._init_networks()
 
-    def _init_env(self, env, rng_key: int, x0) -> None:
+    def _init_env(self, env: JAXDDEEnv, rng_key: int, x0: jnp.ndarray | None) -> None:
         self.env = env
         self.wrapper = JAXEnvWrapper(env, rng_key=jax.random.PRNGKey(rng_key))
         self.Q = env.Q
@@ -61,8 +62,8 @@ class ContinuousValueGradient:
     def _init_episode_state(self) -> None:
         self.episode = 0
         self.step_counter = 0
-        self._sigma_effective = self.noise.sigma
-        self.episode_noise_trajectory = None
+        self._sigma_effective: float | jax.Array = self.noise.sigma
+        self.episode_noise_trajectory: jax.Array | None = None
         self.current_noise = jnp.zeros(self.env.B.shape[1])
         self._cached_path_data: jnp.ndarray | None = None
         self._path_data_dirty = True
@@ -392,7 +393,7 @@ class ContinuousValueGradient:
             Dictionary of training metrics
         """
         # Metric storage
-        metrics_history = {
+        metrics_history: dict[str, Any] = {
             'loss_episodic': [],
             'cost_episodic': [],
             'gradient_actor': [],
@@ -594,13 +595,15 @@ class ContinuousValueGradient:
         # Save state
         saved_state = self.wrapper.state
         buf = self.sliding_signature.buffer
+        saved_buf: Any  # tuple (JAXCircularBuffer state) or deque (DequeBuffer), per branch below
         if hasattr(buf, '_data'):
             # JAXCircularBuffer
             saved_buf = (buf._data.copy(), buf._count, buf._head)  # type: ignore[union-attr]
         else:
             # DequeBuffer
             from collections import deque
-            saved_buf = deque(buf.buffer, maxlen=buf.size)  # type: ignore[union-attr]
+            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
+            saved_buf = deque(buf.buffer, maxlen=buf.size)
         saved_sig = self.sliding_signature.current_signature
         saved_dirty = self._path_data_dirty
         saved_cached = self._cached_path_data
@@ -640,7 +643,8 @@ class ContinuousValueGradient:
         if hasattr(buf, '_data'):
             buf._data, buf._count, buf._head = saved_buf  # type: ignore[union-attr]
         else:
-            buf.buffer = saved_buf  # type: ignore[union-attr]
+            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
+            buf.buffer = saved_buf
         self.sliding_signature.current_signature = saved_sig
         self._path_data_dirty = saved_dirty
         self._cached_path_data = saved_cached

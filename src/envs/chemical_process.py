@@ -111,7 +111,7 @@ if __name__ == "__main__":
     state_list = []
     time_list = []  
     reward_list = []
-    t = 0
+    t: float = 0.0
     for _ in range(200):
         # action = jnp.zeros((2,))  # No control
         action = 1*jnp.sin(t) * jnp.array([1.0, 1.0])  # Example control input

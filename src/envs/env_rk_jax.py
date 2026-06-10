@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 from src.utils.solver_buffer_jax import BufferState, buffer_append, get_delayed_interpolated
@@ -90,7 +90,7 @@ class JAXDDEEnv:
     
     def compute_reward(self, state: EnvState, u: jnp.ndarray) -> jnp.ndarray:
         reward_kernel = self.reward_kernel
-        def body_fun(curr_state: EnvState, _) -> tuple[EnvState, jnp.ndarray]:
+        def body_fun(curr_state: EnvState, _: Any) -> tuple[EnvState, jnp.ndarray]:
             reward = jax.lax.cond(reward_kernel is not None,
                          lambda s: (s.x.T @ self.Q @ s.x + u.T @ self.R @ u),
                          lambda s: -(s.x.T @ self.Q @ s.x + u.T @ self.R @ u),
@@ -100,20 +100,20 @@ class JAXDDEEnv:
         return rewards[-1]
 
 class JAXEnvWrapper:
-    def __init__(self, env: JAXDDEEnv, rng_key=None):
+    def __init__(self, env: JAXDDEEnv, rng_key: Any = None) -> None:
         self.env = env
         self.key = rng_key if rng_key is not None else jax.random.PRNGKey(0)
         self._jit_step = jax.jit(self.env.step)
         self._jit_reset = jax.jit(self.env.reset)
 
-        self._data = []
-        self._time = []
-        self._u_history = []
-        self.state = None
+        self._data: list[np.ndarray] = []
+        self._time: list[float] = []
+        self._u_history: list[np.ndarray] = []
+        self.state: EnvState | None = None
 
-        self.history_function = None
-    
-    def reset(self, rng_key, x0=None, t0=0.0, history_function=None):
+        self.history_function: Callable | None = None
+
+    def reset(self, rng_key: jax.Array, x0: Any = None, t0: float = 0.0, history_function: Callable | None = None) -> jax.Array:
         self._data = []
         self._time = []
         self._u_history = []

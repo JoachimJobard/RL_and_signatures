@@ -7,7 +7,7 @@ import jax.numpy as jnp
 
 
 class ActorNetwork:
-    def __init__(self, input_dim, output_dim, rng:Optional[np.random.Generator]=None):
+    def __init__(self, input_dim: int, output_dim: int, rng: Optional[np.random.Generator] = None) -> None:
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -16,7 +16,7 @@ class ActorNetwork:
         return self.W.T@x
 
 class CriticNetwork:
-    def __init__(self, input_dim, rng:Optional[np.random.Generator]=None):
+    def __init__(self, input_dim: int, rng: Optional[np.random.Generator] = None) -> None:
         self.input_dim = input_dim
         self.feature_dim = input_dim + input_dim * (input_dim - 1) // 2
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -30,7 +30,7 @@ class CriticNetwork:
     def __call__(self, x): return np.dot(self.W, self._compute_features(x))
 
 class CriticOracle:
-    def __init__(self, input_dim, P, rng:Optional[np.random.Generator]=None):
+    def __init__(self, input_dim: int, P: np.ndarray, rng: Optional[np.random.Generator] = None) -> None:
         self.input_dim = input_dim
         self.feature_dim = input_dim + input_dim * (input_dim - 1) // 2
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -50,7 +50,7 @@ class CriticOracle:
         return -x.T @ self.P @ x
 
 class CriticSignature:
-    def __init__(self, input_dim, sliding_signature:SlidingSignature, rng:Optional[np.random.Generator]=None):
+    def __init__(self, input_dim: int, sliding_signature: SlidingSignature, rng: Optional[np.random.Generator] = None) -> None:
         self.input_dim = input_dim
         self.sliding_signature = sliding_signature
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -59,7 +59,7 @@ class CriticSignature:
         return np.dot(self.W, signature)
     
 class ActorSignature:
-    def __init__(self, output_dim, sliding_signature:SlidingSignature, rng:Optional[np.random.Generator]=None):
+    def __init__(self, output_dim: int, sliding_signature: SlidingSignature, rng: Optional[np.random.Generator] = None) -> None:
         self.output_dim = output_dim
         self.sliding_signature = sliding_signature
         self.rng = rng if rng is not None else np.random.default_rng()
@@ -136,11 +136,11 @@ class CriticFlaxQuadratic(nn.Module):
         for i in range(n):
             for j in range(i, n):
                 features.append(x[i] * x[j])
-        features = jnp.stack(features)
-        
+        features_array = jnp.stack(features)
+
         out = nn.Dense(features=1,
                        use_bias=False,
-                       kernel_init=nn.initializers.normal(stddev=self.stdev))(features)
+                       kernel_init=nn.initializers.normal(stddev=self.stdev))(features_array)
         return out.squeeze()
 
 class ActorFlaxSTD(nn.Module):

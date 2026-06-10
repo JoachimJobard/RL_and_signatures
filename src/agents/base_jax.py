@@ -2,11 +2,13 @@
 Continuous-Time Actor-Critic (CTAC) - Modular Implementation
 """
 
+from typing import Any, Callable
 import jax
 from jax.numpy import ndarray
 import numpy as np
 from src.agents.signatures_jax import CTACSignatureJAX
 from src.networks.LQR_actor_critics import CriticFlaxQuadratic
+from src.utils.dynamic_signature import DequeBuffer
 from src.utils.step_metrics import StepMetrics
 from src.utils.step_context import StepContextSignature, StepContextDelayed
 from src.configs import (
@@ -41,7 +43,7 @@ class CTACJAX(CTACSignatureJAX):
         algorithm: AlgorithmConfig,
         rng_key: int = 42,
         x0: jnp.ndarray | None = None,
-        eval_callback=None,
+        eval_callback: Callable[..., Any] | None = None,
     ):
         signature_conf.depth = 2
 
@@ -337,12 +339,14 @@ class CTACJAX(CTACSignatureJAX):
         # Save state
         saved_state = self.wrapper.state
         buf = self.sliding_signature.buffer
+        saved_buf: Any  # tuple (JAXCircularBuffer state) or deque (DequeBuffer), per branch below
         if hasattr(buf, '_data'):
             saved_buf = (buf._data.copy(), buf._count, buf._head)  # type: ignore[union-attr]
         else:
             from collections import deque
-            saved_buf = deque(buf.buffer, maxlen=buf.size)  # type: ignore[union-attr]
-        
+            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
+            saved_buf = deque(buf.buffer, maxlen=buf.size)
+
         self.key, subkey = jax.random.split(self.key)
         x_t = self.wrapper.reset(subkey, x0=np.array(x_init), t0=0.0)
         self._fill_buffer_initial()
@@ -393,11 +397,13 @@ class CTACJAX(CTACSignatureJAX):
         if hasattr(buf, '_data'):
             buf._data, buf._count, buf._head = saved_buf  # type: ignore[union-attr]
         else:
-            buf.buffer = saved_buf  # type: ignore[union-attr]
-        
+            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
+            buf.buffer = saved_buf
+
         return total_reward
 
     def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
+        action: Any
         if getattr(self.algorithm, 'actor_oracle', False):
             assert self.wrapper.state is not None
             action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
