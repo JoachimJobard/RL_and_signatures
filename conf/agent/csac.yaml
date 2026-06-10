@@ -1,4 +1,8 @@
 # CSAC (Continuous Soft Actor-Critic) Agent Configuration
+#
+# QUARANTINED — UNSUPPORTED EXTENSION outside the thesis scope, with known
+# defects (see documents/methodology/code_review.md, F-G1). Not part of the
+# default or supported experiment set. Selecting agent=csac emits a warning.
 
 _target_: src.agents.CSAC_jax.CSAC
 

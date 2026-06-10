@@ -1,6 +1,25 @@
-"""Implementation of CSAC from Huimin Han (Continuous Soft Actor-Critic) using JAX.
+"""Continuous Soft Actor-Critic (CSAC), after Huimin Han, implemented in JAX.
+
+QUARANTINED — UNSUPPORTED EXTENSION.
+
+CSAC is outside the scope of the internship (the thesis defines only the
+signature/vanilla/full-trajectory CTAC variants and the value-gradient agent; no
+soft / entropy-regularised variant). It is NOT validated, is excluded from the
+default and the supported experiment set, and carries known defects documented in
+``documents/methodology/code_review.md`` (finding F-G1) as well as broken module
+imports below. Do not use it for any correctness result tied to the thesis. To
+revive it, give it a source specification and review it like the other agents.
 """
 
+import warnings
+
+warnings.warn(
+    "CSAC (Continuous Soft Actor-Critic) is a quarantined, unsupported extension "
+    "outside the thesis scope and has known defects (see "
+    "documents/methodology/code_review.md, F-G1). It is not part of the supported "
+    "experiment set.",
+    stacklevel=2,
+)
 
 import distrax
 import numpy as np

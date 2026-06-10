@@ -1,5 +1,9 @@
 # CSAC (Continuous Soft Actor-Critic) Agent Configuration
 # Based on: "Continuous Soft Actor-Critic" by Huimin Han et al.
+#
+# QUARANTINED — UNSUPPORTED EXTENSION outside the thesis scope, with known
+# defects (see documents/methodology/code_review.md, F-G1). Not part of the
+# default or supported experiment set.
 
 # =============================================================================
 # Training Hyperparameters
