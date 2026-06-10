@@ -22,6 +22,8 @@ seed: 42                      # single master seed; per-role seeds are derived f
 
 debug: false                  # true: prepend _debug_ to the run dir and bypass the smoke-test guard
 replot: null                  # path to an existing run dir: rebuild figures from saved data and exit
+run_tag: null                 # per-variant folder label (ablation/sweep tasks); defaults to <agent>_<env>
+experiment_group: null        # shared parent sub-folder grouping all tasks of one ablation/sweep
 
 # =============================================================================
 # Evaluation Settings

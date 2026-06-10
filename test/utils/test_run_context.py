@@ -44,6 +44,17 @@ def test_resolve_run_dir_no_seed_suffix():
     assert run_dir.name == "20260101_000000_tag"
 
 
+def test_resolve_run_dir_subdir_groups_under_parent():
+    # An ablation/sweep groups all tasks under a shared sub-folder.
+    run_dir = resolve_run_dir(
+        "run/foo.py", "depth2", seed=0, debug=False, subdir="my_ablation",
+        timestamp="20260101_000000", create=False,
+    )
+    assert run_dir.name == "20260101_000000_depth2_seed0"
+    assert run_dir.parent.name == "my_ablation"
+    assert run_dir.parent.parent.name == "foo"
+
+
 def test_derive_seed_is_deterministic():
     assert derive_seed(42, "model_init") == derive_seed(42, "model_init")
 

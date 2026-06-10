@@ -280,12 +280,19 @@ def main(cfg: DictConfig):
             f"(< {SMOKE_TEST_N_EPISODES_THRESHOLD}). Set debug=true to flag it as exploratory."
         )
 
-    # --- Canonical run directory: data/main_unified/<ts>_<agent>_<env>_seed<seed>/ ---
+    # --- Canonical run directory ---
+    # data/main_unified/[<experiment_group>/]<ts>_<config_tag>_seed<seed>/
+    # config_tag defaults to <agent>_<env>; an ablation/sweep task overrides run_tag
+    # (per-variant label) and experiment_group (shared parent) so its folder is
+    # distinctly named and grouped — see the job-array launcher.
     choices = HydraConfig.get().runtime.choices
     agent_name = choices.get("agent", "agent")
     env_name = choices.get("env", "env")
-    config_tag = f"{agent_name}_{env_name}"
-    run_dir = resolve_run_dir(__file__, config_tag, seed=master_seed, debug=debug)
+    run_tag = cfg.get("run_tag", None)
+    experiment_group = cfg.get("experiment_group", None)
+    config_tag = str(run_tag) if run_tag else f"{agent_name}_{env_name}"
+    run_dir = resolve_run_dir(__file__, config_tag, seed=master_seed, debug=debug,
+                              subdir=str(experiment_group) if experiment_group else None)
 
     # --- Self-contained run context: persist + log ---
     context = capture_run_context(

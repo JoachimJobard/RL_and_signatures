@@ -75,14 +75,16 @@ def resolve_run_dir(
     seed: int | None = None,
     debug: bool = False,
     timestamp: str | None = None,
+    subdir: str | None = None,
     create: bool = True,
 ) -> Path:
     """Build (and optionally create) the canonical run directory.
 
-    Layout: ``data/<script_stem>/<debug_prefix><timestamp>_<config_tag>[_seed<seed>]/``.
+    Layout: ``data/<script_stem>/[<subdir>/]<debug_prefix><timestamp>_<config_tag>[_seed<seed>]/``.
     The ``_debug_`` prefix (for ``debug=True``) sorts exploratory runs to the
     bottom of ``ls`` and lets them be wiped en masse; the seed suffix keeps
-    multi-seed runs of one variant distinguishable at a glance.
+    multi-seed runs of one variant distinguishable at a glance; ``subdir`` groups
+    all tasks of one ablation/sweep under a shared parent directory.
 
     Args:
         script_file: pass ``__file__`` from the running script.
@@ -90,12 +92,16 @@ def resolve_run_dir(
         seed: master seed; appended as ``_seed<seed>`` when not ``None``.
         debug: prepend ``_debug_`` to flag an exploratory run.
         timestamp: override the timestamp (default: :func:`run_timestamp`).
+        subdir: optional grouping sub-folder (e.g. an ablation/experiment-group name).
         create: ``mkdir(parents=True)`` the directory before returning it.
     """
     ts = timestamp if timestamp is not None else run_timestamp()
     debug_prefix = "_debug_" if debug else ""
     seed_suffix = f"_seed{seed}" if seed is not None else ""
-    run_dir = script_data_dir(script_file) / f"{debug_prefix}{ts}_{config_tag}{seed_suffix}"
+    parent = script_data_dir(script_file)
+    if subdir:
+        parent = parent / subdir
+    run_dir = parent / f"{debug_prefix}{ts}_{config_tag}{seed_suffix}"
     if create:
         run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
