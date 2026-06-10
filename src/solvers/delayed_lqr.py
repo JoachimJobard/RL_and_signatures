@@ -138,6 +138,47 @@ def augmented_discrete_lqr(
     )
 
 
+def markovian_oracle_gap(
+    A: np.ndarray,
+    A1: np.ndarray,
+    B: np.ndarray,
+    Q: np.ndarray,
+    R: np.ndarray,
+    x0: np.ndarray,
+    delay: float,
+    dt: float,
+    n_steps: int,
+) -> tuple[float, float, float]:
+    """Relative cost gap of the Markovian LQR vs the delayed-LQR oracle on the
+    delayed plant — an environment-design diagnostic for H1.
+
+    Returns ``(gap, J_oracle, J_markovian)`` where ``gap = (J_markovian -
+    J_oracle)/|J_oracle|``. A *large* gap means a current-state-only controller is
+    far from optimal, i.e. the history genuinely matters and the environment is a
+    strong test of H1 (non-Markovian modelling helps). A near-zero gap (as for the
+    weakly-delayed ``delay_jax``) means the delay barely affects the optimum.
+    """
+    A, A1, B, Q, R = (np.atleast_2d(np.asarray(M, dtype=float)) for M in (A, A1, B, Q, R))
+    oracle = augmented_discrete_lqr(A, A1, B, Q, R, delay, dt)
+    j_oracle = simulate_closed_loop_cost(oracle, A, A1, B, Q, R, x0, n_steps)
+
+    # Markovian LQR gain (current state only) applied to the delayed plant.
+    gain = augmented_discrete_lqr(A, np.zeros_like(A), B, Q, R, 0.0, dt).gain
+    n = A.shape[0]
+    k = int(round(float(delay) / dt))
+    window = np.tile(np.asarray(x0, dtype=float).reshape(n), (k + 1, 1))
+    j_markov = 0.0
+    for _ in range(n_steps):
+        x = window[0]
+        x_delayed = window[k]
+        u = -gain @ x
+        j_markov += float((x @ Q @ x + u @ R @ u) * dt)
+        window = np.vstack([x + dt * (A @ x + A1 @ x_delayed + B @ u), window[:-1]])
+
+    gap = (j_markov - j_oracle) / abs(j_oracle) if j_oracle > 0 else float("nan")
+    return gap, j_oracle, j_markov
+
+
 def simulate_closed_loop_cost(
     lqr: DelayedLQR,
     A: np.ndarray,

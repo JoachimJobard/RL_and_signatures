@@ -1,0 +1,37 @@
+# Strongly-delayed unstable oscillator (linear DDE) — a STRONG H1 test.
+#
+# dx/dt = A x + A1 x(t-tau) + B u, with A = [[0,1],[1,0]] (eigenvalues +/-1, mildly
+# unstable) and A1 = [[0,0],[-5,0]] (strong delayed position feedback). Unlike
+# delay_jax (whose delay is a tiny perturbation, oracle gap ~0.5%), here the delay
+# dominates: a current-state-only (Markovian) LQR costs ~1.8x the delayed-LQR oracle
+# (~84% gap, measured via src.solvers.delayed_lqr.markovian_oracle_gap), so the
+# optimal control genuinely needs the history. Both stabilise (finite cost), so the
+# gap is in OPTIMALITY, not a stabilise-vs-diverge cliff. tau=0.5, step_size=0.05 ->
+# window of ~10 control-step taps.
+environment_params:
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
+  A:
+    _target_: numpy.array
+    object: [[0.0, 1.0], [1.0, 0.0]]
+    dtype: float64
+  B:
+    _target_: numpy.array
+    object: [[0.0], [1.0]]
+    dtype: float64
+  A1:
+    _target_: numpy.array
+    object: [[0.0, 0.0], [-5.0, 0.0]]
+    dtype: float64
+  delay:
+    _target_: numpy.array
+    object: [0.5, 0.5]
+    dtype: float64
+  Q:
+    _target_: numpy.eye
+    N: 2
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+    dtype: float64
+  step_size: 0.05
+  resolution: 4
