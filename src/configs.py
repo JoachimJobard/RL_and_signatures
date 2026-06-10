@@ -34,7 +34,7 @@ class TrainingConfig:
     actor_lr: float = 1e-3
     critic_lr: float = 1e-3
     scale: float = 1.0
-    clip_gradient: float = 10.0
+    clip_gradient: float | None = None  # None/<=0: no gradient clipping (default); else global-norm bound
     clip_action: float = 10.0
     divergence_threshold: float = 50.0
     eval_interval: int = 50
@@ -155,7 +155,7 @@ def from_legacy_params(
         actor_lr=tp.get('actor_lr', 1e-3),
         critic_lr=tp.get('critic_lr', 1e-3),
         scale=tp.get('scale', 1.0),
-        clip_gradient=tp.get('clip_gradient', 10.0),
+        clip_gradient=tp.get('clip_gradient', None),
         clip_action=tp.get('clip_action', 10.0),
         divergence_threshold=tp.get('divergence_threshold', 50.0),
         eval_interval=tp.get('eval_interval', 50),

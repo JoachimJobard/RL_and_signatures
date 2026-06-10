@@ -12,7 +12,7 @@ training:
   actor_lr: 1e-3
   critic_lr: 1e-2
   scale: 1.0
-  clip_gradient: 5.0
+  clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
   clip_action: 5.0
   divergence_threshold: 50.0
   log_interval: 10

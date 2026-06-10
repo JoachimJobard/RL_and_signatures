@@ -9,6 +9,7 @@ import tqdm
 import pickle
 from pathlib import Path
 from src.utils.dynamic_signature import SlidingSignatureJAX
+from src.utils.optim import build_adam
 from src.networks.LQR_actor_critics import ActorFlax, ActorFlaxLayerNorm, CriticFlax, CriticFlaxLayerNorm
 from src.utils.step_metrics import StepMetrics
 from src.utils.step_context import StepContextSignature
@@ -149,9 +150,14 @@ class CTACSignatureJAX:
             self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size))
             self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size))
 
-        #optimizers — absorb dt into learning rate for correct continuous-time scaling
-        self.actor_optimizer = optax.adam(self.training.actor_lr * self.env.step_size, b1=0.1)
-        self.critic_optimizer = optax.adam(self.training.critic_lr * self.env.step_size)
+        #optimizers — absorb dt into learning rate for correct continuous-time scaling.
+        # Gradient clipping is opt-in via training.clip_gradient (global-norm, off by default).
+        self.actor_optimizer = build_adam(
+            self.training.actor_lr * self.env.step_size,
+            clip_gradient=self.training.clip_gradient, b1=0.1)
+        self.critic_optimizer = build_adam(
+            self.training.critic_lr * self.env.step_size,
+            clip_gradient=self.training.clip_gradient)
         self.actor_opt_state = self.actor_optimizer.init(self.actor_params)
         self.critic_opt_state = self.critic_optimizer.init(self.critic_params)
 
@@ -483,9 +489,7 @@ class CTACSignatureJAX:
             (loss, td_error), grads = jax.value_and_grad(critic_loss, has_aux=True)(
                 critic_params, sig_t, sig_next, reward, dt
             )
-            # Clip gradients
-            grads = jax.tree_util.tree_map(lambda g: jnp.clip(g, -10.0, 10.0), grads)
-            
+            # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, critic_params)
             
             new_params = optax.apply_updates(critic_params, updates)
@@ -507,10 +511,7 @@ class CTACSignatureJAX:
         @jax.jit  
         def update_fn(actor_params, opt_state, sig_t, noise, td_error, sigma, dt):
             grads = jax.grad(actor_loss)(actor_params, sig_t, noise, td_error, sigma)
-            
-            # Clip gradients
-            grads = jax.tree_util.tree_map(lambda g: jnp.clip(g, -10.0, 10.0), grads)
-            
+            # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, actor_params)
             
             new_params = optax.apply_updates(actor_params, updates)

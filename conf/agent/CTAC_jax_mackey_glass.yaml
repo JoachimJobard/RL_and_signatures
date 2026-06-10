@@ -34,7 +34,7 @@ training_params:
   scale: 1.0              # State scaling factor
   
   # Safety & Stability
-  clip_gradient: 5.0
+  clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
   clip_action: 5.0
   divergence_threshold: 100.0
 

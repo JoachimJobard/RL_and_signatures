@@ -7,8 +7,9 @@ import pickle
 from pathlib import Path
 
 from src.envs.env_rk_jax import JAXEnvWrapper
-from src.networks.value_gradient_nets import CriticFlax, CriticFlaxLayerNorm
+from src.networks.LQR_actor_critics import CriticFlax, CriticFlaxLayerNorm
 from src.utils.dynamic_signature import SlidingSignatureJAX
+from src.utils.optim import build_adam
 from src.utils.step_context import StepContextSignature
 from src.utils.step_metrics import StepMetrics
 from src.utils.state_counter import StateCounter
@@ -83,7 +84,10 @@ class ContinuousValueGradient:
         )
         self.critic = self._build_network()
         self.target = self._build_network()
-        self.optimizer = optax.adam(learning_rate=self.training.critic_lr * self.env.step_size)
+        # Gradient clipping is opt-in via training.clip_gradient (global-norm, off by default).
+        self.optimizer = build_adam(
+            self.training.critic_lr * self.env.step_size,
+            clip_gradient=self.training.clip_gradient)
 
         key_critic, key_target, self.key = jax.random.split(self.key, 3)
         self.critic_params = self.critic.init(key_critic, jnp.zeros((self.sliding_signature.signature_size,)))
@@ -228,9 +232,7 @@ class ContinuousValueGradient:
             (loss, td_error), grads = jax.value_and_grad(critic_loss, has_aux=True)(
                 critic_params, target_params, sig_t, sig_next, reward, dt
             )
-            # Clip gradients
-            grads = jax.tree_util.tree_map(lambda g: jnp.clip(g, -10.0, 10.0), grads)
-            
+            # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, critic_params)
             
             new_params_critic = optax.apply_updates(critic_params, updates)

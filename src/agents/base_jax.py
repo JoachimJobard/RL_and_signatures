@@ -142,8 +142,7 @@ class CTACJAX(CTACSignatureJAX):
         tau = self.discount.tau
         discounted = self.discount.discounted
         semi_gradient = self.algorithm.semi_gradient
-        clip_gradient = self.training.clip_gradient
-        
+
         @jax.jit
         def critic_update_fn(critic_params, critic_opt_state, x_t, x_next, reward, dt):
             def loss_fn(params):
@@ -160,9 +159,7 @@ class CTACJAX(CTACSignatureJAX):
             
             (loss, td_error), grads = jax.value_and_grad(loss_fn, has_aux=True)(critic_params)
             grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
-            grads = jax.tree_util.tree_map(
-                lambda g: jnp.clip(g, -clip_gradient, clip_gradient), grads
-            )
+            # Gradient clipping (if enabled) is handled by the inherited optimizer (global-norm).
             updates, new_opt_state = critic_optimizer.update(grads, critic_opt_state, critic_params)
             new_params = optax.apply_updates(critic_params, updates)
             return new_params, new_opt_state, loss, td_error, grad_norm
@@ -173,8 +170,7 @@ class CTACJAX(CTACSignatureJAX):
         """Create JIT-compiled actor update for state-based input."""
         actor = self.actor
         actor_optimizer = self.actor_optimizer
-        clip_gradient = self.training.clip_gradient
-        
+
         @jax.jit
         def actor_update_fn(actor_params, actor_opt_state, x, noise, td_error, sigma, dt):
             def loss_fn(params):
@@ -185,9 +181,7 @@ class CTACJAX(CTACSignatureJAX):
             
             loss, grads = jax.value_and_grad(loss_fn)(actor_params)
             grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
-            grads = jax.tree_util.tree_map(
-                lambda g: jnp.clip(g, -clip_gradient, clip_gradient), grads
-            )
+            # Gradient clipping (if enabled) is handled by the inherited optimizer (global-norm).
             updates, new_opt_state = actor_optimizer.update(grads, actor_opt_state, actor_params)
             new_params = optax.apply_updates(actor_params, updates)
             return new_params, new_opt_state, grad_norm
