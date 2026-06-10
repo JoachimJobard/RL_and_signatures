@@ -16,6 +16,7 @@ import jax.numpy as jnp
 from typing import Any, Protocol, runtime_checkable
 
 from src.envs.env_rk_jax import JAXDDEEnv
+from src.training.evaluate import conform_initial_state
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
@@ -196,10 +197,12 @@ def train(cfg: DictConfig, eval_callback=None) -> tuple[TrainableAgent, dict]:
     n_episodes = cfg.agent.get('training', cfg.agent.get('training_params', {})).get('n_episodes', '?')
     print(f"  Episodes: {n_episodes}")
     
-    # Set evaluation / fixed initial state from config
+    # Set evaluation / fixed initial state from config. Conform to the env's state
+    # dimension so a 2D default like [1, 1] does not break training on a 1D env
+    # (e.g. Mackey-Glass), which uses agent.x0 as the fixed initial condition.
     if hasattr(cfg, 'eval') and 'x0_test' in cfg.eval:
-        agent.x0 = jnp.array(np.array(cfg.eval.x0_test))
-        print(f"  Eval x0: {np.array(cfg.eval.x0_test)}")
+        agent.x0 = jnp.array(conform_initial_state(np.array(cfg.eval.x0_test), agent.env.N))
+        print(f"  Eval x0: {np.array(agent.x0)}")
 
     # Attach periodic evaluation callback if provided
     if eval_callback is not None:
