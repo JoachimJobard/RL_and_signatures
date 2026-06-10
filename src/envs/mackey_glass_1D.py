@@ -67,7 +67,6 @@ class MackeyGlass1DEnv(JAXDDEEnv):
         return -(self.mu) * x + mg_nonlinear
     
     def step(self, state: EnvState, u: jnp.ndarray) -> tuple[EnvState, jnp.ndarray, jnp.ndarray,]:
-        eps=1e-3
         def body_fun(curr_state, _):
             # Utilise self.runge_kutta4 qui appelle self.dynamics
             x_next = self.runge_kutta4(curr_state.x, curr_state.buffer, u)
@@ -82,13 +81,12 @@ class MackeyGlass1DEnv(JAXDDEEnv):
 
         final_state, _ = jax.lax.scan(body_fun, state, None, length=self.resolution)
 
-        error = final_state.x - self.x_target  # x_target is now an array
-        delta_u = u - state.last_u  # type: ignore
-        if self.x_target is not None or not jnp.all(self.x_target == 0):
-            cost = error.T @ self.Q @ error + delta_u.T @ self.R @ delta_u + eps * (u.T @ self.R @ u)
-        else:
-            cost = final_state.x.T @ self.Q @ final_state.x + u.T @ self.R @ u
-        reward = -cost.squeeze() 
+        # Quadratic tracking + control-effort cost: (x - x_target)' Q (x - x_target) + u' R u.
+        # With x_target = 0, Q = [[1]], R = [[0.1]] this is x^2 + 0.1 u^2 (control effort,
+        # not control rate). Q, R and x_target are supplied by the environment config.
+        error = final_state.x - self.x_target  # x_target is an array
+        cost = error.T @ self.Q @ error + u.T @ self.R @ u
+        reward = -cost.squeeze()
 
         final_state = final_state._replace(last_u=u)
         
