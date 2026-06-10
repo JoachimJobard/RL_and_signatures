@@ -48,7 +48,7 @@ from src.training.evaluate import (
     load_evaluation_data,
     save_training_metrics,
     load_training_metrics,
-    make_eval_callback,
+    make_training_snapshot_callback,
     get_statistics_visited_states,
     EvaluableAgent,
 )
@@ -108,16 +108,20 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
     print("TRAINING")
     print("=" * 60)
 
-    # Set up periodic trajectory evaluation callback (wandb slider)
+    # Lightweight on-disk training snapshot (wandb-free): every snapshot_interval
+    # episodes it overwrites run_dir/training_snapshot.png (controlled state,
+    # control signal, eval-cost vs episode) + a .npz for replotting. Watch it live
+    # with: open run_dir/training_snapshot.png.
     x0_eval = np.array(cfg.eval.x0_test)
     T_sim_eval = cfg.eval.T_sim
     eval_interval = cfg.eval.get("snapshot_interval", 100)
     eval_burning_steps = cfg.eval.get("burning_steps", 0)
 
-    snapshot_cb = make_eval_callback(
+    snapshot_cb = make_training_snapshot_callback(
         x0=x0_eval,
         T_sim=T_sim_eval,
-        eval_interval=eval_interval,
+        run_dir=run_dir,
+        interval=eval_interval,
         burning_steps=eval_burning_steps,
     )
 

@@ -7,7 +7,15 @@ import plotly.graph_objects as go
 from src.training.evaluate import (
     plot_agent_vs_no_control_from_data,
     plot_multiple_trajectories_from_data,
+    make_training_snapshot_callback,
 )
+
+
+def test_snapshot_callback_is_noop_off_interval(tmp_path):
+    # Off-interval the callback must return before touching the agent (lightweight).
+    cb = make_training_snapshot_callback(x0=[0.0], T_sim=1.0, run_dir=tmp_path, interval=5)
+    cb(agent=None, episode=3)  # not a multiple of 5 -> no-op, no agent needed
+    assert not (tmp_path / "training_snapshot.png").exists()
 
 
 def _synthetic_eval_data(n_state: int = 1, T: int = 11) -> dict:

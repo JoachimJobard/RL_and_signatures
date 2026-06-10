@@ -754,6 +754,78 @@ def make_eval_callback(
     return _callback
 
 
+def make_training_snapshot_callback(
+    x0: np.ndarray,
+    T_sim: float,
+    run_dir: str | Path,
+    interval: int = 100,
+    seed: int = 789,
+    burning_steps: int | None = None,
+) -> Callable:
+    """Lightweight, wandb-free on-disk training snapshot.
+
+    Returns a ``callback(agent, episode)`` that, every ``interval`` episodes, rolls
+    out one short trajectory and OVERWRITES a compact 3-panel PNG in ``run_dir``:
+      (1) controlled state x(t), (2) control signal u(t), (3) eval-cost vs episode.
+    It also writes ``training_snapshot.npz`` with the snapshot arrays so the panels
+    can be replotted/restyled later. Deliberately lightweight: a single overwritten
+    PNG at low dpi, the figure is closed each time, and only a coarse cost history
+    is kept — open ``run_dir/training_snapshot.png`` to watch progress live.
+    """
+    run_dir = Path(run_dir)
+    x0 = np.asarray(x0, dtype=float)
+    episodes: list[int] = []
+    eval_costs: list[float] = []
+
+    def _callback(agent: EvaluableAgent, episode: int) -> None:
+        if interval <= 0 or episode % interval != 0:
+            return
+        env = agent.env
+        Q, R = np.array(env.Q), np.array(env.R)
+        step_size = env.step_size
+        x_target = np.array(env.x_target).flatten() if hasattr(env, 'x_target') else None
+        x_ref = x_target if x_target is not None else np.zeros(env.N)
+
+        x0c = conform_initial_state(x0, getattr(env, "N", None))
+        states, actions, times = simulate_trajectory(
+            agent, x0c, T_sim, seed, burning_steps=burning_steps,
+        )
+        cost = np.array([
+            (states[i + 1] - x_ref).T @ Q @ (states[i + 1] - x_ref)
+            + actions[i].reshape(-1).T @ R @ actions[i].reshape(-1)
+            for i in range(len(actions))
+        ])
+        episodes.append(int(episode))
+        eval_costs.append(float(np.sum(cost) * step_size))
+
+        fig, axes = plt.subplots(1, 3, figsize=(11, 3))
+        for d in range(states.shape[1]):
+            axes[0].plot(times, states[:, d], "-", lw=1.0)
+        if x_target is not None and np.any(x_ref != 0):
+            for d in range(len(x_ref)):
+                axes[0].axhline(float(x_ref[d]), ls=":", color="r", lw=0.8)
+        axes[0].set_title(f"controlled state (ep {episode})")
+        axes[0].set_xlabel("t"); axes[0].set_ylabel("x(t)")
+        for d in range(actions.shape[1]):
+            axes[1].plot(times[:len(actions)], actions[:, d], "-", lw=1.0)
+        axes[1].set_title("control signal u(t)")
+        axes[1].set_xlabel("t"); axes[1].set_ylabel("u(t)")
+        axes[2].plot(episodes, eval_costs, "-o", lw=1.0, ms=3)
+        axes[2].set_title("eval cost vs episode")
+        axes[2].set_xlabel("episode"); axes[2].set_ylabel(r"$\int_0^T c\,dt$")
+        fig.tight_layout()
+        fig.savefig(run_dir / "training_snapshot.png", dpi=80)
+        plt.close(fig)
+
+        np.savez(
+            run_dir / "training_snapshot.npz",
+            episode=np.array(episodes), eval_cost=np.array(eval_costs),
+            times=times, states=states, actions=actions, x_ref=np.asarray(x_ref),
+        )
+
+    return _callback
+
+
 # =============================================================================
 # Data Export
 # =============================================================================
