@@ -1,21 +1,24 @@
-_target_: src.envs.env_rk_jax.JAXDDEEnv
-A: 
-  _target_: jax.numpy.array
-  object: [[-0.1]]
-B: 
-  _target_: jax.numpy.array
-  object: [[1]]
-A1: 
-  _target_: jax.numpy.array
-  object: [[0]]
-delay: 
-  _target_: jax.numpy.array
-  object: [0.0]
-Q: 
-  _target_: jax.numpy.array
-  object: [[1]]
-R: 
-  _target_: jax.numpy.array
-  object: [[1]]
-step_size: 0.05
-resolution: 5
+# Minimal 1D sanity-check environment: dx/dt = -0.1 x + u (no effective delay).
+# Normalised to the standard environment_params schema used by the other env configs.
+environment_params:
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
+  A:
+    _target_: jax.numpy.array
+    object: [[-0.1]]
+  B:
+    _target_: jax.numpy.array
+    object: [[1]]
+  A1:
+    _target_: jax.numpy.array
+    object: [[0]]
+  delay:
+    _target_: jax.numpy.array
+    object: [0.0]
+  Q:
+    _target_: jax.numpy.array
+    object: [[1]]
+  R:
+    _target_: jax.numpy.array
+    object: [[1]]
+  step_size: 0.05
+  resolution: 5
