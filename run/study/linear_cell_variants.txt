@@ -1,0 +1,11 @@
+# Linear-cell study (delay_jax) — 5 arms, value-gradient backbone.
+# H1: Markovian vs the history reps. H2 (predicted NULL here, per Kolmanovskii):
+# signature should NOT beat raw-history, since the optimal control on a linear
+# delayed plant is a LINEAR functional of the history (raw-history spans it).
+# Critical pair: raw deg 2 vs signature depth 2 (both span the quadratic LQR value).
+# Submit per seed reusing --experiment-group; aggregate with the finalize step.
+agent=value_gradient agent.signature.kind=markovian   agent.signature.degree=2 run_tag=markovian_deg2
+agent=value_gradient agent.signature.kind=raw_history  agent.signature.degree=1 run_tag=raw_deg1
+agent=value_gradient agent.signature.kind=raw_history  agent.signature.degree=2 run_tag=raw_deg2
+agent=value_gradient agent.signature.kind=signature    agent.signature.depth=2  run_tag=sig_depth2
+agent=value_gradient agent.signature.kind=signature    agent.signature.depth=3  run_tag=sig_depth3
