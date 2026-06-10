@@ -449,22 +449,13 @@ class ContinuousValueGradient:
             self._fill_buffer_initial()  # Refill signature buffer after reset
             self.current_noise = jnp.zeros(self.env.B.shape[1]) # Initialize noise state
             self._on_episode_start(episode, np.array(x_t, dtype=np.float64))
-            for _ in range(self.algorithm.burning_steps):
-                action = jnp.zeros(self.env.B.shape[1]) #burning with zero action
-                t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
-                self.sliding_signature.append(x_t / self.training.scale)
-                self._path_data_dirty = True
-            if self.algorithm.preheat:
-                for _ in range(self.sliding_signature.window_size):
-                    # action, _, _ = self._select_action(state, self.env.step_size)
-                    action = jnp.zeros(self.env.B.shape[1]) #preheat with zero action
-                    # path_data = self._get_path_data()
-                    # action, _ = self._select_action_jit(self.critic_params, path_data, self.R, self.wrapper.state.x) #type: ignore
-                    t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
-                    self.sliding_signature.append(x_t / self.training.scale)
-                    self._path_data_dirty = True
-            # Start the controlled-horizon clock AFTER burn-in / preheat.
-            self._t_episode_start = float(self.wrapper.state.t)
+            # The DDE initial condition is the initial PATH phi on [-tau, 0], already
+            # loaded into the signature window by _fill_buffer_initial() from the env
+            # history buffer (set at reset via history_function, or constant x_init).
+            # Control begins at t=0 from phi: NO zero-control burn-in, which would
+            # overwrite phi with an uncontrolled-evolution path (the system would drift
+            # into its attractor before control) and advance the episode clock.
+            self._t_episode_start = float(self.wrapper.state.t)  # = t0 = 0
             # Episode accumulators (as JAX arrays to avoid sync)
             episode_loss = jnp.array(0.0)
             episode_cost = jnp.array(0.0)
@@ -573,11 +564,10 @@ class ContinuousValueGradient:
     def _is_episode_done(self, x: jnp.ndarray, time_only: bool = False) -> bool:
         """Check if episode should terminate."""
         t = float(self.wrapper.state.t) if self.wrapper.state is not None else 0.0
-        # max_time measures CONTROLLED time: the horizon clock starts after the
-        # burn-in / preheat zero-action steps (which also advance wrapper.state.t).
-        # _t_episode_start is set just before each rollout's control loop; without it
-        # a large step_size makes burn-in alone exceed max_time and the control loop
-        # never runs (zero training steps).
+        # max_time measures CONTROLLED time: the horizon clock (_t_episode_start) is
+        # set at the start of each rollout's control loop. Control begins at t=0 from
+        # the initial path (no burn-in), so _t_episode_start = 0; the elapsed-time form
+        # is kept so the horizon is robust to any pre-control stepping a caller adds.
         if t - getattr(self, "_t_episode_start", 0.0) >= self.training.max_time:
             return True
         if not time_only:
@@ -631,22 +621,12 @@ class ContinuousValueGradient:
         
         self.key, subkey = jax.random.split(self.key)
         x_t = self.wrapper.reset(subkey, x0=np.array(x_init), t0=0.0)
+        # Initial condition = the initial path phi, loaded into the window by
+        # _fill_buffer_initial (no zero-control burn-in; mirrors train()).
         self._fill_buffer_initial()
-        
-        for _ in range(self.algorithm.burning_steps):
-            action = jnp.zeros(self.env.B.shape[1])
-            _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-            self.sliding_signature.append(x_t / self.training.scale)
-            self._path_data_dirty = True
-        if self.algorithm.preheat:
-            for _ in range(self.sliding_signature.window_size):
-                action = jnp.zeros(self.env.B.shape[1])  # zero action, consistent with training
-                _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-                self.sliding_signature.append(x_t / self.training.scale)
-                self._path_data_dirty = True
 
-        # Start the controlled-horizon clock AFTER burn-in / preheat (mirrors train()).
-        self._t_episode_start = float(self.wrapper.state.t)
+        # Controlled horizon starts at t=0 (initial path already loaded; no burn-in).
+        self._t_episode_start = float(self.wrapper.state.t)  # = 0
         total_cost = 0.0
 
         while not self._is_episode_done(x_t, time_only=True):

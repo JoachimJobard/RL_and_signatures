@@ -64,6 +64,8 @@ network:
 # Algorithm
 # =============================================================================
 algorithm:
-  fix_initial_state: true
-  preheat: true
-  burning_steps: 100
+  # The DDE initial condition is the initial PATH phi on [-tau, 0]: loaded directly
+  # into the signature window from the env history buffer (constant x0 by default, or
+  # a history_function), with control starting at t=0. There is NO zero-control
+  # burn-in / preheat (it would overwrite phi with an uncontrolled-evolution path).
+  fix_initial_state: true   # fix phi = constant x0 across episodes (vs sampling it)
