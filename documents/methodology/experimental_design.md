@@ -66,6 +66,44 @@ comparison. The actor-only vs actor-critic comparison is a **separate, orthogona
 study** (different estimator bias/variance) run with the representation held fixed;
 it is *not* crossed with H1/H2.
 
+#### 2.2.1 The control law as a vertical (functional) derivative
+
+The value is a *functional* of the history segment $x_t\in C[-h,0]$, so "$\partial
+V/\partial x(t)$" in Doya's control law must be read as the **vertical (Dupire)
+functional derivative** $\partial_x V$ — the derivative w.r.t. the *current value*
+$\psi(0)=x(t)$ holding the past fixed. This is the object the delayed-HJB requires:
+the control enters the dynamics only through the instantaneous rate of the current
+state ($\dot x(t)=A\psi(0)+A_1\psi(-h)+Bu$), so the only $u$-dependent term in the
+HJB operator $L_uV$ (Kolmanovskii §6.1, eq. 1.4) is $\langle \partial_x V, Bu\rangle$,
+and stationarity in $u$ (with control cost $u^\top R u$) gives
+
+$$u^\star = -\tfrac{1}{2}R^{-1}B^\top\,\partial_x V(x_t).$$
+
+Crucially the control still depends on the whole history, because $V$ *couples* the
+present with the past. For the linear-quadratic Bellman functional (Kolmanovskii eq.
+2.4), $\partial_x V = 2P\,\psi(0) + 2\int_{-h}^0 Q(\theta)\psi(\theta)\,d\theta$,
+recovering eq. 2.7: the cross-kernel $Q$ falls out of the *endpoint* derivative.
+
+In the implementation, with a linear readout $V=\theta^\top\Phi(x_t)$ and the window
+holding the discretised path ($\text{window}[-1]=x(t)$), the control gradient is the
+**discrete vertical derivative** $\theta^\top\,\partial\Phi/\partial\,\text{window}[-1]$
+(perturb the last sample, hold the earlier ones fixed) — which is what
+`value_gradient_jax` already takes as `grad_path[-1]`. Because $\Phi$ contains
+present–past cross-terms (degree-$\ge 2$ raw-history products, or the signature's
+iterated integrals that mix the endpoint with the path), this endpoint derivative
+carries the history — the discrete image of the $\int Q\psi$ term. This makes the H1
+mechanism exact: the Markovian representation has $\partial\Phi/\partial\,\text{history}=0$
+(no cross-kernel), so its $\partial_x V$ *structurally cannot* depend on the past,
+whereas the raw-history and signature representations have non-zero history
+sensitivity (verified numerically in `test/representations/`).
+
+*Caveat (claim strength).* This is a finite-dimensional surrogate of the vertical
+functional derivative; its convergence to the exact $\partial_x V$ as $dt\to 0$
+depends on the regularity of $V$ (Lipschitz kernels) and the quadrature of the
+$\int Q\psi$ term, and is **not proven here** — only the existence, finiteness, and
+non-vanishing of the surrogate are verified (the prerequisite for a well-defined,
+non-trivial control).
+
 ### 2.3 Environment factor (the regime, with predicted outcomes)
 
 Environments span a `{Markovian, delayed} × {linear, nonlinear}` grid. The
@@ -227,10 +265,16 @@ state-dependent gain $B(x)$). To prevent it from confounding H2:
 ## 9. Design matrix → job arrays
 
 The matrix `representation × environment × (depth/degree) × seed` is encoded as a
-variants file for `experiment_array_launcher.sh` (one task per cell), grouped under
-`data/main_unified/<experiment_group>/`. A finalize/aggregation step combines the
-per-task summaries into the comparison plots (normalised sub-optimality with CIs)
-and a combined summary, on the non-billed `prepost` partition.
+variants file (`run/study/representation_study_variants.txt`) for
+`experiment_array_launcher.sh` (one task per cell), submitted once per seed reusing
+the same `--experiment-group` so all seeds accumulate under
+`data/main_unified/<experiment_group>/`. The finalize/aggregation step
+(`run/study/aggregate_representation_study.py`) discovers the runs, computes the
+delayed-LQR oracle ceiling for the linear cells, and writes the normalised
+sub-optimality (with 95% CIs across seeds), a `summary.yaml`, a machine-readable
+`aggregation_data.json` (so the figure regenerates without recomputation), and the
+`comparison` figure into the group directory — run it on the non-billed `prepost`
+partition via the launcher's `--finalize`.
 
 ## 10. Open items
 
