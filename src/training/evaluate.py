@@ -679,6 +679,20 @@ def create_trajectory_snapshot(
     return fig
 
 
+def conform_initial_state(x0, env_dim: int | None) -> np.ndarray:
+    """Resize an initial-condition vector to the environment's state dimension.
+
+    The configured ``eval.x0_test`` may not match the dimension of the selected
+    environment (e.g. the 2D default ``[1, 1]`` with the 1D Mackey-Glass env).
+    Conforming it here keeps the in-training snapshot evaluation robust to that
+    mismatch instead of raising a shape error inside the env step.
+    """
+    x0 = np.atleast_1d(np.asarray(x0, dtype=float))
+    if env_dim is not None and x0.shape[0] != env_dim:
+        x0 = np.resize(x0, env_dim)
+    return x0
+
+
 def log_trajectory_snapshot(
     agent: EvaluableAgent,
     x0: np.ndarray,
@@ -709,6 +723,7 @@ def log_trajectory_snapshot(
     wandb_key : str
         wandb logging key
     """
+    x0 = conform_initial_state(x0, getattr(agent.env, "N", None))
     fig = create_trajectory_snapshot(
         agent,
         x0,
