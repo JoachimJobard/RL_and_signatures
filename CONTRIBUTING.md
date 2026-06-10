@@ -89,11 +89,19 @@ These are enforced by `src/utils/run_context.py` and described in detail in
 
 ## Tests
 
-Unit tests live under `test/` mirroring `src/` (forthcoming — Phase 3):
+Unit and integration tests live under `test/` mirroring `src/`:
 
 ```bash
-uv run pytest
+uv run pytest                       # full suite (~8 s)
+uv run pytest test/utils            # a subset
 ```
+
+Coverage includes the run-context helper, `build_adam` clipping, the delay-history
+interpolation, signature properties (size, depth-1 identity, translation
+invariance, float32-vs-float64), instantiation of every `conf/env/*.yaml`, the
+Mackey–Glass cost, the RK4 integrator, and a one-episode training smoke test for
+each supported agent. New library code should come with a test mirroring its
+module path.
 
 ## Cluster (Jean Zay)
 
