@@ -1,4 +1,4 @@
-"""Decompose the residual sub-optimality of an *exact-capacity* linear-cell arm.
+"""Decompose the residual sub-optimality of an *exact-capacity* linear-cell variant.
 
 On the linear delayed cell, the spans of the degree-2 raw-history and depth-2
 signature feature maps both contain the delayed-LQR value functional (Kolmanovskii
@@ -21,7 +21,7 @@ script isolates which sub-term dominates, for one or more run directories, by:
    the linear-in-window fit ``R^2`` (control linearity / horizon adequacy), and the
    constant offset (a non-zero offset with near-zero gain is the signature of a
    *representation* failure, e.g. degree-1 raw history whose linear value yields a
-   state-independent control — the under-capacity contrast arm).
+   state-independent control — the under-capacity contrast variant).
 
 Usage:
     uv run python run/study/diagnose_optimization_floor.py RUN_DIR [RUN_DIR ...] --out OUT_DIR
@@ -43,7 +43,7 @@ import numpy as np
 @dataclass
 class FloorDiagnosis:
     run: str
-    arm: str
+    variant: str
     j_agent: float
     j_oracle: float
     rho: float                    # normalised sub-optimality
@@ -178,12 +178,12 @@ def diagnose_run(run_dir: Path) -> FloorDiagnosis:
     action_discrepancy = float(np.sqrt(np.mean((u_agent - u_star_on_agent) ** 2)) / rms_or) \
         if rms_or > 0 else float("nan")
 
-    arm = str(cfg["agent"]["signature"].get("kind", "?")) + (
+    variant = str(cfg["agent"]["signature"].get("kind", "?")) + (
         f"_d{cfg['agent']['signature'].get('depth')}" if cfg["agent"]["signature"].get("kind") == "signature"
         else f"_deg{cfg['agent']['signature'].get('degree')}")
 
     diag = FloorDiagnosis(
-        run=run_dir.name, arm=arm, j_agent=j_agent, j_oracle=j_oracle, rho=rho,
+        run=run_dir.name, variant=variant, j_agent=j_agent, j_oracle=j_oracle, rho=rho,
         t_settle=t_settle, excess_total=e_total,
         excess_transient_fraction=transient_fraction,
         max_abs_u_agent=float(np.max(np.abs(ev["actions"]))),
@@ -212,15 +212,15 @@ def build_figure(diags: list[FloorDiagnosis], out_path: Path) -> None:
 
     for d, c in zip(diags, colors):
         p = d._plot  # type: ignore[attr-defined]
-        axes[0].plot(p["times"], p["excess"], STROKE_TRAINED, color=c, label=d.arm)
+        axes[0].plot(p["times"], p["excess"], STROKE_TRAINED, color=c, label=d.variant)
         axes[0].axvline(p["t_settle"], color=c, ls=STROKE_REFERENCE, alpha=0.4)
         # Identifiable comparison: agent's realised control (solid) vs the oracle law
-        # applied to the agent's OWN windows (dashed) — same colour per arm.
+        # applied to the agent's OWN windows (dashed) — same colour per variant.
         t_u = p["times"][:len(p["u_agent"])]
-        axes[1].plot(t_u, p["u_agent"], STROKE_TRAINED, color=c, alpha=0.9, label=d.arm)
+        axes[1].plot(t_u, p["u_agent"], STROKE_TRAINED, color=c, alpha=0.9, label=d.variant)
         axes[1].plot(t_u, p["u_star_on_agent"], STROKE_REFERENCE, color=c, alpha=0.6)
         t = p["times"][:len(p["cost_agent"])]
-        axes[2].plot(t, p["cost_agent"], STROKE_TRAINED, color=c, alpha=0.8, label=d.arm)
+        axes[2].plot(t, p["cost_agent"], STROKE_TRAINED, color=c, alpha=0.8, label=d.variant)
     p0 = diags[0]._plot  # type: ignore[attr-defined]
     t0 = p0["times"][:len(p0["cost_oracle"])]
     axes[2].plot(t0, p0["cost_oracle"], STROKE_REFERENCE, color="k", alpha=0.8,
@@ -237,7 +237,7 @@ def build_figure(diags: list[FloorDiagnosis], out_path: Path) -> None:
     prepare_figure(
         fig, fname="optimization_floor_diagnosis", axes=list(axes), reserve_bottom=0.24,
         legend_fontsize=7,
-        formula=(r"Exact-capacity arms span the delayed-LQR value class, so the "
+        formula=(r"Exact-capacity variants span the delayed-LQR value class, so the "
                  r"residual is optimization error. Panel 1 dashed vertical = oracle "
                  r"settling time. Panel 2: solid = agent's realised $u$, dashed = "
                  r"oracle law $K^\star$ on the agent's own window (identifiable; the "
@@ -255,11 +255,11 @@ def main() -> None:
 
     diags = [diagnose_run(rd) for rd in args.run_dirs]
 
-    hdr = (f"{'arm':16s} {'rho':>8s} {'E_total':>9s} {'transient%':>10s} "
+    hdr = (f"{'variant':16s} {'rho':>8s} {'E_total':>9s} {'transient%':>10s} "
            f"{'|u|ag/|u|or':>12s} {'u_discrep':>9s} {'R2':>7s} {'offset':>7s} {'winCond':>9s}")
     print("\n" + hdr); print("-" * len(hdr))
     for d in diags:
-        print(f"{d.arm:16s} {d.rho:8.4f} {d.excess_total:9.4f} "
+        print(f"{d.variant:16s} {d.rho:8.4f} {d.excess_total:9.4f} "
               f"{100*d.excess_transient_fraction:9.1f}% "
               f"{d.max_abs_u_agent:5.2f}/{d.max_abs_u_oracle:<5.2f} "
               f"{d.action_discrepancy:9.3f} {d.gain_fit_r2:7.3f} {d.offset_norm:7.4f} "

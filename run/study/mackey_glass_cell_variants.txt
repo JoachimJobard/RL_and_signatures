@@ -8,7 +8,7 @@
 # conditioning lever (dt=1 diverges) — no clipping, no normalisation. A local sanity
 # run (signature depth-2, 120 ep) reached 86.9% cost reduction vs no control.
 #
-# Launch --common (matched information set across arms — same window/cadence/budget):
+# Launch --common (matched information set across variants — same window/cadence/budget):
 #   env=MG_1D_limit_cycle
 #   agent.signature.window_size=28        # covers tau=6 at dt=0.25 (24 taps + margin)
 #   agent.training.max_time=40            # controlled horizon (~10 limit-cycle periods)
@@ -20,14 +20,14 @@
 #
 # Predicted outcomes (documents/methodology/experimental_design.md §2.3):
 #   H1 POSITIVE — the optimal control is a NONLINEAR functional of the history, so the
-#     Markovian (current-state) arm cannot represent it and is far from optimal.
+#     Markovian (current-state) variant cannot represent it and is far from optimal.
 #   H2 POSITIVE — by Arribas Thm 4.2 a linear functional of the depth-m signature is
 #     dense in the continuous (nonlinear) functionals of the path, whereas a linear
 #     functional of the raw history spans only degree-m polynomials. At matched feature
 #     dimension dim(Phi) the signature should attain lower cost than raw history. This
 #     is the cell where H2 is a REPRESENTATIONAL claim, not the linear cell's efficiency
 #     one. There is no analytic oracle here, so the aggregator reports the raw cost J
-#     (commensurable across arms; all arms share the env, seed, window, and budget).
+#     (commensurable across variants; all variants share the env, seed, window, and budget).
 #
 # Capacity sweep (the H2 test): plot J vs dim(Phi); the signature curve should lie below
 # the raw-history curve at matched dim. Critical pair: raw deg 2 vs signature depth 2.

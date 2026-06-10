@@ -184,15 +184,15 @@ Run in order; do not interpret a learned comparison until the relevant rungs pas
 
 ## 4. Fairness protocol (equality of models)
 
-The **only** quantity that varies across the H1/H2 arms is the representation map
+The **only** quantity that varies across the H1/H2 variants is the representation map
 $\Phi$. Everything else is held identical:
 
 1. **Hypothesis class** — the value is a linear functional of $\Phi$,
-   $V=\theta^\top\Phi$, for every arm (Arribas Thm 4.2 is about *linear* functionals
+   $V=\theta^\top\Phi$, for every variant (Arribas Thm 4.2 is about *linear* functionals
    of the signature; a nonlinear parameterisation of $\Phi$ would conflate
    "representation" with "nonlinear approximation" and break the theory link).
 2. **Capacity — fixed hypothesis class, sweep capacity** (the chosen convention).
-   Keep the value linear in $\Phi$ on every arm and **sweep the complexity knob**:
+   Keep the value linear in $\Phi$ on every variant and **sweep the complexity knob**:
    signature depth $m\in\{1,2,3,4\}$ and raw-history polynomial degree / window
    resolution. Plot performance against the **feature dimension** $\dim\Phi$, so a
    "signature wins" conclusion is read off at *matched* $\dim\Phi$ rather than
@@ -204,9 +204,9 @@ $\Phi$. Everything else is held identical:
    oracle value; this equivalence is an explicit unit test.
 3. **Common random numbers.** Same master seed per (variant, seed) cell (shared-seed
    plumbing already in place): identical model init, sampler trajectory, and
-   exploration noise across arms. H1/H2 are reported as **paired** differences.
-4. **Matched information set.** All non-Markovian arms see the *same* history window
-   $h$ at the *same* sampling cadence; only $\Phi$ differs. The Markovian arm sees
+   exploration noise across variants. H1/H2 are reported as **paired** differences.
+4. **Matched information set.** All non-Markovian variants see the *same* history window
+   $h$ at the *same* sampling cadence; only $\Phi$ differs. The Markovian variant sees
    $x(t)$. Equalise the window/cadence first, then vary $\Phi$.
 5. **Everything else identical**: optimiser and its $dt$-scaling, exploration
    process and $\sigma$ schedule, episode/step budget, $Q,R$, integrator and $dt$,
@@ -276,7 +276,7 @@ state-dependent gain $B(x)$). To prevent it from confounding H2:
 - **Replot contract:** every figure regenerable from saved metrics (the
   `replot=<run_dir>` path), so the analysis is auditable without re-running.
 
-### 7.1 Decomposing the residual on exact-capacity arms (the optimization floor)
+### 7.1 Decomposing the residual on exact-capacity variants (the optimization floor)
 
 The value function is parameterised as a **linear functional of the feature map**,
 $V_\theta(x_t)=\theta^\top\Phi(x_t)$. On the linear delayed cell, the degree-2
@@ -284,7 +284,7 @@ monomials of the discretised history and the depth-2 path signature both span th
 **quadratic functionals of the history segment**, and the delayed-LQR value is such a
 quadratic functional (Kolmanovskii eq. 2.4; the depth-2-signature ≈
 degree-2-raw-history equivalence is an explicit unit test, §4). Hence for these
-*exact-capacity* arms $V^\star\in\operatorname{span}\Phi$, the approximation error
+*exact-capacity* variants $V^\star\in\operatorname{span}\Phi$, the approximation error
 $\inf_\theta\lVert V_\theta-V^\star\rVert=0$ **by construction**, and the residual
 normalised sub-optimality $\rho=(J(\hat\theta)-J^\star)/|J^\star|$ is **optimization
 error**, not approximation error. It is the sum of three sub-terms:
@@ -302,11 +302,11 @@ error**, not approximation error. It is the sum of three sub-terms:
    oracle's history-feedback law $u^\star$ (Kolmanovskii 2.7).
 
 **Empirical findings** (`run/study/diagnose_optimization_floor.py`; one seed of each
-arm on `delayed_velocity_oscillator`; claim strength: measured). The diagnostic rolls
+variant on `delayed_velocity_oscillator`; claim strength: measured). The diagnostic rolls
 the delayed-LQR oracle through the *same* `collect_evaluation_data` path and reports:
 
 - **Representation is adequate (confirmed).** The agent's control is *exactly* affine
-  in the history window ($R^2=1.000$ for both exact-capacity arms), as a quadratic
+  in the history window ($R^2=1.000$ for both exact-capacity variants), as a quadratic
   $V_\theta$ requires. The under-capacity contrast — degree-1 raw history, whose
   *linear* $V_\theta$ has a state-independent vertical derivative — produces a
   near-constant control ($|u|\approx0.02$, no state feedback): a representation
