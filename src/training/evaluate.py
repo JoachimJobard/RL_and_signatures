@@ -12,14 +12,12 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import wandb
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import matplotlib
 
 from src.utils.dynamic_signature import SlidingSignature
 from src.utils.plot_style import (
     STROKE_TRAINED, STROKE_REFERENCE, STROKE_AUXILIARY,
-    sequential_colors, apply_external_legend, add_formula_textbox,
+    sequential_colors, prepare_figure,
 )
 matplotlib.use('Agg')  # Non-interactive backend for wandb logging
 import matplotlib.pyplot as plt
@@ -84,71 +82,90 @@ def log_training_metrics(metrics: dict, log_interval: int = 1) -> None:
         wandb.log(log_dict, step=i)
 
 
-def plot_training_metrics(metrics: dict) -> go.Figure:
-    """Create comprehensive dashboard of training metrics."""
-    # Determine available metrics
+def plot_training_metrics(metrics: dict) -> matplotlib.figure.Figure:
+    """Create a comprehensive dashboard of training metrics (Matplotlib).
+
+    All plotted curves are measured training quantities and therefore solid
+    (``STROKE_TRAINED``); the actor-gradient overlay is the sole exception, drawn
+    dashed only to distinguish it from the critic gradient in a shared panel.
+    """
     has_actor = 'actor_weights' in metrics and len(metrics.get('actor_weights', [])) > 0
     has_signature = 'signature_weights' in metrics and len(metrics.get('signature_weights', [])) > 0
-    
+
     n_cols = 3
     n_rows = 2 if (has_actor or has_signature) else 1
-    
-    subplot_titles = ['Episodic Cost', 'Episodic Loss', 'Gradient Magnitude']
-    if n_rows == 2:
-        subplot_titles.extend(['Critic Weights', 'Actor Weights' if has_actor else 'N/A', 
-                               'Signature Features' if has_signature else 'N/A'])
-    
-    fig = make_subplots(
-        rows=n_rows, cols=n_cols,
-        subplot_titles=subplot_titles,
-        vertical_spacing=0.16, horizontal_spacing=0.08
-    )
-    
-    # Row 1: Scalars
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 3.5 * n_rows + 1.2),
+                             squeeze=False)
+    fig.suptitle("Training metrics", fontsize=13)
+
+    # Row 1: scalar training signals.
+    ax = axes[0, 0]
     if 'cost_episodic' in metrics:
-        fig.add_trace(go.Scatter(y=metrics['cost_episodic'], mode='lines', name='Cost'), row=1, col=1)
+        ax.plot(metrics['cost_episodic'], STROKE_TRAINED, label='Cost')
+    ax.set_title('Episodic cost')
+    ax.set_ylabel(r"$\sum_t (x^\top Q x + u^\top R u)$")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[0, 1]
     if 'loss_episodic' in metrics:
-        fig.add_trace(go.Scatter(y=metrics['loss_episodic'], mode='lines', name='Loss'), row=1, col=2)
+        ax.plot(metrics['loss_episodic'], STROKE_TRAINED, label='Loss')
+    ax.set_title('Episodic loss')
+    ax.set_ylabel(r"$\frac{1}{2}\,\delta^2$")
+    ax.grid(True, alpha=0.3)
+
+    ax = axes[0, 2]
     if 'gradient_critic' in metrics:
-        fig.add_trace(go.Scatter(y=metrics['gradient_critic'], mode='lines', name='Critic Grad'), row=1, col=3)
+        ax.plot(metrics['gradient_critic'], STROKE_TRAINED, label='Critic grad')
     if 'gradient_actor' in metrics:
-        fig.add_trace(go.Scatter(y=metrics['gradient_actor'], mode='lines', name='Actor Grad', 
-                                  line=dict(dash='dash')), row=1, col=3)
-    
-    # Row 2: Weights
+        ax.plot(metrics['gradient_actor'], STROKE_REFERENCE, label='Actor grad')
+    ax.set_title('Gradient magnitude')
+    ax.set_ylabel(r"$\|\nabla\|_2$")
+    ax.grid(True, alpha=0.3)
+
+    # Row 2: weight / feature trajectories (sequential colour over the index).
     if n_rows == 2:
+        ax = axes[1, 0]
         if 'critic_weights' in metrics and len(metrics['critic_weights']) > 0:
-            critic_weights = np.array(metrics['critic_weights'])
-            for i in range(min(5, critic_weights.shape[1])):
-                fig.add_trace(go.Scatter(y=critic_weights[:, i, 0], mode='lines', 
-                                        name=f'C{i}', opacity=0.7), row=2, col=1)
-        
+            cw = np.array(metrics['critic_weights'])
+            cols = sequential_colors(min(5, cw.shape[1]))
+            for i in range(min(5, cw.shape[1])):
+                ax.plot(cw[:, i, 0], STROKE_TRAINED, color=cols[i], alpha=0.8,
+                        label=f'C{i}')
+        ax.set_title('Critic weights')
+        ax.grid(True, alpha=0.3)
+
+        ax = axes[1, 1]
         if has_actor:
-            actor_weights = np.array(metrics['actor_weights'])
-            for i in range(min(6, actor_weights.shape[1])):
-                fig.add_trace(go.Scatter(y=actor_weights[:, i, 0], mode='lines', 
-                                        name=f'A{i}', opacity=0.7), row=2, col=2)
-        
+            aw = np.array(metrics['actor_weights'])
+            cols = sequential_colors(min(6, aw.shape[1]))
+            for i in range(min(6, aw.shape[1])):
+                ax.plot(aw[:, i, 0], STROKE_TRAINED, color=cols[i], alpha=0.8,
+                        label=f'A{i}')
+        ax.set_title('Actor weights' if has_actor else 'N/A')
+        ax.grid(True, alpha=0.3)
+
+        ax = axes[1, 2]
         if has_signature:
-            sig_weights = np.array(metrics['signature_weights'])
-            max_points = min(1000, sig_weights.shape[0])
-            for i in range(min(6, sig_weights.shape[1])):
-                fig.add_trace(go.Scatter(y=sig_weights[:max_points, i], mode='lines', 
-                                        name=f'Sig{i}', opacity=0.7), row=2, col=3)
-    
-    fig.update_layout(height=350 * n_rows + 140, width=1200, title_text='Training metrics')
-    # Axis labels (LaTeX via MathJax). All curves are measured training quantities (solid).
-    for col in range(1, n_cols + 1):
-        fig.update_xaxes(title_text=r"$\text{episode}$", row=n_rows, col=col)
-    fig.update_yaxes(title_text=r"$\sum_t (x^\top Q x + u^\top R u)$", row=1, col=1)
-    fig.update_yaxes(title_text=r"$\tfrac{1}{2}\,\delta^2$", row=1, col=2)
-    fig.update_yaxes(title_text=r"$\|\nabla\|_2$", row=1, col=3)
-    apply_external_legend(fig)
-    add_formula_textbox(
-        fig,
-        r"$\delta = r + \dot V - V/\tau$ (continuous-time TD error); "
-        r"running cost $x^\top Q x + u^\top R u$. All curves are measured training "
-        r"quantities (solid stroke).",
+            sw = np.array(metrics['signature_weights'])
+            max_points = min(1000, sw.shape[0])
+            cols = sequential_colors(min(6, sw.shape[1]))
+            for i in range(min(6, sw.shape[1])):
+                ax.plot(sw[:max_points, i], STROKE_TRAINED, color=cols[i], alpha=0.8,
+                        label=f'Sig{i}')
+        ax.set_title('Signature features' if has_signature else 'N/A')
+        ax.grid(True, alpha=0.3)
+
+    for col in range(n_cols):
+        axes[n_rows - 1, col].set_xlabel("episode")
+
+    # External legend (collected across panels) + formula box, with overlap check.
+    prepare_figure(
+        fig, fname="figure_training_metrics", axes=list(axes.ravel()),
+        reserve_bottom=0.22, legend_fontsize=7,
+        formula=(r"$\delta = r + \dot V - V/\tau$ (continuous-time TD error); "
+                 r"running cost $x^\top Q x + u^\top R u$. All curves are measured "
+                 r"training quantities (solid stroke)."),
     )
     return fig
 
@@ -336,10 +353,15 @@ def compute_trajectory_cost(
 # Comparison Figures
 # =============================================================================
 
-def plot_agent_vs_no_control_from_data(data: dict, *, title: str | None = None) -> go.Figure:
+def plot_agent_vs_no_control_from_data(data: dict, *, title: str | None = None) -> matplotlib.figure.Figure:
     """Build the agent-vs-no-control figure from collected data alone (no agent),
     so the figure can be rebuilt and restyled a posteriori from the saved data
-    (see collect_evaluation_data). ``title`` overrides the default figure title."""
+    (see collect_evaluation_data). ``title`` overrides the default figure title.
+
+    Stroke convention: controlled (agent) trajectory solid (``STROKE_TRAINED``),
+    uncontrolled baseline dashed (``STROKE_REFERENCE``), target / set-point dotted
+    (``STROKE_AUXILIARY``).
+    """
     times = np.asarray(data['times'])
     states_agent = np.asarray(data['states_agent'])
     states_no_ctrl = np.asarray(data['states_no_ctrl'])
@@ -351,93 +373,88 @@ def plot_agent_vs_no_control_from_data(data: dict, *, title: str | None = None) 
     x0 = np.asarray(data['x0'])
     x_ref = np.asarray(data['x_ref'])
     has_target = bool(data['has_target'])
+    n_dim = states_agent.shape[1]
 
-    # Figure - adapt subplot title based on whether we have a target
-    error_title = 'Error from Target' if has_target else 'State Norm'
-    fig = make_subplots(rows=2, cols=3, subplot_titles=(
-        'State Evolution', 'Control Actions', 'Cumulative Cost',
-        'Phase Portrait', error_title, 'Instantaneous Cost'
-    ), vertical_spacing=0.12, horizontal_spacing=0.08)
-    
-    # State evolution (with target line only if has_target)
-    for i in range(states_agent.shape[1]):
-        fig.add_trace(go.Scatter(x=times, y=states_agent[:, i], mode='lines', 
-                                name=f'Agent x{i}'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=times, y=states_no_ctrl[:, i], mode='lines', 
-                                name=f'NoCtrl x{i}', line=dict(dash='dash')), row=1, col=1)
-        # Add target line only if target exists and is non-zero
+    fig, axes = plt.subplots(2, 3, figsize=(13, 8))
+
+    # (0,0) State evolution — agent solid, uncontrolled dashed, target dotted.
+    ax = axes[0, 0]
+    for i in range(n_dim):
+        ax.plot(times, states_agent[:, i], STROKE_TRAINED, label=f'Agent $x_{i}$')
+        ax.plot(times, states_no_ctrl[:, i], STROKE_REFERENCE, alpha=0.7,
+                label=f'No ctrl $x_{i}$')
         if has_target and i < len(x_ref):
-            fig.add_trace(go.Scatter(x=[times[0], times[-1]], y=[x_ref[i], x_ref[i]], 
-                                    mode='lines', name=f'Target x{i}', 
-                                    line=dict(dash='dot', color='red')), row=1, col=1)
-    
-    # Control actions
+            ax.axhline(x_ref[i], color='red', ls=STROKE_AUXILIARY, alpha=0.6,
+                       label=f'Target $x_{i}$')
+    ax.set_title('State evolution'); ax.set_xlabel(r"$t$"); ax.set_ylabel(r"$x(t)$")
+    ax.grid(True, alpha=0.3)
+
+    # (0,1) Control actions (trained, solid).
+    ax = axes[0, 1]
     for i in range(actions_agent.shape[1]):
-        fig.add_trace(go.Scatter(x=times[:-1], y=actions_agent[:, i], mode='lines', 
-                                name=f'Agent u{i}'), row=1, col=2)
-    # Cumulative cost
-    fig.add_trace(go.Scatter(x=times[:len(cum_cost_agent)], y=cum_cost_agent, 
-                            mode='lines', name='Agent'), row=1, col=3)
-    fig.add_trace(go.Scatter(x=times[:len(cum_cost_no_ctrl)], y=cum_cost_no_ctrl, 
-                            mode='lines', name='NoCtrl', line=dict(dash='dash')), row=1, col=3)
-    
-    # Phase portrait (if 2D or more) - else show state over time
-    if states_agent.shape[1] >= 2:
-        fig.add_trace(go.Scatter(x=states_agent[:, 0], y=states_agent[:, 1], 
-                                mode='lines', name='Agent'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=states_no_ctrl[:, 0], y=states_no_ctrl[:, 1], 
-                                mode='lines', name='NoCtrl', line=dict(dash='dash')), row=2, col=1)
-        fig.add_trace(go.Scatter(x=[x0[0]], y=[x0[1]], mode='markers', 
-                                name='x0', marker=dict(size=10)), row=2, col=1)
-        # Add target point only if has_target and 2D
+        ax.plot(times[:len(actions_agent)], actions_agent[:, i], STROKE_TRAINED,
+                label=f'$u_{i}$')
+    ax.set_title('Control actions'); ax.set_xlabel(r"$t$"); ax.set_ylabel(r"$u(t)$")
+    ax.grid(True, alpha=0.3)
+
+    # (0,2) Cumulative cost.
+    ax = axes[0, 2]
+    ax.plot(times[:len(cum_cost_agent)], cum_cost_agent, STROKE_TRAINED, label='_nolegend_')
+    ax.plot(times[:len(cum_cost_no_ctrl)], cum_cost_no_ctrl, STROKE_REFERENCE,
+            alpha=0.7, label='_nolegend_')
+    ax.set_title('Cumulative cost'); ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$\int_0^t c\,ds$")
+    ax.grid(True, alpha=0.3)
+
+    # (1,0) Phase portrait (>=2D) or state-over-time (1D).
+    ax = axes[1, 0]
+    if n_dim >= 2:
+        ax.plot(states_agent[:, 0], states_agent[:, 1], STROKE_TRAINED, label='_nolegend_')
+        ax.plot(states_no_ctrl[:, 0], states_no_ctrl[:, 1], STROKE_REFERENCE,
+                alpha=0.7, label='_nolegend_')
+        ax.plot([x0[0]], [x0[1]], marker='o', ms=8, ls='none', color='k', label='$x_0$')
         if has_target and len(x_ref) >= 2:
-            fig.add_trace(go.Scatter(x=[x_ref[0]], y=[x_ref[1]], mode='markers', 
-                                    name='Target', marker=dict(size=12, symbol='star', color='red')), row=2, col=1)
+            ax.plot([x_ref[0]], [x_ref[1]], marker='*', ms=12, ls='none',
+                    color='red', label='Target')
+        ax.set_xlabel(r"$x_1$"); ax.set_ylabel(r"$x_2$")
     else:
-        # 1D case: show state over time
-        fig.add_trace(go.Scatter(x=times, y=states_agent[:, 0], mode='lines', 
-                                name='Agent'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=times, y=states_no_ctrl[:, 0], mode='lines', 
-                                name='NoCtrl', line=dict(dash='dash')), row=2, col=1)
-    
-    # Error/norm from reference (target if exists, else origin)
+        ax.plot(times, states_agent[:, 0], STROKE_TRAINED, label='_nolegend_')
+        ax.plot(times, states_no_ctrl[:, 0], STROKE_REFERENCE, alpha=0.7, label='_nolegend_')
+        ax.set_xlabel(r"$t$"); ax.set_ylabel(r"$x(t)$")
+    ax.set_title('Phase portrait' if n_dim >= 2 else 'State')
+    ax.grid(True, alpha=0.3)
+
+    # (1,1) Error / norm from reference (target if present, else origin).
+    ax = axes[1, 1]
     error_agent = np.linalg.norm(states_agent - x_ref, axis=1)
     error_no_ctrl = np.linalg.norm(states_no_ctrl - x_ref, axis=1)
-    fig.add_trace(go.Scatter(x=times, y=error_agent, mode='lines', name='Agent'), row=2, col=2)
-    fig.add_trace(go.Scatter(x=times, y=error_no_ctrl, mode='lines', 
-                            name='NoCtrl', line=dict(dash='dash')), row=2, col=2)
-    
-    # Instantaneous cost
-    fig.add_trace(go.Scatter(x=times[:len(cost_agent)], y=cost_agent, mode='lines', 
-                            name='Agent', opacity=0.7), row=2, col=3)
-    fig.add_trace(go.Scatter(x=times[:len(cost_no_ctrl)], y=cost_no_ctrl, mode='lines', 
-                            name='NoCtrl', line=dict(dash='dash'), opacity=0.7), row=2, col=3)
-    
-    # Title with target info only if has_target
+    ax.plot(times, error_agent, STROKE_TRAINED, label='_nolegend_')
+    ax.plot(times, error_no_ctrl, STROKE_REFERENCE, alpha=0.7, label='_nolegend_')
+    ax.set_title('Error from target' if has_target else 'State norm')
+    ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$\|x-x_{\mathrm{ref}}\|_2$" if has_target else r"$\|x\|_2$")
+    ax.grid(True, alpha=0.3)
+
+    # (1,2) Instantaneous cost.
+    ax = axes[1, 2]
+    ax.plot(times[:len(cost_agent)], cost_agent, STROKE_TRAINED, alpha=0.8, label='_nolegend_')
+    ax.plot(times[:len(cost_no_ctrl)], cost_no_ctrl, STROKE_REFERENCE, alpha=0.7,
+            label='_nolegend_')
+    ax.set_title('Instantaneous cost'); ax.set_xlabel(r"$t$"); ax.set_ylabel(r"$c(t)$")
+    ax.grid(True, alpha=0.3)
+
     target_str = f", target={x_ref}" if has_target else ""
-    fig.update_layout(height=820, width=1200,
-                      title_text=f"Agent vs no control ($x_0={x0}{target_str}$)")
-    # Axis labels (LaTeX via MathJax)
-    fig.update_xaxes(title_text=r"$t$", row=1, col=1); fig.update_yaxes(title_text=r"$x(t)$", row=1, col=1)
-    fig.update_xaxes(title_text=r"$t$", row=1, col=2); fig.update_yaxes(title_text=r"$u(t)$", row=1, col=2)
-    fig.update_xaxes(title_text=r"$t$", row=1, col=3)
-    fig.update_yaxes(title_text=r"$\int_0^t c\,ds$", row=1, col=3)
-    fig.update_xaxes(title_text=(r"$x_1$" if states_agent.shape[1] >= 2 else r"$t$"), row=2, col=1)
-    fig.update_yaxes(title_text=(r"$x_2$" if states_agent.shape[1] >= 2 else r"$x(t)$"), row=2, col=1)
-    fig.update_xaxes(title_text=r"$t$", row=2, col=2)
-    fig.update_yaxes(title_text=(r"$\|x-x_{\mathrm{ref}}\|_2$" if has_target else r"$\|x\|_2$"), row=2, col=2)
-    fig.update_xaxes(title_text=r"$t$", row=2, col=3); fig.update_yaxes(title_text=r"$c(t)$", row=2, col=3)
-    apply_external_legend(fig)
-    add_formula_textbox(
-        fig,
-        r"Controlled (agent) trajectory: solid; uncontrolled baseline: dashed; "
-        r"target / set-point: dotted. Instantaneous cost "
-        r"$c=(x-x_{\mathrm{ref}})^\top Q (x-x_{\mathrm{ref}}) + u^\top R u$; "
-        r"cumulative cost $\int_0^t c\,ds$.",
+    default_title = f"Agent vs no control ($x_0={x0}{target_str}$)"
+    fig.suptitle(title if title is not None else default_title, fontsize=12)
+
+    prepare_figure(
+        fig, fname="figure_agent_vs_no_control", axes=list(axes.ravel()),
+        reserve_bottom=0.22, legend_fontsize=7,
+        formula=(r"Controlled (agent) trajectory: solid; uncontrolled baseline: "
+                 r"dashed; target / set-point: dotted. Instantaneous cost "
+                 r"$c=(x-x_{\mathrm{ref}})^\top Q (x-x_{\mathrm{ref}}) + u^\top R u$; "
+                 r"cumulative cost $\int_0^t c\,ds$."),
     )
-    
-    if title is not None:
-        fig.update_layout(title_text=title)
     return fig
 
 
@@ -447,20 +464,20 @@ def compare_with_no_control(
     T_sim: float,
     seed: int = 456,
     burning_steps: int | None = None,
-) -> tuple[go.Figure, dict]:
+) -> tuple[matplotlib.figure.Figure, dict]:
     """Compare agent vs uncontrolled system: collect the trajectory data, then build
     the figure from it. Returns (figure, metrics); the same data drives the replot."""
     data = collect_evaluation_data(agent, x0, T_sim, seed, burning_steps=burning_steps)
     return plot_agent_vs_no_control_from_data(data), data['eval_metrics']
 
 
-def plot_multiple_trajectories_from_data(multi_data: dict, *, title: str | None = None) -> go.Figure:
+def plot_multiple_trajectories_from_data(multi_data: dict, *, title: str | None = None) -> matplotlib.figure.Figure:
     """Build the multiple-initial-conditions figure from collected data alone (no
     agent), so it can be rebuilt and restyled a posteriori. ``title`` overrides the
     default. Colour encodes the initial-condition index (sequential viridis)."""
     trajectories = multi_data['trajectories']
     n = len(trajectories)
-    fig = make_subplots(rows=1, cols=3, subplot_titles=('State Norms', 'Cumulative Costs', 'Final Costs'))
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
     colors = sequential_colors(n)
 
     totals = []
@@ -471,29 +488,29 @@ def plot_multiple_trajectories_from_data(multi_data: dict, *, title: str | None 
         norm = np.linalg.norm(states, axis=1)
         totals.append(float(cum_cost[-1]) if len(cum_cost) else 0.0)
         color = colors[idx]
-        fig.add_trace(go.Scatter(x=times, y=norm, mode='lines',
-                                 name=f'x0={idx}', line=dict(color=color)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=times[:len(cum_cost)], y=cum_cost, mode='lines',
-                                 line=dict(color=color), showlegend=False), row=1, col=2)
+        # Trained trajectories are solid; the sweep over initial conditions is in colour.
+        axes[0].plot(times, norm, STROKE_TRAINED, color=color, label=f'$x_0$={idx}')
+        axes[1].plot(times[:len(cum_cost)], cum_cost, STROKE_TRAINED, color=color)
 
-    fig.add_trace(go.Bar(x=[f'x0_{i}' for i in range(n)], y=totals,
-                         marker_color=colors[:n], showlegend=False), row=1, col=3)
-    fig.update_layout(height=520, width=1200, title_text='Multiple initial conditions')
-    # Axis labels (LaTeX via MathJax)
-    fig.update_xaxes(title_text=r"$t$", row=1, col=1); fig.update_yaxes(title_text=r"$\|x(t)\|_2$", row=1, col=1)
-    fig.update_xaxes(title_text=r"$t$", row=1, col=2)
-    fig.update_yaxes(title_text=r"$\int_0^t (x^\top Q x + u^\top R u)\,ds$", row=1, col=2)
-    fig.update_xaxes(title_text=r"$\text{initial condition}$", row=1, col=3)
-    fig.update_yaxes(title_text=r"$\text{total cost}$", row=1, col=3)
-    apply_external_legend(fig)
-    add_formula_textbox(
-        fig,
-        r"One controlled trajectory per initial condition (solid; colour = "
-        r"initial-condition index, viridis). Total cost "
-        r"$\int_0^T (x^\top Q x + u^\top R u)\,ds$.",
+    axes[2].bar([f'$x_0$={i}' for i in range(n)], totals, color=colors[:n])
+
+    axes[0].set_title('State norms'); axes[0].set_xlabel(r"$t$")
+    axes[0].set_ylabel(r"$\|x(t)\|_2$"); axes[0].grid(True, alpha=0.3)
+    axes[1].set_title('Cumulative costs'); axes[1].set_xlabel(r"$t$")
+    axes[1].set_ylabel(r"$\int_0^t (x^\top Q x + u^\top R u)\,ds$")
+    axes[1].grid(True, alpha=0.3)
+    axes[2].set_title('Final costs'); axes[2].set_xlabel("initial condition")
+    axes[2].set_ylabel("total cost"); axes[2].grid(True, alpha=0.3, axis='y')
+    axes[2].tick_params(axis='x', labelrotation=45)
+
+    fig.suptitle(title if title is not None else 'Multiple initial conditions', fontsize=12)
+    prepare_figure(
+        fig, fname="figure_multiple_trajectories", axes=list(axes.ravel()),
+        reserve_bottom=0.26, legend_fontsize=7,
+        formula=(r"One controlled trajectory per initial condition (solid; colour = "
+                 r"initial-condition index, viridis). Total cost "
+                 r"$\int_0^T (x^\top Q x + u^\top R u)\,ds$."),
     )
-    if title is not None:
-        fig.update_layout(title_text=title)
     return fig
 
 
@@ -503,7 +520,7 @@ def evaluate_multiple_trajectories(
     T_sim: float,
     base_seed: int = 100,
     burning_steps: int | None = None,
-) -> tuple[go.Figure, dict]:
+) -> tuple[matplotlib.figure.Figure, dict]:
     """Evaluate on multiple initial conditions: collect the data, then build the
     figure from it. Returns (figure, metrics); the same data drives the replot."""
     data = collect_multiple_trajectories_data(agent, x0_list, T_sim, base_seed,
@@ -995,45 +1012,42 @@ def load_training_metrics(filepath: str | Path) -> dict:
 
 def get_statistics_visited_states(
     metrics: dict, discretization_state: float
-) -> go.Figure:
+) -> matplotlib.figure.Figure:
     state_counts = metrics['state_counts'].counter
     if not state_counts:
         # No states were recorded (e.g. a very short run): return an annotated
         # empty figure rather than crashing on next(iter(...)).
-        fig = go.Figure()
-        fig.update_layout(title_text='Visited states distribution (no data)')
-        add_formula_textbox(fig, r"No visited-state counts were recorded for this run.")
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.set_title('Visited states distribution (no data)')
+        ax.set_axis_off()
+        prepare_figure(
+            fig, fname="figure_visited_states", reserve_bottom=0.18,
+            formula=r"No visited-state counts were recorded for this run.")
         return fig
     tuple_size = len(next(iter(state_counts)))
 
-    fig = make_subplots(
-        rows=1,
-        cols=tuple_size,
-        subplot_titles=[f"State Dimension {i}" for i in range(tuple_size)]
-    )
-
+    fig, axes = plt.subplots(1, tuple_size, figsize=(4 * tuple_size, 4.2),
+                             squeeze=False)
+    axes = axes[0]
+    bar_colors = sequential_colors(tuple_size)
     for dim in range(tuple_size):
         agg: defaultdict[Any, int] = defaultdict(int)
         for state, count in state_counts.items():
             agg[state[dim]] += count
-
-        x = list(agg.keys())
-        x = [elem*discretization_state for elem in x]
+        x = [elem * discretization_state for elem in agg.keys()]
         y = list(agg.values())
+        ax = axes[dim]
+        ax.bar(x, y, width=discretization_state, color=bar_colors[dim],
+               align='center')
+        ax.set_title(f"State dimension {dim}")
+        ax.set_xlabel(rf"$x_{dim}$")
+        ax.set_ylabel("visit count")
+        ax.grid(True, alpha=0.3, axis='y')
 
-        fig.add_trace(
-            go.Bar(x=x, y=y, name=f"Dim {dim}"),
-            row=1,
-            col=dim + 1
-        )
-    
-    fig.update_layout(height=480, width=1200, title_text='Visited states distribution')
-    for dim in range(tuple_size):
-        fig.update_xaxes(title_text=rf"$x_{dim}$", row=1, col=dim + 1)
-        fig.update_yaxes(title_text=r"$\text{visit count}$", row=1, col=dim + 1)
-    add_formula_textbox(
-        fig,
-        r"Empirical visitation histogram per state dimension over training "
-        r"(states binned at resolution $\Delta x$). Diagnostic / auxiliary.",
+    fig.suptitle('Visited states distribution', fontsize=12)
+    prepare_figure(
+        fig, fname="figure_visited_states", axes=list(axes), reserve_bottom=0.20,
+        formula=(r"Empirical visitation histogram per state dimension over training "
+                 r"(states binned at resolution $\Delta x$). Diagnostic / auxiliary."),
     )
     return fig

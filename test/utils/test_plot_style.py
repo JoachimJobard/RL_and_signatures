@@ -1,7 +1,10 @@
-"""Tests for the shared Plotly plot-style helpers and a styled figure."""
+"""Tests for the shared Matplotlib plot-style helpers and a styled figure."""
 
 import numpy as np
-import plotly.graph_objects as go
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from src.utils.plot_style import (
     sequential_colors,
@@ -28,22 +31,32 @@ def test_sequential_colors_edge_cases():
 
 def test_stroke_constants_are_distinct():
     assert len({STROKE_TRAINED, STROKE_REFERENCE, STROKE_AUXILIARY}) == 3
+    # Matplotlib linestyles: solid / dashed / dotted.
+    assert (STROKE_TRAINED, STROKE_REFERENCE, STROKE_AUXILIARY) == ("-", "--", ":")
 
 
 def test_external_legend_is_below_axes():
-    fig = go.Figure(go.Scatter(y=[1, 2, 3], name="a"))
-    apply_external_legend(fig)
-    assert fig.layout.legend.y is not None and fig.layout.legend.y < 0
-    assert fig.layout.showlegend is True
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3], label="a")
+    legend = apply_external_legend(fig, y=0.06)
+    assert legend is not None
+    # Figure-level legend (external), not attached to the axes.
+    assert legend in fig.legends
+    # Anchored in the lower strip of the figure (below the axes box).
+    anchor = legend.get_bbox_to_anchor()
+    y_fig = fig.transFigure.inverted().transform((anchor.x0, anchor.y0))[1]
+    assert y_fig < ax.get_position().y0
+    plt.close(fig)
 
 
 def test_formula_textbox_added_below_axes():
-    fig = go.Figure(go.Scatter(y=[1, 2, 3]))
-    add_formula_textbox(fig, r"$c = x^\top Q x + u^\top R u$")
-    texts = [a.text for a in fig.layout.annotations]
-    assert any("Q x" in t for t in texts)
-    box = [a for a in fig.layout.annotations if "Q x" in a.text][0]
-    assert box.yref == "paper" and box.y < 0
+    fig, ax = plt.subplots()
+    ax.plot([1, 2, 3])
+    art = add_formula_textbox(fig, r"$c = x^\top Q x + u^\top R u$")
+    assert art is not None and art in fig.texts
+    # Positioned in figure coordinates, below the axes box.
+    assert art.get_position()[1] < ax.get_position().y0
+    plt.close(fig)
 
 
 def test_plot_training_metrics_is_styled():
@@ -53,8 +66,8 @@ def test_plot_training_metrics_is_styled():
         "gradient_critic": np.abs(np.random.default_rng(0).standard_normal(50)),
     }
     fig = plot_training_metrics(metrics)
-    # External legend below the axes
-    assert fig.layout.legend.y < 0
-    # A formula text box (paper-referenced, below the axes) is present
-    assert any(a.yref == "paper" and a.y < 0 and "delta" in a.text.lower()
-               for a in fig.layout.annotations)
+    # External figure-level legend is present.
+    assert len(fig.legends) >= 1
+    # A formula text box mentioning the TD-error delta is present below the figure.
+    assert any("delta" in t.get_text().lower() for t in fig.texts)
+    plt.close(fig)

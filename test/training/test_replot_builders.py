@@ -2,7 +2,11 @@
 figures are rebuildable and restyleable a posteriori."""
 
 import numpy as np
-import plotly.graph_objects as go
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.figure
+import matplotlib.pyplot as plt
 
 from src.training.evaluate import (
     plot_agent_vs_no_control_from_data,
@@ -43,19 +47,23 @@ def _synthetic_eval_data(n_state: int = 1, T: int = 11) -> dict:
 
 def test_agent_vs_no_control_builds_from_data():
     fig = plot_agent_vs_no_control_from_data(_synthetic_eval_data(n_state=2))
-    assert isinstance(fig, go.Figure)
-    assert len(fig.data) > 0  # traces were added from the data alone
+    assert isinstance(fig, matplotlib.figure.Figure)
+    # Curves were drawn from the data alone (no agent).
+    assert any(ax.lines for ax in fig.axes)
+    plt.close(fig)
 
 
 def test_agent_vs_no_control_title_override():
     fig = plot_agent_vs_no_control_from_data(_synthetic_eval_data(), title="My custom title")
-    assert fig.layout.title.text == "My custom title"
+    assert fig._suptitle is not None and fig._suptitle.get_text() == "My custom title"
+    plt.close(fig)
 
 
 def test_multiple_trajectories_builds_from_data():
     multi = {"trajectories": [_synthetic_eval_data(), _synthetic_eval_data()],
              "n_trajectories": 2, "metrics": {}}
     fig = plot_multiple_trajectories_from_data(multi, title="multi")
-    assert isinstance(fig, go.Figure)
-    assert fig.layout.title.text == "multi"
-    assert len(fig.data) > 0
+    assert isinstance(fig, matplotlib.figure.Figure)
+    assert fig._suptitle is not None and fig._suptitle.get_text() == "multi"
+    assert any(ax.lines for ax in fig.axes)
+    plt.close(fig)

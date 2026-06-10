@@ -3,7 +3,11 @@
 import importlib.util
 import sys
 
-import plotly.graph_objects as go
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.figure
+import matplotlib.pyplot as plt
 
 from src.utils.run_context import find_repo_root
 
@@ -16,6 +20,9 @@ sys.modules[_spec.name] = agg  # register so dataclasses can resolve __module__
 _spec.loader.exec_module(agg)  # type: ignore
 RunRecord, aggregate, build_comparison_figure = (
     agg.RunRecord, agg.aggregate, agg.build_comparison_figure
+)
+CellAggregate, load_cells, save_comparison_figure = (
+    agg.CellAggregate, agg.load_cells, agg.save_comparison_figure
 )
 
 
@@ -58,5 +65,24 @@ def test_build_comparison_figure_from_cells():
         {"JAXDDEEnv": 1.0},
     )
     fig = build_comparison_figure(cells)
-    assert isinstance(fig, go.Figure)
-    assert len(fig.data) >= 1
+    assert isinstance(fig, matplotlib.figure.Figure)
+    assert len(fig.axes) >= 1
+    assert any(ax.lines or ax.containers for ax in fig.axes)
+    plt.close(fig)
+
+
+def test_replot_from_aggregation_json_roundtrip(tmp_path):
+    import json
+    from dataclasses import asdict
+    cells = aggregate(
+        [_rec("signature", 2, "JAXDDEEnv", 0, 2.0, 30, True),
+         _rec("raw_history", 2, "JAXDDEEnv", 0, 2.5, 14, True)],
+        {"JAXDDEEnv": 1.0},
+    )
+    # Persist exactly as the full pipeline does, then rebuild from JSON alone.
+    (tmp_path / "aggregation_data.json").write_text(
+        json.dumps([asdict(c) for c in cells]))
+    reloaded = load_cells(tmp_path)
+    assert [asdict(c) for c in reloaded] == [asdict(c) for c in cells]
+    save_comparison_figure(reloaded, tmp_path)
+    assert (tmp_path / "comparison.png").exists()

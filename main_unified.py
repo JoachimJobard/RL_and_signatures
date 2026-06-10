@@ -81,17 +81,18 @@ def _training_cfg(cfg: DictConfig) -> Any:
 
 
 def _save_figure(fig: Any, path_without_ext: Path) -> None:
-    """Persist a Plotly or Matplotlib figure to disk (so figures survive without wandb)."""
+    """Persist a Matplotlib figure to disk as PNG (so figures survive without wandb).
+
+    The builders already place the external legend and formula box via
+    ``src.utils.plot_style.prepare_figure`` and run the layout-overlap check; saving
+    with ``bbox_inches="tight"`` keeps those figure-level artists from being clipped.
+    """
     if fig is None:
         return
-    if hasattr(fig, "write_html"):  # Plotly — include MathJax so LaTeX labels render
-        fig.write_html(str(path_without_ext) + ".html", include_mathjax="cdn")
-        try:  # best-effort static export (paper-ready); requires kaleido
-            fig.write_image(str(path_without_ext) + ".png", width=1200, height=700)
-        except Exception as exc:  # noqa: BLE001 — HTML is the primary artefact
-            print(f"    (static PNG export skipped: {type(exc).__name__})")
-    elif hasattr(fig, "savefig"):  # Matplotlib
+    if hasattr(fig, "savefig"):  # Matplotlib
         fig.savefig(str(path_without_ext) + ".png", dpi=150, bbox_inches="tight")
+        import matplotlib.pyplot as plt
+        plt.close(fig)
 
 
 def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:

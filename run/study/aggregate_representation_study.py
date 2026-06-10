@@ -185,43 +185,76 @@ def aggregate(records: list[RunRecord], oracle_by_env: dict[str, float] | None) 
 
 def build_comparison_figure(cells: list[CellAggregate]):
     """One panel per environment: metric (sub-optimality or cost) vs feature
-    dimension, a series per representation kind, with 95% CI error bars."""
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    from src.utils.plot_style import apply_external_legend, add_formula_textbox
+    dimension, a series per representation kind, with 95% CI error bars
+    (Matplotlib). All series are trained-agent results and therefore solid; the
+    representation kind is encoded in colour."""
+    import matplotlib.pyplot as plt
+    from src.utils.plot_style import STROKE_TRAINED, prepare_figure
 
     envs = sorted({c.env_name for c in cells})
     kind_color = {"signature": "#440154", "raw_history": "#21918c", "markovian": "#fde725"}
-    fig = make_subplots(rows=1, cols=max(1, len(envs)),
-                        subplot_titles=[e for e in envs] or ["(no data)"])
-    for col, env in enumerate(envs, start=1):
+    n_panels = max(1, len(envs))
+    fig, axes = plt.subplots(1, n_panels, figsize=(max(5.6, 4.8 * n_panels), 4.6),
+                             squeeze=False)
+    axes = axes[0]
+    # Reserve room for the long normalised-sub-optimality y-axis label (it otherwise
+    # spills past the canvas on a single narrow panel — flagged by check_layout).
+    fig.subplots_adjust(left=0.16 if n_panels == 1 else 0.09, right=0.97, wspace=0.32)
+
+    handles_by_kind: dict[str, Any] = {}
+    for col, env in enumerate(envs):
+        ax = axes[col]
         for kind in ("signature", "raw_history", "markovian"):
             cs = sorted((c for c in cells if c.env_name == env and c.kind == kind),
                         key=lambda c: c.feature_dim)
             if not cs:
                 continue
-            fig.add_trace(go.Scatter(
-                x=[c.feature_dim for c in cs], y=[c.mean for c in cs],
-                error_y=dict(type="data", array=[c.ci95 for c in cs], visible=True),
-                mode="lines+markers", name=kind, legendgroup=kind,
-                showlegend=(col == 1), line=dict(color=kind_color.get(kind)),
-            ), row=1, col=col)
+            line = ax.errorbar(
+                [c.feature_dim for c in cs], [c.mean for c in cs],
+                yerr=[c.ci95 for c in cs], fmt=f"o{STROKE_TRAINED}",
+                color=kind_color.get(kind), capsize=3, label=kind)
+            handles_by_kind.setdefault(kind, line)
         sub = any(c.metric_is_suboptimality for c in cells if c.env_name == env)
-        fig.update_xaxes(title_text=r"$\dim\Phi$", type="log", row=1, col=col)
-        fig.update_yaxes(
-            title_text=(r"$(J-J_{\mathrm{oracle}})/|J_{\mathrm{oracle}}|$" if sub else r"$J$"),
-            row=1, col=col)
-    fig.update_layout(height=460, width=460 * max(1, len(envs)),
-                      title_text="Representation comparison (value-gradient backbone)")
-    apply_external_legend(fig)
-    add_formula_textbox(
-        fig,
-        r"H1: history (raw / signature) vs Markovian. H2: signature vs raw-history at "
-        r"matched readout, swept capacity ($\dim\Phi$). Linear-delayed cells report "
-        r"normalised sub-optimality vs the delayed-LQR oracle; error bars are 95% CIs "
-        r"across seeds.",
+        ax.set_xscale("log")
+        ax.set_title(env)
+        ax.set_xlabel(r"$\dim\Phi$")
+        ax.set_ylabel(r"$(J-J_{\mathrm{oracle}})/|J_{\mathrm{oracle}}|$" if sub else r"$J$")
+        ax.grid(True, alpha=0.3)
+    if not envs:
+        axes[0].set_title("(no data)")
+
+    fig.suptitle("Representation comparison (value-gradient backbone)", fontsize=12)
+    handles = list(handles_by_kind.values())
+    labels = list(handles_by_kind.keys())
+    prepare_figure(
+        fig, fname="comparison", axes=list(axes),
+        handles=handles or None, labels=labels or None,
+        reserve_bottom=0.26, legend_fontsize=8,
+        formula=(r"H1: history (raw / signature) vs Markovian. H2: signature vs "
+                 r"raw-history at matched readout, swept capacity ($\dim\Phi$). "
+                 r"Linear-delayed cells report normalised sub-optimality vs the "
+                 r"delayed-LQR oracle; error bars are 95% CIs across seeds."),
     )
     return fig
+
+
+# =============================================================================
+# Figure rebuild (no recomputation)
+# =============================================================================
+
+def load_cells(group_dir: Path) -> list[CellAggregate]:
+    """Reload the aggregated cells from ``aggregation_data.json`` (written by a prior
+    full run), so the comparison figure rebuilds without re-discovering runs or
+    recomputing the oracle — the repo's figure-rebuild contract."""
+    data = json.loads((group_dir / "aggregation_data.json").read_text())
+    return [CellAggregate(**d) for d in data]
+
+
+def save_comparison_figure(cells: list[CellAggregate], group_dir: Path) -> None:
+    import matplotlib.pyplot as plt
+    fig = build_comparison_figure(cells)
+    fig.savefig(str(group_dir / "comparison.png"), dpi=150, bbox_inches="tight")
+    plt.close(fig)
 
 
 # =============================================================================
@@ -231,10 +264,24 @@ def build_comparison_figure(cells: list[CellAggregate]):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("group_dir", type=Path, help="data/main_unified/<experiment-group>/")
+    parser.add_argument("--replot", action="store_true",
+                        help="rebuild comparison.png from the existing "
+                             "aggregation_data.json, without re-discovering runs or "
+                             "recomputing the oracle (pure plotting; runs anywhere).")
     args = parser.parse_args()
     group_dir = args.group_dir
     if not group_dir.is_dir():
         raise SystemExit(f"Not a directory: {group_dir}")
+
+    if args.replot:
+        agg_json = group_dir / "aggregation_data.json"
+        if not agg_json.exists():
+            raise SystemExit(f"--replot needs {agg_json} (run a full aggregation first).")
+        cells = load_cells(group_dir)
+        save_comparison_figure(cells, group_dir)
+        print(f"[aggregate] rebuilt comparison.png from {agg_json.name} "
+              f"({len(cells)} cells) in {group_dir}")
+        return
 
     print(f"[aggregate] discovering runs under {group_dir} ...")
     records = discover_runs(group_dir)
@@ -254,13 +301,8 @@ def main() -> None:
     (group_dir / "summary.yaml").write_text(yaml.safe_dump(
         {"n_runs": len(records), "cells": [asdict(c) for c in cells]}, sort_keys=False))
 
-    fig = build_comparison_figure(cells)
-    fig.write_html(str(group_dir / "comparison.html"), include_mathjax="cdn")
-    try:
-        fig.write_image(str(group_dir / "comparison.png"), width=460 * max(1, len({c.env_name for c in cells})), height=460)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[aggregate] static PNG export skipped: {type(exc).__name__}")
-    print(f"[aggregate] wrote summary.yaml, aggregation_data.json, comparison.html/png in {group_dir}")
+    save_comparison_figure(cells, group_dir)
+    print(f"[aggregate] wrote summary.yaml, aggregation_data.json, comparison.png in {group_dir}")
 
 
 if __name__ == "__main__":
