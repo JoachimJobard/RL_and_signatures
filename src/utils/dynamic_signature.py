@@ -161,15 +161,44 @@ class SlidingSignatureJAX:
         
         @jax.jit
         def compute_sig(data: jnp.ndarray) -> jnp.ndarray:
-            """Compute signature from data array."""
+            """Compute the signature of the augmented windowed path.
+
+            Implements the path augmentation of Perez Arribas (2018), "Derivatives
+            pricing using signature payoffs", Definition p.5:
+
+                X_hat_t = ( t , X_t , (X_0 / T) * t ) ,   t in [0, T],
+
+            three channels in this order:
+              (1) a strictly monotone time channel t. By Theorem 4.2 (and its proof,
+                  p.6) this monotone coordinate makes the signature injective — it
+                  determines the augmented path uniquely — which is what licenses the
+                  universal approximation of payoffs/value functions by linear
+                  functionals of the signature.
+              (2) the state path X_t itself.
+              (3) a linear "basepoint" ramp (X_0 / T) * t, running 0 at the window
+                  start up to X_0 (the earliest, lower-integration-limit state) at the
+                  window end; its total increment is exactly X_0, which injects the
+                  absolute level so that level-dependent functionals stay linear in the
+                  signature (paper p.6 examples).
+
+            `data[0]` is the earliest (window-start) sample, i.e. X_0. T is the
+            (normalized) window length `time_origin` (default 1.0). The signature is
+            invariant under translating a channel by a constant, so writing the ramp
+            as 0 -> X_0 here is equivalent to any constant-shifted variant of the same
+            increment, and the time-channel normalization only rescales that channel
+            (absorbed by the downstream critic/actor layer). Channels are ordered
+            (t, X, ramp) to match the paper.
+            """
             n = data.shape[0]
             if origin_aug:
-                relative_times = jnp.linspace(-time_origin, 0.0, n).reshape(-1, 1)
-                origin = jnp.array(data[0] * relative_times)  # Scale origin by relative time
+                # Channel 3: (X_0 / T) * t, ramping 0 -> X_0 over the window (Perez Arribas p.5).
+                elapsed_fraction = jnp.linspace(0.0, 1.0, n).reshape(-1, 1)
+                origin = data[0] * elapsed_fraction
                 data = jnp.concatenate([data, origin], axis=1)
             if time_aug:
-                relative_times = jnp.linspace(-time_origin, 0.0, n).reshape(-1, 1)
-                data = jnp.concatenate([relative_times, data], axis=1)
+                # Channel 1: monotone time t in [0, T], prepended (Perez Arribas p.5).
+                time_channel = jnp.linspace(0.0, time_origin, n).reshape(-1, 1)
+                data = jnp.concatenate([time_channel, data], axis=1)
             sig = sig_transform(data)
             if bias:
                 return jnp.concatenate([jnp.array([1.0]), sig])

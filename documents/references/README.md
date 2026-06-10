@@ -16,3 +16,12 @@ reinforcement learning for non-Markovian (delayed) dynamics.
   continuous-time actor-critic algorithms implemented in this repository, the
   experimental methodology, and the results obtained so far (some experiments
   remain to be completed).
+
+- **`I. Perez Arribas - Derivatives pricing using signature payoffs (2018).pdf`**
+  Source of the path-signature representation used in this codebase. Its
+  Definition (p.5) gives the augmented path $\widehat{X}_t = (t,\,X_t,\,(X_0/T)\,t)$
+  — a monotone time channel, the state path, and a linear basepoint ramp — and its
+  Theorem 4.2 (p.6) is the universal-approximation result (linear functionals of
+  the signature of the augmented path are dense in continuous payoffs), with the
+  monotone time channel making the signature injective. The signature feature map
+  in `src/utils/dynamic_signature.py` implements this augmentation.

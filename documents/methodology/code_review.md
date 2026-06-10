@@ -57,9 +57,9 @@ cost `uᵀRu`. The substantive defects are:
    `0.1·u²`. *(F-D1, major, CONTRADICTS.)*
 2. **`critic_oracle` value sign is inconsistent** between agents and wrong relative to the
    thesis's reward-value convention `V* = −xᵀPx`. *(F-A1, critical, CONTRADICTS.)*
-3. **Signature path augmentation diverges from the thesis** — an extra plain-time channel is
-   kept (the thesis removed it) and the origin channel has the opposite sign. *(F-C1, major,
-   CONTRADICTS.)*
+3. ~~**Signature path augmentation diverges from the thesis**~~ — **REVISED**: the augmentation
+   is faithful to its actual source, Perez Arribas (2018); the code's signature equals the
+   paper's (the thesis *writeup* is the paraphrase that diverges). *(F-C1, MATCHES — see §5.)*
 4. **Configured `window_size` is silently overridden**, and the window-size sweep experiment
    therefore varies nothing. *(F-C2 / F-H1, major.)*
 5. **`clip_gradient` is ignored** (hardcoded ±10, per-element) in the signature and
@@ -84,7 +84,7 @@ cost `uᵀRu`. The substantive defects are:
 | F-D6 (env configs) | Fixed four broken `_target_` paths. | `d0615d2` |
 | §8 (dead code) | Removed dead loss helpers, duplicate env/network modules, stale config. | `c18f04d` |
 | F-G1 (CSAC) | Quarantined (kept, marked unsupported, load-time warning). | `aed40ed` |
-| F-C1 (signature augmentation) | **Deferred** — explained to maintainer; left as-is pending a decision on the intended representation (extra time channel + origin-channel sign). |  |
+| F-C1 (signature augmentation) | **Finding revised → MATCHES.** Source is Perez Arribas (2018), not the thesis paraphrase; code is signature-faithful. Rewrote `compute_sig` to express `(t, X_t, (X₀/T)t)` literally (no behaviour change) with citations. | (pending commit) |
 | F-C2/F-H1 (window override + sweep) | **Deferred** to the experiment/cluster phase. |  |
 | F-B4 (`b1=0.1` actor Adam) | Not in the requested set; left as-is. |  |
 
@@ -150,23 +150,32 @@ leftover. **Action:** confirm intent; default to `b1=0.9` unless the thesis/note
 
 ## 5. Findings — signature representation
 
-**Thesis convention (§4.1.1 p.25; Alg.4 p.37; §5.3.1 p.38):** the path is the single augmented
-channel set `x̃_t = (x_t, −x(0)/h · t)` on `[−h, 0]` — normalised time, basepoint via `x(0)`,
-**plain time channel deliberately removed**; truncation depth ∈ {2,3,4}; window length `h = τ`
-by default, rolling buffer sampled at the control step `Δt`.
+**Authoritative source for the augmentation:** I. Perez Arribas, *Derivatives pricing using
+signature payoffs* (2018), Definition p.5 and Theorem 4.2 p.6 (stored in
+`documents/references/`). The augmented path is the **three-channel**
+`X̂_t = (t, X_t, (X₀/T)·t)` on `[0,T]`: a monotone time channel `t` (which makes the signature
+injective — the hypothesis of the universal-approximation Theorem 4.2), the state path `X_t`,
+and a linear basepoint ramp `(X₀/T)·t` running `0 → X₀` (the earliest, lower-limit state). The
+thesis's written `x̃_t = (x_t, −x(0)/h·t)` is a *paraphrase* that drops the time channel and
+reverses the ramp; **the paper, not the thesis writeup, is the mathematical reference.**
 
-### F-C1 — augmentation channels diverge from the thesis (major, CONTRADICTS)
-`src/utils/dynamic_signature.py:162-168`, with the live config
-`time_augmentation: true, origin_augmentation: true` (`conf/agent/signatures.yaml`):
-- The code keeps a **plain time channel** (`time_aug` branch, line 167-168) that the thesis
-  explicitly removed for being non-vanishing at the window edge.
-- The origin channel is `x(0)·linspace(−1,0,n)` (line 163-164), which runs `−x(0) → 0` over the
-  window; the thesis channel `−x(0)/h·t` runs `+x(0) → 0` — a **sign flip** (and hence a sign
-  flip of every iterated integral involving that channel).
-**Action:** to match the thesis, set `time_augmentation: false`, keep `origin_augmentation:
-true`, and correct the origin channel sign to `−data[0]·relative_times` (or equivalently
-`data[0]·linspace(time_origin,0,n)`). If both channels are intentionally retained as an
-extension beyond the thesis, document it at the definition site.
+### F-C1 — augmentation: code matches Perez Arribas (2018) (MATCHES — finding revised)
+**Revised verdict (2026-06-10):** the original finding judged the code against the thesis's
+written formula and is withdrawn. Against the *paper*, the code (`time_augmentation: true,
+origin_augmentation: true`) is faithful:
+- It **keeps the monotone time channel** (paper channel 1), which the thesis writeup dropped but
+  the paper requires for signature injectivity / Theorem 4.2. Retaining it is correct.
+- The origin ramp `x(0)·linspace(−1,0,n)` has total increment `+x(0)`, identical to the paper's
+  `(X₀/T)·t` (increment `+X₀`); the two differ only by a **constant translation of that channel**,
+  to which the signature is invariant. So the code's signature **equals** the paper's. The
+  apparent "sign flip" was relative to the thesis paraphrase, which is the one that diverges
+  (its ramp has increment `−x(0)`).
+**Action taken:** rewrote `compute_sig` to express the augmentation *literally* as the paper's
+`(t, X_t, (X₀/T)·t)` (signature-identical to the previous default `time_origin=1.0`, so no
+behaviour change) with full citations, so the representation is self-evidently faithful and is
+not "corrected" toward the thesis paraphrase in future. One benign, documented deviation
+remains: the time channel uses the normalised window length `T = time_origin` (default 1.0)
+rather than the physical `h`, a linear rescaling absorbed by the downstream critic/actor.
 
 ### F-C2 — configured `window_size` silently overridden (major)
 `src/agents/signatures_jax.py:129-130`: unless `force_signature_window` is true, the configured
