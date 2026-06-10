@@ -53,6 +53,28 @@ def test_signature_feature_dim_matches_formula():
     assert rep.feature_dim == d_eff + d_eff ** 2
 
 
+def test_value_gradient_prerequisite_dPhi_dcurrent_is_finite_and_nonzero():
+    # The value-gradient control u ~ R^-1 B' dV/dx(t) needs dPhi/dwindow[-1] to exist,
+    # be finite, AND be non-zero (else the current state cannot move the value).
+    for rep, L in ((MarkovianRepresentation(1, 2), 4),
+                   (RawHistoryRepresentation(4, 1, 2), 4),
+                   (SignatureRepresentation(depth=2, window_length=5, n_state=1), 5)):
+        w = _window(L, 1)
+        J = np.asarray(jax.jacobian(rep.feature_fn)(w))  # (feature_dim, L, n)
+        dphi_dcurrent = J[:, -1, :]
+        assert np.all(np.isfinite(dphi_dcurrent))
+        assert np.linalg.norm(dphi_dcurrent) > 1e-8
+
+
+def test_markovian_is_insensitive_to_history():
+    # A built-in check that the Markovian representation really is Markovian:
+    # its features do not depend on any lagged state.
+    rep = MarkovianRepresentation(1, 2)
+    w = _window(4, 1)
+    J = np.asarray(jax.jacobian(rep.feature_fn)(w))
+    assert np.allclose(J[:, :-1, :], 0.0)  # zero gradient w.r.t. all earlier taps
+
+
 def test_feature_fns_are_differentiable_wrt_current_state():
     # The value-gradient control needs d feature_fn / d window[-1] to exist.
     for rep in (MarkovianRepresentation(1, 2),
