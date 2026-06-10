@@ -1,8 +1,14 @@
-# Linear-cell study (delay_jax) — 5 arms, value-gradient backbone.
-# H1: Markovian vs the history reps. H2 (predicted NULL here, per Kolmanovskii):
-# signature should NOT beat raw-history, since the optimal control on a linear
-# delayed plant is a LINEAR functional of the history (raw-history spans it).
-# Critical pair: raw deg 2 vs signature depth 2 (both span the quadratic LQR value).
+# Linear-cell study — 5 arms, value-gradient backbone. Env is set in --common
+# (strongly_delayed_oscillator: ~84% oracle gap, so the history genuinely matters).
+#
+# H1 (predicted POSITIVE on this env, unlike the weak-delay delay_jax where it was
+# null): the history reps (raw_history, signature) should beat the Markovian rep,
+# because a current-state-only controller is ~1.8x the delayed-LQR oracle here.
+# H2 (predicted NULL, per Kolmanovskii 6.2): signature should NOT beat raw-history,
+# since the optimal control on a linear delayed plant is a LINEAR functional of the
+# history (raw-history already spans it). Critical pair: raw deg 2 vs signature
+# depth 2 (both span the quadratic LQR value); raw deg 1 is the under-capacity
+# baseline isolating H1; sig depth 3 probes extra-capacity / instability.
 # Submit per seed reusing --experiment-group; aggregate with the finalize step.
 agent=value_gradient agent.signature.kind=markovian   agent.signature.degree=2 run_tag=markovian_deg2
 agent=value_gradient agent.signature.kind=raw_history  agent.signature.degree=1 run_tag=raw_deg1
