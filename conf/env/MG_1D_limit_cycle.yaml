@@ -1,0 +1,41 @@
+# Mackey-Glass 1D — LIMIT-CYCLE regime (primary H2 nonlinear-delayed cell).
+#   dx/dt = -mu x + p x(t-tau)/(1 + x(t-tau)^n) + u
+#
+# Regime choice (verified, see run/study/mackey_glass_cell_variants.txt header):
+#   - tau = 6 sits above the Hopf bifurcation (tau_c ~ 4.71 for n=10, mu=0.1, p=0.2)
+#     and well below the chaotic onset (tau ~ 16). The uncontrolled plant is a CLEAN
+#     BOUNDED LIMIT CYCLE: x in [0.83, 1.14] about the equilibrium x* = 1 (peak-to-peak
+#     ~0.31). Boundedness is the learnability prerequisite for the critic-only agent.
+#   - x_target = 1.0 = the (delay-destabilised) equilibrium x*, so the task is
+#     "suppress the delay-born limit cycle to its equilibrium" — well posed, and the
+#     linearisation about x* is exactly the DDE used for the history-effect check.
+#   - History demonstrably shapes the optimal control: linearising about x*=1 gives
+#     A=-mu=-0.1, A1=f'(1)=p(2-n)/4=-0.4, and the delayed-vs-Markovian LQR gap
+#     (markovian_oracle_gap) is ~43% at tau=6 (53% at tau=8) — so a current-state-only
+#     controller is far from optimal (H1 is a non-trivial test here).
+#   - step_size = 0.25 (TD step dt): the continuous-time value-gradient TD update
+#     diverges at dt=1 (the MG_1D.yaml default); dt=0.25 is the SOLE conditioning
+#     lever needed for a stable, learning run (no action clipping, no reward
+#     normalisation). A local sanity run reached 86.9% cost reduction vs no control,
+#     final tracking error 0.02, with no divergence.
+#
+# There is no analytic oracle for this nonlinear plant; the aggregator reports the raw
+# cost J (commensurable across arms, which share env/seed/window/budget).
+environment_params:
+  _target_: src.envs.mackey_glass_1D.MackeyGlass1DEnv
+
+  delay: 6.0
+  mu: 0.1
+  n: 10
+  p: 0.2
+  x_target: 1.0      # the delay-destabilised equilibrium x* = (p/mu - 1)^(1/n) = 1
+
+  Q:
+    _target_: numpy.eye
+    N: 1
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+
+  step_size: 0.25    # TD step dt; the sole conditioning lever (dt=1 diverges)
+  resolution: 5      # RK4 sub-steps per control step (solver step 0.05)

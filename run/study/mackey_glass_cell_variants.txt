@@ -1,0 +1,41 @@
+# Mackey-Glass cell study — the PRIMARY H2 cell (nonlinear delayed plant).
+# Value-gradient backbone; value linear in the feature map Phi.
+#
+# Env: env=MG_1D_limit_cycle (tau=6 LIMIT CYCLE about x*=1, step_size dt=0.25). The
+# regime is verified in conf/env/MG_1D_limit_cycle.yaml: bounded limit cycle (x in
+# [0.83,1.14]) so the critic-only agent sees finite TD targets; history shapes the
+# optimal control (linearised delayed-vs-Markovian LQR gap ~43%); dt=0.25 is the SOLE
+# conditioning lever (dt=1 diverges) — no clipping, no normalisation. A local sanity
+# run (signature depth-2, 120 ep) reached 86.9% cost reduction vs no control.
+#
+# Launch --common (matched information set across arms — same window/cadence/budget):
+#   env=MG_1D_limit_cycle
+#   agent.signature.window_size=28        # covers tau=6 at dt=0.25 (24 taps + margin)
+#   agent.training.max_time=40            # controlled horizon (~10 limit-cycle periods)
+#   agent.algorithm.burning_steps=5       # preheat fills the window; small burn-in
+#   eval.x0_test=[0.8] eval.T_sim=40
+#   agent.training.n_episodes=500         # real-run budget (>100 smoke-guard threshold)
+# Requires the burn-in/horizon timer fix in value_gradient_jax.py (committed): without
+# it, burn-in advances the same clock and a large dt can zero the training loop.
+#
+# Predicted outcomes (documents/methodology/experimental_design.md §2.3):
+#   H1 POSITIVE — the optimal control is a NONLINEAR functional of the history, so the
+#     Markovian (current-state) arm cannot represent it and is far from optimal.
+#   H2 POSITIVE — by Arribas Thm 4.2 a linear functional of the depth-m signature is
+#     dense in the continuous (nonlinear) functionals of the path, whereas a linear
+#     functional of the raw history spans only degree-m polynomials. At matched feature
+#     dimension dim(Phi) the signature should attain lower cost than raw history. This
+#     is the cell where H2 is a REPRESENTATIONAL claim, not the linear cell's efficiency
+#     one. There is no analytic oracle here, so the aggregator reports the raw cost J
+#     (commensurable across arms; all arms share the env, seed, window, and budget).
+#
+# Capacity sweep (the H2 test): plot J vs dim(Phi); the signature curve should lie below
+# the raw-history curve at matched dim. Critical pair: raw deg 2 vs signature depth 2.
+# Submit per seed reusing --experiment-group; aggregate with the finalize step.
+agent=value_gradient agent.signature.kind=markovian    agent.signature.degree=2 run_tag=markovian_deg2
+agent=value_gradient agent.signature.kind=raw_history   agent.signature.degree=1 run_tag=raw_deg1
+agent=value_gradient agent.signature.kind=raw_history   agent.signature.degree=2 run_tag=raw_deg2
+agent=value_gradient agent.signature.kind=raw_history   agent.signature.degree=3 run_tag=raw_deg3
+agent=value_gradient agent.signature.kind=signature     agent.signature.depth=2  run_tag=sig_depth2
+agent=value_gradient agent.signature.kind=signature     agent.signature.depth=3  run_tag=sig_depth3
+agent=value_gradient agent.signature.kind=signature     agent.signature.depth=4  run_tag=sig_depth4
