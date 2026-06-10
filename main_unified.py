@@ -40,11 +40,12 @@ from src.training.evaluate import (
     log_training_metrics,
     plot_training_metrics,
     get_training_summary,
-    compare_with_no_control,
-    evaluate_multiple_trajectories,
     collect_evaluation_data,
     collect_multiple_trajectories_data,
+    plot_agent_vs_no_control_from_data,
+    plot_multiple_trajectories_from_data,
     save_evaluation_data,
+    load_evaluation_data,
     save_training_metrics,
     load_training_metrics,
     make_eval_callback,
@@ -155,27 +156,14 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
         rng = np.random.default_rng(derived_seeds["eval_x0_fallback"])
         x0_test = rng.standard_normal(agent.env.N)
 
-    # Agent vs No Control comparison
-    print("  - Comparing with no control...")
-    fig_comparison, eval_metrics = compare_with_no_control(
+    # --- Collect evaluation data ONCE: it is the single source for both the saved
+    #     artefacts and the figures, so every figure is rebuildable a posteriori. ---
+    print("  - Collecting evaluation data (agent vs no control)...")
+    eval_data = collect_evaluation_data(
         agent_eval, x0_test, T_sim, burning_steps=eval_burning_steps,
     )
-    wandb.log({"Agent vs No Control": fig_comparison})
-    _save_figure(fig_comparison, run_dir / "figure_agent_vs_no_control")
+    eval_metrics = eval_data["eval_metrics"]
 
-    # Visiting statistics
-    if metrics.get("state_counts", None) is not None:
-        fig_visiting = get_statistics_visited_states(metrics, agent.discretization_state)  # type: ignore
-        wandb.log({"Visited States Distribution": fig_visiting})
-        _save_figure(fig_visiting, run_dir / "figure_visited_states")
-
-    for k, v in eval_metrics.items():
-        wandb.run.summary[k] = v  # type: ignore
-
-    print(f"    Cost reduction: {eval_metrics['eval/cost_reduction_pct']:.1f}%")
-    print(f"    Final error (agent): {eval_metrics['eval/final_error_agent']:.4f}")
-
-    # Multiple trajectories evaluation
     print("  - Evaluating multiple trajectories...")
     n_eval = cfg.eval.get("n_eval_trajectories", 5)
     rng = np.random.default_rng(derived_seeds["eval_init"])
@@ -183,23 +171,51 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
         rng.standard_normal(agent.env.N) * np.linalg.norm(x0_test)
         for _ in range(n_eval - 1)
     ]
-
-    fig_multi, multi_metrics = evaluate_multiple_trajectories(
+    multi_data = collect_multiple_trajectories_data(
         agent_eval, x0_list, T_sim, burning_steps=eval_burning_steps,
     )
+    multi_metrics = multi_data["metrics"]
+
+    # --- Save the data FIRST, so the figures are provably rebuildable from it ---
+    if cfg.get("save_eval_data", True):
+        eval_to_save = dict(eval_data)
+        eval_to_save["training_metrics"] = {
+            "cost_episodic": np.array(metrics.get("cost_episodic", [])),
+            "loss_episodic": np.array(metrics.get("loss_episodic", [])),
+            "gradient_critic": np.array(metrics.get("gradient_critic", [])),
+        }
+        eval_to_save["config"] = OmegaConf.to_container(cfg, resolve=True)
+        save_evaluation_data(eval_to_save, run_dir / "eval.pkl")
+
+        multi_to_save = dict(multi_data)
+        multi_to_save["config"] = OmegaConf.to_container(cfg, resolve=True)
+        save_evaluation_data(multi_to_save, run_dir / "multi.pkl")
+        save_training_metrics(metrics, run_dir / "training_metrics.pkl")
+
+    # --- Build the figures FROM the (saved) data — identical to what replot produces ---
+    fig_comparison = plot_agent_vs_no_control_from_data(eval_data)
+    wandb.log({"Agent vs No Control": fig_comparison})
+    _save_figure(fig_comparison, run_dir / "figure_agent_vs_no_control")
+
+    fig_multi = plot_multiple_trajectories_from_data(multi_data)
     wandb.log({"Multiple Trajectories": fig_multi})
     _save_figure(fig_multi, run_dir / "figure_multiple_trajectories")
 
+    if metrics.get("state_counts", None) is not None:
+        fig_visiting = get_statistics_visited_states(metrics, agent.discretization_state)  # type: ignore
+        wandb.log({"Visited States Distribution": fig_visiting})
+        _save_figure(fig_visiting, run_dir / "figure_visited_states")
+
+    for k, v in eval_metrics.items():
+        wandb.run.summary[k] = v  # type: ignore
     for k, v in multi_metrics.items():
         wandb.run.summary[k] = v  # type: ignore
-
+    print(f"    Cost reduction: {eval_metrics['eval/cost_reduction_pct']:.1f}%")
+    print(f"    Final error (agent): {eval_metrics['eval/final_error_agent']:.4f}")
     print(f"    Mean cost: {multi_metrics['eval/multi_cost_mean']:.4f} "
           f"± {multi_metrics['eval/multi_cost_std']:.4f}")
 
-    # =========================================================================
-    # Checkpoint & evaluation data (stable filenames inside the run directory,
-    # so a --replot pass can find them; see run_replot)
-    # =========================================================================
+    # --- Checkpoint (stable filename so --replot / resume can find it) ---
     if cfg.get("save_checkpoint", True):
         print("\n  - Saving checkpoint...")
         checkpoint_path = run_dir / "checkpoint_agent.pkl"
@@ -213,53 +229,50 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
                 }, f)
         print(f"    Saved to {checkpoint_path}")
 
-    if cfg.get("save_eval_data", True):
-        print("  - Saving evaluation data...")
-
-        eval_data = collect_evaluation_data(
-            agent_eval, x0_test, T_sim, burning_steps=eval_burning_steps,
-        )
-        eval_data["training_metrics"] = {
-            "cost_episodic": np.array(metrics.get("cost_episodic", [])),
-            "loss_episodic": np.array(metrics.get("loss_episodic", [])),
-            "gradient_critic": np.array(metrics.get("gradient_critic", [])),
-        }
-        eval_data["config"] = OmegaConf.to_container(cfg, resolve=True)
-        save_evaluation_data(eval_data, run_dir / "eval.pkl")
-
-        multi_data = collect_multiple_trajectories_data(
-            agent_eval, x0_list, T_sim, burning_steps=eval_burning_steps,
-        )
-        multi_data["config"] = OmegaConf.to_container(cfg, resolve=True)
-        save_evaluation_data(multi_data, run_dir / "multi.pkl")
-
-        save_training_metrics(metrics, run_dir / "training_metrics.pkl")
-
     print("\n" + "=" * 60)
     print("EXPERIMENT COMPLETE")
     print("=" * 60)
 
 
 def run_replot(run_dir: Path) -> None:
-    """Rebuild figures from saved artefacts, without retraining.
+    """Rebuild EVERY figure from the saved data, without retraining.
 
-    Reads the saved training history and regenerates the figures that are fully
-    data-driven (the training-metrics figure). Trajectory figures that currently
-    re-simulate the agent will become data-driven in the plot-utilities phase; for
-    now this establishes the replot contract for the training metrics.
+    All figures are pure functions of the saved arrays (eval.pkl, multi.pkl,
+    training_metrics.pkl), so they can be regenerated and restyled a posteriori
+    (colours, titles, labels) by editing the builders and re-running this — the
+    underlying data is never lost. Builders accept style overrides (e.g. a
+    ``title=`` argument) for ad-hoc restyling.
     """
     print(f"\n[replot] Rebuilding figures from {run_dir}")
+    n = 0
+
     metrics_path = run_dir / "training_metrics.pkl"
-    if not metrics_path.exists():
+    if metrics_path.exists():
+        metrics = load_training_metrics(metrics_path)
+        _save_figure(plot_training_metrics(metrics), run_dir / "figure_training_metrics"); n += 1
+        if metrics.get("state_counts", None) is not None:
+            disc = metrics.get("discretization_state", 0.01)
+            _save_figure(get_statistics_visited_states(metrics, disc),
+                         run_dir / "figure_visited_states"); n += 1
+
+    eval_path = run_dir / "eval.pkl"
+    if eval_path.exists():
+        eval_data = load_evaluation_data(eval_path)
+        _save_figure(plot_agent_vs_no_control_from_data(eval_data),
+                     run_dir / "figure_agent_vs_no_control"); n += 1
+
+    multi_path = run_dir / "multi.pkl"
+    if multi_path.exists():
+        multi_data = load_evaluation_data(multi_path)
+        _save_figure(plot_multiple_trajectories_from_data(multi_data),
+                     run_dir / "figure_multiple_trajectories"); n += 1
+
+    if n == 0:
         raise FileNotFoundError(
-            f"No training_metrics.pkl in {run_dir}; cannot replot. "
-            "Pass the run directory of a completed run."
+            f"No saved data (eval.pkl / multi.pkl / training_metrics.pkl) in {run_dir}; "
+            "cannot replot. Pass the run directory of a completed run."
         )
-    metrics = load_training_metrics(metrics_path)
-    fig_training = plot_training_metrics(metrics)
-    _save_figure(fig_training, run_dir / "figure_training_metrics")
-    print(f"[replot] Wrote {run_dir / 'figure_training_metrics.html'}")
-    print("[replot] (Trajectory figures from saved data will be added in the plot-utilities phase.)")
+    print(f"[replot] Rebuilt {n} figure(s) in {run_dir}")
 
 
 @hydra.main(config_path="conf", config_name="config_unified", version_base=None)

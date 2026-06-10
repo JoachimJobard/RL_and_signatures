@@ -336,54 +336,22 @@ def compute_trajectory_cost(
 # Comparison Figures
 # =============================================================================
 
-def compare_with_no_control(
-    agent: EvaluableAgent,
-    x0: np.ndarray,
-    T_sim: float,
-    seed: int = 456,
-    burning_steps: int | None = None,
-) -> tuple[go.Figure, dict]:
-    """Compare agent vs uncontrolled system with figure and metrics."""
-    env = agent.env
-    Q, R = np.array(env.Q), np.array(env.R)
-    step_size = env.step_size
-    
-    # Get x_target if environment has one (e.g., Mackey-Glass), otherwise None
-    x_target = np.array(env.x_target).flatten() if hasattr(env, 'x_target') else None
-    has_target = x_target is not None and np.any(x_target != 0)
-    
-    # For cost computation, use x_target if available, else origin
-    x_ref = x_target if x_target is not None else np.zeros(x0.shape[0])
-    
-    states_agent, actions_agent, times = simulate_trajectory(
-        agent,
-        x0,
-        T_sim,
-        seed,
-        burning_steps=burning_steps,
-    )
-    states_no_ctrl, _ = simulate_uncontrolled_trajectory(
-        agent,
-        x0,
-        T_sim,
-        seed,
-        burning_steps=burning_steps,
-    )
-    
-    # Compute costs (relative to x_ref) matching the RK4 environment logic
-    n_actions = len(actions_agent)
-    cost_agent = [
-        (states_agent[i+1] - x_ref).T @ Q @ (states_agent[i+1] - x_ref) + 
-        actions_agent[i].reshape(-1).T @ R @ actions_agent[i].reshape(-1) 
-        for i in range(n_actions)
-    ]
-    cost_no_ctrl = [
-        (states_no_ctrl[i+1] - x_ref).T @ Q @ (states_no_ctrl[i+1] - x_ref) 
-        for i in range(min(n_actions, len(states_no_ctrl)-1))
-    ]
-    cum_cost_agent = np.cumsum(cost_agent) * step_size
-    cum_cost_no_ctrl = np.cumsum(cost_no_ctrl) * step_size
-    
+def plot_agent_vs_no_control_from_data(data: dict, *, title: str | None = None) -> go.Figure:
+    """Build the agent-vs-no-control figure from collected data alone (no agent),
+    so the figure can be rebuilt and restyled a posteriori from the saved data
+    (see collect_evaluation_data). ``title`` overrides the default figure title."""
+    times = np.asarray(data['times'])
+    states_agent = np.asarray(data['states_agent'])
+    states_no_ctrl = np.asarray(data['states_no_ctrl'])
+    actions_agent = np.asarray(data['actions'])
+    cost_agent = np.asarray(data['cost_agent'])
+    cost_no_ctrl = np.asarray(data['cost_no_ctrl'])
+    cum_cost_agent = np.asarray(data['cum_cost_agent'])
+    cum_cost_no_ctrl = np.asarray(data['cum_cost_no_ctrl'])
+    x0 = np.asarray(data['x0'])
+    x_ref = np.asarray(data['x_ref'])
+    has_target = bool(data['has_target'])
+
     # Figure - adapt subplot title based on whether we have a target
     error_title = 'Error from Target' if has_target else 'State Norm'
     fig = make_subplots(rows=2, cols=3, subplot_titles=(
@@ -468,67 +436,48 @@ def compare_with_no_control(
         r"cumulative cost $\int_0^t c\,ds$.",
     )
     
-    # Metrics
-    cost_reduction_pct = 100 * (cum_cost_no_ctrl[-1] - cum_cost_agent[-1]) / cum_cost_no_ctrl[-1] \
-        if cum_cost_no_ctrl[-1] > 0 else 0
-    
-    metrics: dict[str, float | list[float]] = {
-        "eval/total_cost_agent": float(cum_cost_agent[-1]),
-        "eval/total_cost_no_control": float(cum_cost_no_ctrl[-1]),
-        "eval/cost_reduction_pct": float(cost_reduction_pct),
-        "eval/final_error_agent": float(error_agent[-1]),
-        "eval/final_error_no_control": float(error_no_ctrl[-1]),
-    }
-    # Only add x_target to metrics if it exists
-    if has_target:
-        metrics["eval/x_target"] = np.asarray(x_ref, dtype=float).tolist()
-    
-    return fig, metrics
+    if title is not None:
+        fig.update_layout(title_text=title)
+    return fig
 
 
-def evaluate_multiple_trajectories(
+def compare_with_no_control(
     agent: EvaluableAgent,
-    x0_list: list[np.ndarray],
+    x0: np.ndarray,
     T_sim: float,
-    base_seed: int = 100,
+    seed: int = 456,
     burning_steps: int | None = None,
 ) -> tuple[go.Figure, dict]:
-    """Evaluate on multiple initial conditions with figure."""
-    env = agent.env
-    Q, R = np.array(env.Q), np.array(env.R)
-    step_size = env.step_size
-    
+    """Compare agent vs uncontrolled system: collect the trajectory data, then build
+    the figure from it. Returns (figure, metrics); the same data drives the replot."""
+    data = collect_evaluation_data(agent, x0, T_sim, seed, burning_steps=burning_steps)
+    return plot_agent_vs_no_control_from_data(data), data['eval_metrics']
+
+
+def plot_multiple_trajectories_from_data(multi_data: dict, *, title: str | None = None) -> go.Figure:
+    """Build the multiple-initial-conditions figure from collected data alone (no
+    agent), so it can be rebuilt and restyled a posteriori. ``title`` overrides the
+    default. Colour encodes the initial-condition index (sequential viridis)."""
+    trajectories = multi_data['trajectories']
+    n = len(trajectories)
     fig = make_subplots(rows=1, cols=3, subplot_titles=('State Norms', 'Cumulative Costs', 'Final Costs'))
-    # Sweep over initial conditions is encoded in colour (sequential viridis), stroke stays solid.
-    colors = sequential_colors(len(x0_list))
-    
-    costs, final_norms = [], []
-    for idx, x0 in enumerate(x0_list):
-        states, actions, times = simulate_trajectory(
-            agent,
-            x0,
-            T_sim,
-            base_seed + idx,
-            burning_steps=burning_steps,
-        )
-        cost = compute_trajectory_cost(states, actions, Q, R, step_size)
-        costs.append(cost)
-        final_norms.append(np.linalg.norm(states[-1]))
-        
+    colors = sequential_colors(n)
+
+    totals = []
+    for idx, d in enumerate(trajectories):
+        times = np.asarray(d['times'])
+        states = np.asarray(d['states_agent'])
+        cum_cost = np.asarray(d['cum_cost_agent'])
         norm = np.linalg.norm(states, axis=1)
-        cum_cost = np.cumsum([
-            states[i+1].T @ Q @ states[i+1] + actions[i].reshape(-1).T @ R @ actions[i].reshape(-1)
-            for i in range(len(actions))
-        ]) * step_size
-        color = colors[idx % len(colors)]
-        
-        fig.add_trace(go.Scatter(x=times, y=norm, mode='lines', 
-                                name=f'x0={idx}', line=dict(color=color)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=times[:-1], y=cum_cost, mode='lines', 
-                                line=dict(color=color), showlegend=False), row=1, col=2)
-    
-    fig.add_trace(go.Bar(x=[f'x0_{i}' for i in range(len(costs))], y=costs,
-                        marker_color=colors[:len(costs)], showlegend=False), row=1, col=3)
+        totals.append(float(cum_cost[-1]) if len(cum_cost) else 0.0)
+        color = colors[idx]
+        fig.add_trace(go.Scatter(x=times, y=norm, mode='lines',
+                                 name=f'x0={idx}', line=dict(color=color)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=times[:len(cum_cost)], y=cum_cost, mode='lines',
+                                 line=dict(color=color), showlegend=False), row=1, col=2)
+
+    fig.add_trace(go.Bar(x=[f'x0_{i}' for i in range(n)], y=totals,
+                         marker_color=colors[:n], showlegend=False), row=1, col=3)
     fig.update_layout(height=520, width=1200, title_text='Multiple initial conditions')
     # Axis labels (LaTeX via MathJax)
     fig.update_xaxes(title_text=r"$t$", row=1, col=1); fig.update_yaxes(title_text=r"$\|x(t)\|_2$", row=1, col=1)
@@ -543,14 +492,23 @@ def evaluate_multiple_trajectories(
         r"initial-condition index, viridis). Total cost "
         r"$\int_0^T (x^\top Q x + u^\top R u)\,ds$.",
     )
-    
-    metrics = {
-        "eval/multi_cost_mean": float(np.mean(costs)),
-        "eval/multi_cost_std": float(np.std(costs)),
-        "eval/multi_final_norm_mean": float(np.mean(final_norms)),
-        "eval/n_trajectories": len(x0_list),
-    }
-    return fig, metrics
+    if title is not None:
+        fig.update_layout(title_text=title)
+    return fig
+
+
+def evaluate_multiple_trajectories(
+    agent: EvaluableAgent,
+    x0_list: list[np.ndarray],
+    T_sim: float,
+    base_seed: int = 100,
+    burning_steps: int | None = None,
+) -> tuple[go.Figure, dict]:
+    """Evaluate on multiple initial conditions: collect the data, then build the
+    figure from it. Returns (figure, metrics); the same data drives the replot."""
+    data = collect_multiple_trajectories_data(agent, x0_list, T_sim, base_seed,
+                                              burning_steps=burning_steps)
+    return plot_multiple_trajectories_from_data(data), data['metrics']
 
 
 # =============================================================================
@@ -807,51 +765,73 @@ def collect_evaluation_data(
     seed: int = 456,
     burning_steps: int | None = None,
 ) -> dict:
-    """Collect all evaluation data for external plotting."""
+    """Collect every array and metric needed to (re)build the agent-vs-no-control
+    figure, so the figure can be rebuilt and restyled a posteriori from the saved
+    data alone (never recomputed). This is the single source of the trajectory
+    arrays; the figure builder ``plot_agent_vs_no_control_from_data`` reads from
+    this dict and the run path saves it (see main_unified)."""
     env = agent.env
     Q, R = np.array(env.Q), np.array(env.R)
     step_size = env.step_size
-    
+
+    x_target = np.array(env.x_target).flatten() if hasattr(env, 'x_target') else None
+    has_target = bool(x_target is not None and np.any(x_target != 0))
+    x_ref = x_target if x_target is not None else np.zeros(x0.shape[0])
+
     states_agent, actions_agent, times = simulate_trajectory(
-        agent,
-        x0,
-        T_sim,
-        seed,
-        burning_steps=burning_steps,
+        agent, x0, T_sim, seed, burning_steps=burning_steps,
     )
     states_no_ctrl, _ = simulate_uncontrolled_trajectory(
-        agent,
-        x0,
-        T_sim,
-        seed,
-        burning_steps=burning_steps,
+        agent, x0, T_sim, seed, burning_steps=burning_steps,
     )
-    
+
     n_actions = len(actions_agent)
-    cost_agent = [
-        states_agent[i+1].T @ Q @ states_agent[i+1] + 
-        actions_agent[i].reshape(-1).T @ R @ actions_agent[i].reshape(-1) 
+    cost_agent = np.array([
+        (states_agent[i + 1] - x_ref).T @ Q @ (states_agent[i + 1] - x_ref)
+        + actions_agent[i].reshape(-1).T @ R @ actions_agent[i].reshape(-1)
         for i in range(n_actions)
-    ]
-    cost_no_ctrl = [
-        states_no_ctrl[i+1].T @ Q @ states_no_ctrl[i+1] 
-        for i in range(min(n_actions, len(states_no_ctrl)-1))
-    ]
-    
+    ])
+    cost_no_ctrl = np.array([
+        (states_no_ctrl[i + 1] - x_ref).T @ Q @ (states_no_ctrl[i + 1] - x_ref)
+        for i in range(min(n_actions, len(states_no_ctrl) - 1))
+    ])
+    cum_cost_agent = np.cumsum(cost_agent) * step_size
+    cum_cost_no_ctrl = np.cumsum(cost_no_ctrl) * step_size
+    error_agent = np.linalg.norm(states_agent - x_ref, axis=1)
+    error_no_ctrl = np.linalg.norm(states_no_ctrl - x_ref, axis=1)
+
+    reduction = (100.0 * (cum_cost_no_ctrl[-1] - cum_cost_agent[-1]) / cum_cost_no_ctrl[-1]
+                 if len(cum_cost_no_ctrl) and cum_cost_no_ctrl[-1] > 0 else 0.0)
+    eval_metrics: dict[str, Any] = {
+        "eval/total_cost_agent": float(cum_cost_agent[-1]) if len(cum_cost_agent) else 0.0,
+        "eval/total_cost_no_control": float(cum_cost_no_ctrl[-1]) if len(cum_cost_no_ctrl) else 0.0,
+        "eval/cost_reduction_pct": float(reduction),
+        "eval/final_error_agent": float(error_agent[-1]),
+        "eval/final_error_no_control": float(error_no_ctrl[-1]),
+    }
+    if has_target:
+        eval_metrics["eval/x_target"] = np.asarray(x_ref, dtype=float).tolist()
+
     return {
         'times': times,
         'states_agent': states_agent,
         'states_no_ctrl': states_no_ctrl,
         'actions': actions_agent,
-        'cost_agent': np.array(cost_agent),
-        'cost_no_ctrl': np.array(cost_no_ctrl),
-        'x0': x0,
+        'cost_agent': cost_agent,
+        'cost_no_ctrl': cost_no_ctrl,
+        'cum_cost_agent': cum_cost_agent,
+        'cum_cost_no_ctrl': cum_cost_no_ctrl,
+        'error_agent': error_agent,
+        'error_no_ctrl': error_no_ctrl,
+        'x0': np.asarray(x0),
+        'x_target': x_target,
+        'x_ref': x_ref,
+        'has_target': has_target,
         'T_sim': T_sim,
         'Q': Q,
         'R': R,
         'step_size': step_size,
-        'cum_cost_agent': np.cumsum(cost_agent) * step_size,
-        'cum_cost_no_ctrl': np.cumsum(cost_no_ctrl) * step_size,
+        'eval_metrics': eval_metrics,
     }
 
 
@@ -862,7 +842,8 @@ def collect_multiple_trajectories_data(
     base_seed: int = 100,
     burning_steps: int | None = None,
 ) -> dict:
-    """Collect data for multiple trajectories."""
+    """Collect all data + metrics for multiple trajectories, so the figure is
+    rebuildable a posteriori from the saved data alone."""
     all_data = []
     for idx, x0 in enumerate(x0_list):
         data = collect_evaluation_data(
@@ -873,7 +854,16 @@ def collect_multiple_trajectories_data(
             burning_steps=burning_steps,
         )
         all_data.append(data)
-    return {'trajectories': all_data, 'n_trajectories': len(x0_list)}
+    totals = [float(d['cum_cost_agent'][-1]) if len(d['cum_cost_agent']) else 0.0
+              for d in all_data]
+    final_norms = [float(np.linalg.norm(d['states_agent'][-1])) for d in all_data]
+    metrics = {
+        "eval/multi_cost_mean": float(np.mean(totals)) if totals else 0.0,
+        "eval/multi_cost_std": float(np.std(totals)) if totals else 0.0,
+        "eval/multi_final_norm_mean": float(np.mean(final_norms)) if final_norms else 0.0,
+        "eval/n_trajectories": len(x0_list),
+    }
+    return {'trajectories': all_data, 'n_trajectories': len(x0_list), 'metrics': metrics}
 
 
 def save_evaluation_data(data: dict, filepath: str | Path) -> None:
