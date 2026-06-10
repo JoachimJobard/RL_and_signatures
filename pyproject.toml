@@ -39,11 +39,16 @@ build-backend = "setuptools.build_meta"
 dev = [
     "memory-profiler>=0.61.0",
     "memray>=1.19.1",
+    "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+addopts = "-q"
 
 [tool.setuptools.packages.find]
 # Tell setuptools exactly which folders contain your python code
 include = ["src*", "RL_algos*"]
-# Explicitly tell it to ignore the config and log folders
-exclude = ["conf*", "wandb*", "tests*"]
+# Explicitly tell it to ignore the config, log, and test folders
+exclude = ["conf*", "wandb*", "tests*", "test*"]
 
