@@ -295,66 +295,6 @@ class CTACSignatureJAX:
             )
         return action, mu, noise
  
-    # =========================================================================
-    # Value Derivative Estimation
-    # =========================================================================
-    
-    def _compute_V_dot(self, ctx: StepContextSignature) -> float:
-        """Compute time derivative of value function (Euler forward difference)."""
-        return (ctx.V_next - ctx.V_t) / ctx.dt
-
-    # =========================================================================
-    # TD Error Computation (flag-based)
-    # =========================================================================
-    
-    def _compute_td_error(self, ctx: StepContextSignature) -> float:
-        """Compute temporal difference error based on flags."""
-        if self.algorithm.integral_td:
-            # Integral form: δ = r·dt + ΔV (- V·dt/τ if discounted)
-            delta_V = ctx.V_next - ctx.V_t
-            td = ctx.reward * ctx.dt + delta_V
-            if self.discount.discounted:
-                td -= ctx.V_t * ctx.dt / self.discount.tau
-            return td
-        else:
-            # Differential form: δ = r + V̇ (- V/τ if discounted)
-            td = ctx.reward + ctx.V_dot
-            if self.discount.discounted:
-                td -= ctx.V_t / self.discount.tau
-            return td
-
-    # =========================================================================
-    # Critic Gradient (flag-based)
-    # =========================================================================
-    
-    
-    def critic_loss_fn(self, sig_t, sig_next,x, x_next, reward, dt): 
-        if self.signature_conf.state_augmentation:
-            sig_t = jnp.concatenate([sig_t, jnp.array(x)])  # type: ignore
-            sig_next = jnp.concatenate([sig_next, jnp.array(x_next)])  # type: ignore
-        V_t_raw = self.critic.apply(self.critic_params, sig_t)
-        V_next_raw = jax.lax.stop_gradient(self.critic.apply(self.critic_params, sig_next))
-        V_t = jnp.asarray(V_t_raw[0] if isinstance(V_t_raw, tuple) else V_t_raw).squeeze()
-        V_next = jnp.asarray(V_next_raw[0] if isinstance(V_next_raw, tuple) else V_next_raw).squeeze()
-        target = (reward + (V_next - V_t) / dt) # type: ignore
-        td_error = target
-        if self.discount.discounted:
-            td_error -= V_t / self.discount.tau
-        loss = 0.5 * td_error ** 2
-        return loss, td_error
-
-
-    # =========================================================================
-    # Actor Gradient
-    # =========================================================================
-    
-    def actor_loss_fn(self, sig_t, td_error, noise):
-        if self.signature_conf.state_augmentation:
-            sig_t = jnp.concatenate([sig_t, jnp.array(self.wrapper.state.x)])  # type: ignore
-        mu = self.actor.apply(self.actor_params, sig_t) #type: ignore
-        loss = - jax.lax.stop_gradient(td_error) * jax.lax.stop_gradient(noise) * mu
-        return loss.sum()
-
 
     # =========================================================================
     # Episode Termination
