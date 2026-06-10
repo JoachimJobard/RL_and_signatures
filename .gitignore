@@ -1,0 +1,47 @@
+# =============================================================================
+# Experiment outputs and generated data
+# =============================================================================
+# Canonical run outputs (script_data_dir: data/<script_stem>/<timestamp>_<tag>/)
+data/*
+!data/.gitkeep
+
+# Hydra default run/sweep outputs and submitit working dirs
+outputs/
+multirun/
+.submitit/
+
+# Legacy eval-data dump location (pre-reorg)
+eval_outputs/
+
+# Weights & Biases local runs
+wandb/
+
+# Checkpoints / pickled artefacts
+*.pkl
+
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# =============================================================================
+# Virtual environments
+# =============================================================================
+.venv/
+venv/
+
+# =============================================================================
+# Editor / OS
+# =============================================================================
+.vscode/
+.idea/
+.DS_Store
+
+# =============================================================================
+# Notes
+# =============================================================================
+# Reference PDFs under documents/references/ are intentionally tracked and are
+# NOT ignored here (no blanket *.pdf rule).

@@ -37,12 +37,7 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 from src.utils.dynamic_signature import SlidingSignatureJAX
-
-
-def script_data_dir(script_file: str) -> Path:
-    """Return <repo_root>/data/<script_stem>/ (output folder derived from the filename)."""
-    repo_root = Path(__file__).resolve().parents[2]
-    return repo_root / "data" / Path(script_file).stem
+from src.utils.run_context import resolve_run_dir
 
 
 def make_representative_path(window_length: int, n_state: int, rng: np.random.Generator) -> np.ndarray:
@@ -112,9 +107,8 @@ def main() -> None:
         )
 
     timestamp = _datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    debug_prefix = "_debug_" if args.debug else ""
-    out_dir = script_data_dir(__file__) / f"{debug_prefix}{timestamp}_seed{args.seed}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = resolve_run_dir(__file__, "f32_vs_f64", seed=args.seed,
+                              debug=args.debug, timestamp=timestamp)
 
     # Self-contained run log: command line, environment, and resolved parameters.
     log_lines = [
