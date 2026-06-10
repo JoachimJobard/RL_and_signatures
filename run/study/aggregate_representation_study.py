@@ -229,11 +229,9 @@ def build_comparison_figure(cells: list[CellAggregate]):
     prepare_figure(
         fig, fname="comparison", axes=list(axes),
         handles=handles or None, labels=labels or None,
-        reserve_bottom=0.26, legend_fontsize=8,
-        formula=(r"H1: history (raw / signature) vs Markovian. H2: signature vs "
-                 r"raw-history at matched readout, swept capacity ($\dim\Phi$). "
-                 r"Linear-delayed cells report normalised sub-optimality vs the "
-                 r"delayed-LQR oracle; error bars are 95% CIs across seeds."),
+        reserve_bottom=0.32, legend_y=0.14, legend_fontsize=8,
+        formula=(r"Value linear in $\Phi$, swept capacity $\dim\Phi$. Linear cells: "
+                 r"normalised sub-optimality vs the delayed-LQR oracle; 95% CIs over seeds."),
     )
     return fig
 

@@ -31,26 +31,28 @@ equations).
   function of the *current state* $x(t)$ alone.
 - **H2 (signature representation helps).** When the dynamics are non-Markovian and
   the optimal control is a *nonlinear* functional of the history, a
-  signature-based representation of the history attains lower control cost — at
-  **matched readout class and matched capacity** — than a basic ("raw history")
-  representation, e.g. the discretised path or its polynomial features.
+  signature-based representation of the history attains lower control cost — with
+  the value a **linear functional of $\Phi$ (matched hypothesis class) at matched
+  capacity** — than a basic ("raw history") representation, e.g. the discretised path
+  or its polynomial features.
 
-H2 is stated at *matched readout and capacity* deliberately: the claim is about
-the representation's inductive bias, not about model size or a neural readout (see
-§4).
+H2 is stated with the value linear in $\Phi$ at matched capacity deliberately: the
+claim is about the representation's inductive bias, not about model size or a
+nonlinear parameterisation of $\Phi$ (see §4).
 
 ## 2. Design factors
 
 ### 2.1 Representation factor $\Phi$ (the treatment)
 
-A single map from the observed history window to features, fed to a **linear**
-readout (see §4):
+A single map from the observed history window to features $\Phi$, with the value a
+**linear functional** $V=\theta^\top\Phi$ (see §4):
 
 1. **Markovian** — $\Phi_{\mathrm{mk}}(x_t) = x(t)$ (current state only); for the
    quadratic baseline, the monomials $x_i x_j$.
 2. **Raw history** — $\Phi_{\mathrm{raw}}(x_t)$ = the discretised history
    $(x(t), x(t-\delta), \dots, x(t-h))$ and, for degree $m$, its monomials up to
-   degree $m$ (so the readout spans degree-$m$ polynomial functionals of the path).
+   degree $m$ (so $\operatorname{span}\Phi$ contains the degree-$m$ polynomial
+   functionals of the path).
 3. **Signature** — $\Phi_{\mathrm{sig}}(x_t) = S^m(\hat x_t)$, the depth-$m$
    signature of the Arribas-augmented path $\hat x_t = (t,\, x_t,\, (x_0/T)\,t)$
    (`src/utils/dynamic_signature.py`).
@@ -104,8 +106,8 @@ recovering eq. 2.7: the cross-kernel $Q$ falls out of the *endpoint* derivative.
 > `documents/references/`, so this note rests on the algebraic identity, not a
 > direct read of eq. 2.4.
 
-In the implementation, with a linear readout $V=\theta^\top\Phi(x_t)$ and the window
-holding the discretised path ($\text{window}[-1]=x(t)$), the control gradient is the
+In the implementation, with the value a linear functional $V=\theta^\top\Phi(x_t)$ and
+the window holding the discretised path ($\text{window}[-1]=x(t)$), the control gradient is the
 **discrete vertical derivative** $\theta^\top\,\partial\Phi/\partial\,\text{window}[-1]$
 (perturb the last sample, hold the earlier ones fixed) — which is what
 `value_gradient_jax` already takes as `grad_path[-1]`. Because $\Phi$ contains
@@ -143,19 +145,20 @@ gives, for linear delayed dynamics with quadratic cost, a value that is a
 *quadratic* functional of the history (eq. 2.4) and an optimal control that is a
 *linear* functional of the history (eq. 2.7):
 $$u^\star(t,x_t) = -N_1^{-1} B^\top\!\Big[P(t)\,x(t) + \int_{-h}^0 Q(t,\theta)\,x(t+\theta)\,d\theta\Big].$$
-A linear/quadratic readout on the *raw* discretised history already represents
-these exactly, so the signature's nonlinear iterated-integral features are not
-needed: **H2 is predicted null here.** If the signature wins on a linear delayed
-plant, suspect over-parameterisation, capacity mismatch, or leakage.
+A value taken as a linear/quadratic functional of the *raw* discretised history
+already represents these exactly, so the signature's nonlinear iterated-integral
+features are not needed: **H2 is predicted null here.** If the signature wins on a
+linear delayed plant, suspect over-parameterisation, capacity mismatch, or leakage.
 
 **Why the signature can win on the nonlinear delayed cell.** By Arribas Thm 4.2,
 linear functionals of the signature of the augmented path are dense in the
-*continuous (nonlinear) functionals* of the path, whereas a linear-on-raw-history
-readout is confined to linear functionals (degree-$m$ polynomial at degree $m$).
+*continuous (nonlinear) functionals* of the path, whereas a linear functional of the
+raw history spans only linear functionals (degree-$m$ polynomial at degree $m$).
 When the optimal control is a genuinely nonlinear functional of the history (the
-nonlinear delayed cell), the signature readout can approximate it and the raw
-linear readout cannot — at matched depth/degree. **This cell is where the study
-lives** and must therefore be the best-conditioned environment available (the
+nonlinear delayed cell), a linear functional of the signature can approximate it and
+a linear functional of the raw history cannot — at matched depth/degree. **This cell
+is where the study lives** and must therefore be the best-conditioned environment
+available (the
 stiff Dadebo CSTR is demoted to a stress test; a well-conditioned nonlinear
 delayed environment is added as the primary H2 cell).
 
@@ -172,7 +175,7 @@ Run in order; do not interpret a learned comparison until the relevant rungs pas
 2. **Oracle critic + learned actor** (and dual). Purpose: decompose error into
    representation/critic error vs policy-optimisation error — essential for
    diagnosing the Dadebo instability.
-3. **Linear-on-true-features.** Fit the linear/quadratic readout on the *known*
+3. **Linear-on-true-features.** Fit the linear/quadratic functional on the *known*
    sufficient features (the discretised history for the linear cell). Purpose:
    confirm the optimiser recovers the oracle when the representation is provably
    adequate. Failure here implicates the optimiser, not the representation.
@@ -184,17 +187,18 @@ Run in order; do not interpret a learned comparison until the relevant rungs pas
 The **only** quantity that varies across the H1/H2 arms is the representation map
 $\Phi$. Everything else is held identical:
 
-1. **Readout class** — linear on $\Phi$ for every arm (Arribas Thm 4.2 is about
-   *linear* functionals of the signature; a deep readout would conflate
-   "representation" with "neural approximation" and break the theory link).
-2. **Capacity — matched readout, sweep capacity** (the chosen convention). Use a
-   linear readout on every arm and **sweep the complexity knob**: signature depth
-   $m\in\{1,2,3,4\}$ and raw-history polynomial degree / window resolution. Plot
-   performance against the **feature dimension** $\dim\Phi$, so a "signature wins"
-   conclusion is read off at *matched* $\dim\Phi$ rather than asserted. The
-   depth/degree sweep is also a direct test of Arribas (error should fall with $m$
-   until the target functional's complexity is met, then plateau).
-   *Anchor:* a depth-2 signature with a linear readout spans quadratic path
+1. **Hypothesis class** — the value is a linear functional of $\Phi$,
+   $V=\theta^\top\Phi$, for every arm (Arribas Thm 4.2 is about *linear* functionals
+   of the signature; a nonlinear parameterisation of $\Phi$ would conflate
+   "representation" with "nonlinear approximation" and break the theory link).
+2. **Capacity — fixed hypothesis class, sweep capacity** (the chosen convention).
+   Keep the value linear in $\Phi$ on every arm and **sweep the complexity knob**:
+   signature depth $m\in\{1,2,3,4\}$ and raw-history polynomial degree / window
+   resolution. Plot performance against the **feature dimension** $\dim\Phi$, so a
+   "signature wins" conclusion is read off at *matched* $\dim\Phi$ rather than
+   asserted. The depth/degree sweep is also a direct test of Arribas (error should
+   fall with $m$ until the target functional's complexity is met, then plateau).
+   *Anchor:* the span of the depth-2 signature contains the quadratic path
    functionals — exactly the delayed-LQR value class (Kolmanovskii 2.4) — so on the
    linear cell, depth-2 signature and degree-2 raw history should both match the
    oracle value; this equivalence is an explicit unit test.
@@ -208,7 +212,8 @@ $\Phi$. Everything else is held identical:
    process and $\sigma$ schedule, episode/step budget, $Q,R$, integrator and $dt$,
    burn-in, best-state restoration.
 
-Precise H2 claim, given the above: *at matched readout class and matched capacity,
+Precise H2 claim, given the above: *with the value a linear functional of $\Phi$
+(matched hypothesis class) at matched capacity,
 the signature representation attains lower normalised sub-optimality (or higher
 sample-efficiency) than the raw-history representation on nonlinear delayed
 systems.*
@@ -270,6 +275,68 @@ state-dependent gain $B(x)$). To prevent it from confounding H2:
   confidence intervals, not just point estimates.
 - **Replot contract:** every figure regenerable from saved metrics (the
   `replot=<run_dir>` path), so the analysis is auditable without re-running.
+
+### 7.1 Decomposing the residual on exact-capacity arms (the optimization floor)
+
+The value function is parameterised as a **linear functional of the feature map**,
+$V_\theta(x_t)=\theta^\top\Phi(x_t)$. On the linear delayed cell, the degree-2
+monomials of the discretised history and the depth-2 path signature both span the
+**quadratic functionals of the history segment**, and the delayed-LQR value is such a
+quadratic functional (Kolmanovskii eq. 2.4; the depth-2-signature ≈
+degree-2-raw-history equivalence is an explicit unit test, §4). Hence for these
+*exact-capacity* arms $V^\star\in\operatorname{span}\Phi$, the approximation error
+$\inf_\theta\lVert V_\theta-V^\star\rVert=0$ **by construction**, and the residual
+normalised sub-optimality $\rho=(J(\hat\theta)-J^\star)/|J^\star|$ is **optimization
+error**, not approximation error. It is the sum of three sub-terms:
+
+1. **Projected semi-gradient TD fixed-point bias.** Under `semi_gradient: true` the
+   parameter converges to the solution of a *projected* Bellman equation (the
+   semi-gradient TD fixed point), which need not equal the true value parameter
+   $\theta^\star$ even when $V^\star\in\operatorname{span}\Phi$. A systematic bias,
+   independent of optimisation budget.
+2. **Finite-budget non-convergence.** With $N$ episodes and step size $\eta$
+   (`critic_lr`), $\hat\theta_N$ is an iterate, not the fixed point.
+3. **Policy-improvement error.** The control is the greedy law
+   $u=-\tfrac12 R^{-1}B^\top\,\partial_x V_{\hat\theta}$; an error in the vertical
+   derivative $\partial_x V_{\hat\theta}$ yields a control law different from the
+   oracle's history-feedback law $u^\star$ (Kolmanovskii 2.7).
+
+**Empirical findings** (`run/study/diagnose_optimization_floor.py`; one seed of each
+arm on `delayed_velocity_oscillator`; claim strength: measured). The diagnostic rolls
+the delayed-LQR oracle through the *same* `collect_evaluation_data` path and reports:
+
+- **Representation is adequate (confirmed).** The agent's control is *exactly* affine
+  in the history window ($R^2=1.000$ for both exact-capacity arms), as a quadratic
+  $V_\theta$ requires. The under-capacity contrast — degree-1 raw history, whose
+  *linear* $V_\theta$ has a state-independent vertical derivative — produces a
+  near-constant control ($|u|\approx0.02$, no state feedback): a representation
+  failure ($\rho=1.31$), cleanly separated from the optimization floor.
+- **The residual is transient-localised (confirmed).** $95$–$102\%$ of the cumulative
+  excess $E(t)=J(\hat\theta){-}J^\star$ accrues before the oracle's settling time; the
+  tail is neutral.
+- **It is not a magnitude error.** raw-history deg-2 matches the oracle control
+  amplitude ($\max|u|$ $3.70$ vs $3.53$); the depth-2 signature *under-actuates*
+  ($1.84$ vs $3.53$) yet attains lower cost ($\rho=0.056$ vs $0.119$).
+- **It is a feedback-law error.** Applying the oracle law $K^\star$ to the agent's
+  *own* windows and comparing to the agent's realised control gives an RMS
+  discrepancy of $0.65$–$0.73$ (relative to the oracle control RMS) — concentrated in
+  the transient. So sub-terms (1)/(3) (a biased fixed point and the induced
+  policy-improvement error), not finite budget (2), dominate.
+
+**Methodological caveats.** (i) The multi-tap feedback *kernel* is **not identifiable**
+from a single closed-loop trajectory: the $dt$-spaced taps are near-collinear (design
+condition number $\sim10^4$–$10^5$), so a recovered $\hat K$ is the inflated min-norm
+solution and $\lVert\hat K-K^\star\rVert$ is meaningless — the identifiable quantity is
+the on-trajectory action discrepancy above. (ii) The forward-Euler oracle is
+marginally conservative on the RK4 plant (the depth-2 signature beats it in the tail
+while under-actuating), so the action discrepancy is an *upper bound* on the agent's
+law error.
+
+**Implication for the floor.** Because the dominant error is the feedback law and the
+biased fixed point — not finite budget — the productive levers are those that change
+the learned $V$'s vertical derivative: the target network / Polyak coefficient
+(`tau_polyak`) and a *less biased TD target* (integral / $n$-step TD, or an off-policy
+LSTD fit on the exact features), rather than `critic_lr` / episode count alone.
 
 ## 8. Correctness safeguards
 
