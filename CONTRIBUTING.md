@@ -105,11 +105,18 @@ module path.
 
 ## Cluster (Jean Zay)
 
-Standalone `sbatch` launchers with job-array parallelisation are forthcoming
-(Phase 5); they will live under `bash_scripts/cluster/jeanzay/` and route SLURM
-logs to a `slurm/` sub-folder of each run directory. The repo currently ships a
-Hydra submitit launcher (`conf/launcher/slurm.yaml`) targeting an Inria partition,
-which is being replaced.
+Standalone `sbatch` launchers live under `bash_scripts/cluster/jeanzay/` (see its
+`README.md` for one-time setup and the partition/QoS routing). Highlights:
+
+- `python/python_script_launcher.sh` (CPU) / `python_script_launcher_gpu.sh` (GPU)
+  submit a single `main_unified.py` run.
+- `python/experiment_array_launcher.sh` runs an ablation/sweep as a SLURM **job
+  array**, one task per line of a variants file (each line = Hydra overrides);
+  tasks group under `data/main_unified/<experiment-group>/` and SLURM logs land
+  in that group's `slurm/` sub-folder.
+- `python/run_interactive_job.sh` opens an interactive compute shell.
+
+These replace the Inria-`tau` Hydra submitit launcher (`conf/launcher/slurm.yaml`).
 
 ## Code style
 

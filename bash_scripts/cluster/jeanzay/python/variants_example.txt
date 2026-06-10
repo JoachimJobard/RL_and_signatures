@@ -1,0 +1,17 @@
+# Example variants file for experiment_array_launcher.sh
+# ----------------------------------------------------------------------------
+# One Hydra-override string per line -> one SLURM array task. Blank lines and
+# lines starting with '#' are ignored. Each line should set a distinct run_tag
+# so its output folder (under data/main_unified/<experiment-group>/) is labelled.
+# The launcher adds the shared --common overrides, seed=..., experiment_group=...,
+# and wandb.mode=... to every line.
+#
+# This example sweeps the signature truncation depth on Mackey-Glass (depths 2-4,
+# as in the thesis), plus the two non-signature CTAC baselines. Replace with the
+# real experiment set when it is provided.
+
+agent=signatures      env=MG_1D run_tag=sig_depth2 agent.signature.depth=2
+agent=signatures      env=MG_1D run_tag=sig_depth3 agent.signature.depth=3
+agent=signatures      env=MG_1D run_tag=sig_depth4 agent.signature.depth=4
+agent=base_jax        env=MG_1D run_tag=ctac_markovian
+agent=value_gradient  env=MG_1D run_tag=value_gradient
