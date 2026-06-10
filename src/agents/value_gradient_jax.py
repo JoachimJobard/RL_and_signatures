@@ -9,7 +9,8 @@ from pathlib import Path
 
 from src.envs.env_rk_jax import JAXEnvWrapper, JAXDDEEnv
 from src.networks.LQR_actor_critics import CriticFlax, CriticFlaxLayerNorm
-from src.utils.dynamic_signature import SlidingSignatureJAX, DequeBuffer
+from src.utils.dynamic_signature import DequeBuffer
+from src.representations.factory import make_representation, RepresentationBuffer
 from src.utils.optim import build_adam
 from src.utils.step_context import StepContextSignature
 from src.utils.step_metrics import StepMetrics
@@ -78,10 +79,23 @@ class ContinuousValueGradient:
         self.state_counter = StateCounter(resolution=self.training.discretization_state)
 
     def _init_networks(self) -> None:
-        self.sliding_signature = SlidingSignatureJAX(
-            depth=self.signature_conf.depth, window_size=self.signature_conf.window_size, d=self.env.N,
+        # Representation backbone: signature / raw_history / markovian, behind a
+        # window buffer with a SlidingSignatureJAX-compatible surface so the rest of
+        # this agent is unchanged. The feature map is the linear-readout input and
+        # the function the value-gradient control law differentiates (dV/dx(t)).
+        window_length = self.signature_conf.window_size + 1
+        representation = make_representation(
+            self.signature_conf.kind,
+            window_length=window_length,
+            n_state=self.env.N,
+            depth=self.signature_conf.depth,
+            degree=self.signature_conf.degree,
             time_augmentation=self.signature_conf.time_augmentation,
-            origin_augmentation=self.signature_conf.origin_augmentation, bias=self.signature_conf.bias,
+            origin_augmentation=self.signature_conf.origin_augmentation,
+            bias=self.signature_conf.bias,
+        )
+        self.sliding_signature = RepresentationBuffer(
+            representation, window_length=window_length, n_state=self.env.N,
         )
         self.critic = self._build_network()
         self.target = self._build_network()
@@ -592,18 +606,12 @@ class ContinuousValueGradient:
                 stacklevel=2,
             )
         
-        # Save state
+        # Save state. _fill_buffer_initial below resets the window to a NEW buffer,
+        # so save the buffer object and reassign it back afterwards to restore the
+        # training-time window exactly (the previous code restored a detached copy
+        # and left the training buffer in the post-eval state — a latent bug).
         saved_state = self.wrapper.state
-        buf = self.sliding_signature.buffer
-        saved_buf: Any  # tuple (JAXCircularBuffer state) or deque (DequeBuffer), per branch below
-        if hasattr(buf, '_data'):
-            # JAXCircularBuffer
-            saved_buf = (buf._data.copy(), buf._count, buf._head)  # type: ignore[union-attr]
-        else:
-            # DequeBuffer
-            from collections import deque
-            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
-            saved_buf = deque(buf.buffer, maxlen=buf.size)
+        saved_buffer = self.sliding_signature.buffer
         saved_sig = self.sliding_signature.current_signature
         saved_dirty = self._path_data_dirty
         saved_cached = self._cached_path_data
@@ -638,13 +646,9 @@ class ContinuousValueGradient:
             total_cost += float(reward) * self.env.step_size
             x_t = x_next
         
-        # Restore state
+        # Restore state (reassign the saved training-time buffer object).
         self.wrapper.state = saved_state
-        if hasattr(buf, '_data'):
-            buf._data, buf._count, buf._head = saved_buf  # type: ignore[union-attr]
-        else:
-            assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
-            buf.buffer = saved_buf
+        self.sliding_signature.buffer = saved_buffer
         self.sliding_signature.current_signature = saved_sig
         self._path_data_dirty = saved_dirty
         self._cached_path_data = saved_cached

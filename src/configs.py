@@ -68,7 +68,16 @@ class NoiseConfig:
 
 @dataclass
 class SignatureConfig:
-    """Path signature architecture parameters."""
+    """History-representation architecture parameters.
+
+    ``kind`` selects the representation for the value-gradient agent:
+    ``"signature"`` (depth-``depth`` signature), ``"raw_history"`` (degree-``degree``
+    polynomial of the discretised window), or ``"markovian"`` (degree-``degree``
+    polynomial of the current state). ``depth``/``degree`` are the capacity knobs
+    swept in the H2 fairness sweep.
+    """
+    kind: str = "signature"
+    degree: int = 2
     depth: int = 2
     window_size: int = 10
     time_augmentation: bool = True
