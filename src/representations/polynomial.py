@@ -35,14 +35,23 @@ class _PolynomialFeatureMap:
         self.input_dim = input_dim
         self.degree = degree
         self._index_tuples = _monomial_index_tuples(input_dim, degree)
-        # Precompute a static integer index array per monomial for a jittable gather.
-        self._index_arrays = [np.asarray(idx, dtype=int) for idx in self._index_tuples]
         self.feature_dim = len(self._index_tuples)
+        # Vectorised monomial evaluation: prepend a 1.0 to the input (index 0), shift
+        # the real variable indices by +1, and right-pad each monomial to `degree`
+        # with 0 (which multiplies by the prepended 1.0). Then a single gather + a
+        # single product over the padded matrix computes ALL monomials at once — a
+        # small, fast XLA graph under autodiff (a per-monomial list of jnp.prod
+        # explodes the graph and is intractable to differentiate at high degree).
+        padded = np.zeros((self.feature_dim, degree), dtype=int)
+        for i, idx in enumerate(self._index_tuples):
+            shifted = [j + 1 for j in idx]
+            padded[i, : len(shifted)] = shifted
+        self._padded_index = jnp.asarray(padded)
 
     def _features_from_vector(self, v: jnp.ndarray) -> jnp.ndarray:
-        # Each monomial is the product of the gathered (with repetition) entries.
-        terms = [jnp.prod(v[idx]) for idx in self._index_arrays]
-        return jnp.stack(terms)
+        v_aug = jnp.concatenate([jnp.ones((1,), dtype=v.dtype), v])  # index 0 -> 1.0
+        gathered = v_aug[self._padded_index]  # (feature_dim, degree)
+        return jnp.prod(gathered, axis=1)
 
 
 class MarkovianRepresentation(_PolynomialFeatureMap):
