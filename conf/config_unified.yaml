@@ -18,7 +18,10 @@ defaults:
 # =============================================================================
 # Global Settings
 # =============================================================================
-seed: 42
+seed: 42                      # single master seed; per-role seeds are derived from it
+
+debug: false                  # true: prepend _debug_ to the run dir and bypass the smoke-test guard
+replot: null                  # path to an existing run dir: rebuild figures from saved data and exit
 
 # =============================================================================
 # Evaluation Settings

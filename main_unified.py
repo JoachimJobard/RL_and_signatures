@@ -7,20 +7,32 @@ Usage:
     python main_unified.py                                    # Default config
     python main_unified.py agent=signatures                   # Signature-based CTAC
     python main_unified.py agent=base_jax                     # Vanilla CTAC
-    python main_unified.py agent=csac                         # Soft Actor-Critic
     python main_unified.py agent=value_gradient               # Value Gradient
     python main_unified.py agent.depth=4 env=mackey_glass     # Custom params
     python main_unified.py wandb.mode=disabled                # Local testing
+    python main_unified.py debug=true agent.training.n_episodes=2   # Exploratory smoke run
+    python main_unified.py replot=data/main_unified/<run_dir>      # Rebuild figures from saved data
+
+Outputs follow the scientific-workflow convention (see
+documents/methodology/scientific_workflow.md): canonical artefacts (run context,
+resolved config, checkpoint, evaluation data, training history, figures) are
+written to
+
+    data/main_unified/<timestamp>_<agent>_<env>_seed<seed>/
+
+with a ``_debug_`` prefix when ``debug=true``. The run directory is derived from
+this script's filename via ``run_context.resolve_run_dir``.
 """
 
-import hydra
-from omegaconf import DictConfig, OmegaConf
-import wandb
-import numpy as np
-import jax
+import pickle
 from pathlib import Path
 
-
+import hydra
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig, OmegaConf
+import numpy as np
+import jax
+import wandb
 
 from src.training.train import train
 from src.training.evaluate import (
@@ -33,184 +45,258 @@ from src.training.evaluate import (
     collect_multiple_trajectories_data,
     save_evaluation_data,
     save_training_metrics,
+    load_training_metrics,
     make_eval_callback,
     get_statistics_visited_states,
 )
+from src.utils.run_context import (
+    resolve_run_dir,
+    derive_seeds,
+    capture_run_context,
+    format_run_context,
+)
+
 # Enable float64 for JAX
 jax.config.update("jax_enable_x64", True)
 
-def run_experiment(cfg: DictConfig) -> None:
+# Smoke-test guard: real runs use thousands of episodes. A run with fewer episodes
+# than this threshold is refused unless flagged as exploratory (debug=true), so a
+# smoke run cannot silently land in the real-run namespace.
+SMOKE_TEST_N_EPISODES_THRESHOLD = 100
+
+# Roles whose seeds are derived from the single master seed (cfg.seed).
+SEED_ROLES = ("agent", "eval_init", "eval_x0_fallback")
+
+
+def _training_cfg(cfg: DictConfig):
+    """Return the agent's training block, tolerating both the nested
+    (``training:``) and legacy flat (``training_params:``) config schemas."""
+    block = cfg.agent.get("training", None)
+    if block is None:
+        block = cfg.agent.get("training_params", None)
+    return block if block is not None else {}
+
+
+def _save_figure(fig, path_without_ext: Path) -> None:
+    """Persist a Plotly or Matplotlib figure to disk (so figures survive without wandb)."""
+    if fig is None:
+        return
+    if hasattr(fig, "write_html"):  # Plotly
+        fig.write_html(str(path_without_ext) + ".html")
+    elif hasattr(fig, "savefig"):  # Matplotlib
+        fig.savefig(str(path_without_ext) + ".png", dpi=150, bbox_inches="tight")
+
+
+def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
+    """Run a complete experiment: train, evaluate, and persist artefacts.
+
+    Artefacts (checkpoint, evaluation data, training history, figures) are written
+    to ``run_dir`` and, when wandb is enabled, also logged to Weights & Biases.
     """
-    Run complete experiment: train + evaluate + log to wandb.
-    
-    This function orchestrates:
-    1. Training the agent
-    2. Logging training metrics to wandb
-    3. Evaluating on test trajectories
-    4. Saving evaluation data for external plotting
-    """
-    
+
     # =========================================================================
     # Training
     # =========================================================================
     print("\n" + "=" * 60)
     print("TRAINING")
     print("=" * 60)
-    
+
     # Set up periodic trajectory evaluation callback (wandb slider)
     x0_eval = np.array(cfg.eval.x0_test)
     T_sim_eval = cfg.eval.T_sim
-    eval_interval = cfg.eval.get('snapshot_interval', 100)
-    eval_burning_steps = cfg.eval.get('burning_steps', 0)
-    
-    # Build and attach the callback before training
+    eval_interval = cfg.eval.get("snapshot_interval", 100)
+    eval_burning_steps = cfg.eval.get("burning_steps", 0)
+
     snapshot_cb = make_eval_callback(
         x0=x0_eval,
         T_sim=T_sim_eval,
         eval_interval=eval_interval,
         burning_steps=eval_burning_steps,
     )
-    
+
     agent, metrics = train(cfg, eval_callback=snapshot_cb)
-    
+
     # Log scalars (subsampled for efficiency)
-    log_interval = cfg.eval.get('log_interval', 20)
+    log_interval = cfg.eval.get("log_interval", 20)
     log_training_metrics(metrics, log_interval=log_interval)
-    
-    # Log training figure
+
+    # Training figure
     fig_training = plot_training_metrics(metrics)
     wandb.log({"Training Metrics": fig_training})
-    
-    # Training summary
+    _save_figure(fig_training, run_dir / "figure_training_metrics")
+
     for k, v in get_training_summary(metrics).items():
         wandb.run.summary[k] = v  # type: ignore
-    
+
     # =========================================================================
     # Evaluation
     # =========================================================================
     print("\n" + "=" * 60)
     print("EVALUATION")
     print("=" * 60)
-    
-    # Get evaluation parameters
+
     x0_test = np.array(cfg.eval.x0_test)
     T_sim = cfg.eval.T_sim
-    
+
     # Ensure x0_test matches environment dimension
     if len(x0_test) != agent.env.N:
         print(f"  Warning: x0_test dim ({len(x0_test)}) != env dim ({agent.env.N})")
         print("  Using random initial state")
-        rng = np.random.default_rng(cfg.seed)
+        rng = np.random.default_rng(derived_seeds["eval_x0_fallback"])
         x0_test = rng.standard_normal(agent.env.N)
-    
+
     # Agent vs No Control comparison
     print("  - Comparing with no control...")
     fig_comparison, eval_metrics = compare_with_no_control(
-        agent,
-        x0_test,
-        T_sim,
-        burning_steps=eval_burning_steps,
-    ) #type: ignore
+        agent, x0_test, T_sim, burning_steps=eval_burning_steps,
+    )  # type: ignore
     wandb.log({"Agent vs No Control": fig_comparison})
-    
-    #visiting statistics
-    if metrics.get('state_counts', None) is not None:
-        fig_visiting = get_statistics_visited_states(metrics, agent.discretization_state) #type: ignore
+    _save_figure(fig_comparison, run_dir / "figure_agent_vs_no_control")
+
+    # Visiting statistics
+    if metrics.get("state_counts", None) is not None:
+        fig_visiting = get_statistics_visited_states(metrics, agent.discretization_state)  # type: ignore
         wandb.log({"Visited States Distribution": fig_visiting})
+        _save_figure(fig_visiting, run_dir / "figure_visited_states")
 
     for k, v in eval_metrics.items():
         wandb.run.summary[k] = v  # type: ignore
-    
+
     print(f"    Cost reduction: {eval_metrics['eval/cost_reduction_pct']:.1f}%")
     print(f"    Final error (agent): {eval_metrics['eval/final_error_agent']:.4f}")
-    
+
     # Multiple trajectories evaluation
     print("  - Evaluating multiple trajectories...")
-    n_eval = cfg.eval.get('n_eval_trajectories', 5)
-    rng = np.random.default_rng(cfg.seed + 1000)
+    n_eval = cfg.eval.get("n_eval_trajectories", 5)
+    rng = np.random.default_rng(derived_seeds["eval_init"])
     x0_list = [x0_test] + [
         rng.standard_normal(agent.env.N) * np.linalg.norm(x0_test)
         for _ in range(n_eval - 1)
     ]
-    
+
     fig_multi, multi_metrics = evaluate_multiple_trajectories(
-        agent,
-        x0_list,
-        T_sim,
-        burning_steps=eval_burning_steps,
-    ) #type: ignore
+        agent, x0_list, T_sim, burning_steps=eval_burning_steps,
+    )  # type: ignore
     wandb.log({"Multiple Trajectories": fig_multi})
-    
+    _save_figure(fig_multi, run_dir / "figure_multiple_trajectories")
+
     for k, v in multi_metrics.items():
         wandb.run.summary[k] = v  # type: ignore
-    
-    print(f"    Mean cost: {multi_metrics['eval/multi_cost_mean']:.4f} ± {multi_metrics['eval/multi_cost_std']:.4f}")
-    
+
+    print(f"    Mean cost: {multi_metrics['eval/multi_cost_mean']:.4f} "
+          f"± {multi_metrics['eval/multi_cost_std']:.4f}")
+
     # =========================================================================
-    # Save Checkpoint & Evaluation Data
+    # Checkpoint & evaluation data (stable filenames inside the run directory,
+    # so a --replot pass can find them; see run_replot)
     # =========================================================================
-    if cfg.get('save_checkpoint', True):
-        base_name = cfg.get('eval_data_name', 'run')
+    if cfg.get("save_checkpoint", True):
         print("\n  - Saving checkpoint...")
-        checkpoint_path = cfg.get('checkpoint_path', 'checkpoint_agent')
-        if hasattr(agent, 'save'):
-            agent.save(checkpoint_path + f"_{base_name}" + ".pkl") #type: ignore
+        checkpoint_path = run_dir / "checkpoint_agent.pkl"
+        if hasattr(agent, "save"):
+            agent.save(str(checkpoint_path))  # type: ignore
         else:
-            import pickle
-            Path(checkpoint_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(checkpoint_path, 'wb') as f:
+            with open(checkpoint_path, "wb") as f:
                 pickle.dump({
-                    'agent_params': getattr(agent, 'actor_params', None),
-                    'critic_params': getattr(agent, 'critic_params', None),
+                    "agent_params": getattr(agent, "actor_params", None),
+                    "critic_params": getattr(agent, "critic_params", None),
                 }, f)
-            print(f"    Saved to {checkpoint_path}")
-    
-    if cfg.get('save_eval_data', True):
+        print(f"    Saved to {checkpoint_path}")
+
+    if cfg.get("save_eval_data", True):
         print("  - Saving evaluation data...")
-        original_cwd = hydra.utils.get_original_cwd()
-        eval_data_dir = Path(original_cwd) / cfg.get('eval_data_dir', 'eval_outputs')
-        eval_data_dir.mkdir(parents=True, exist_ok=True)
-        
-        base_name = cfg.get('eval_data_name', 'run')
-        
-        # Single trajectory data
+
         eval_data = collect_evaluation_data(
-            agent,
-            x0_test,
-            T_sim,
-            burning_steps=eval_burning_steps,
-        ) #type: ignore
-        eval_data['training_metrics'] = {
-            'cost_episodic': np.array(metrics.get('cost_episodic', [])),
-            'loss_episodic': np.array(metrics.get('loss_episodic', [])),
-            'gradient_critic': np.array(metrics.get('gradient_critic', [])),
+            agent, x0_test, T_sim, burning_steps=eval_burning_steps,
+        )  # type: ignore
+        eval_data["training_metrics"] = {
+            "cost_episodic": np.array(metrics.get("cost_episodic", [])),
+            "loss_episodic": np.array(metrics.get("loss_episodic", [])),
+            "gradient_critic": np.array(metrics.get("gradient_critic", [])),
         }
-        eval_data['config'] = OmegaConf.to_container(cfg, resolve=True)
-        save_evaluation_data(eval_data, eval_data_dir / f"{base_name}_eval.pkl")
-        
-        # Multiple trajectories data
+        eval_data["config"] = OmegaConf.to_container(cfg, resolve=True)
+        save_evaluation_data(eval_data, run_dir / "eval.pkl")
+
         multi_data = collect_multiple_trajectories_data(
-            agent,
-            x0_list,
-            T_sim,
-            burning_steps=eval_burning_steps,
-        ) #type: ignore
-        multi_data['config'] = OmegaConf.to_container(cfg, resolve=True)
-        save_evaluation_data(multi_data, eval_data_dir / f"{base_name}_multi.pkl")
-        
-        # Training metrics (cost, loss, gradients, weights per episode)
-        save_training_metrics(metrics, eval_data_dir / f"{base_name}_training_metrics.pkl")
-    
+            agent, x0_list, T_sim, burning_steps=eval_burning_steps,
+        )  # type: ignore
+        multi_data["config"] = OmegaConf.to_container(cfg, resolve=True)
+        save_evaluation_data(multi_data, run_dir / "multi.pkl")
+
+        save_training_metrics(metrics, run_dir / "training_metrics.pkl")
+
     print("\n" + "=" * 60)
     print("EXPERIMENT COMPLETE")
     print("=" * 60)
 
 
+def run_replot(run_dir: Path) -> None:
+    """Rebuild figures from saved artefacts, without retraining.
+
+    Reads the saved training history and regenerates the figures that are fully
+    data-driven (the training-metrics figure). Trajectory figures that currently
+    re-simulate the agent will become data-driven in the plot-utilities phase; for
+    now this establishes the replot contract for the training metrics.
+    """
+    print(f"\n[replot] Rebuilding figures from {run_dir}")
+    metrics_path = run_dir / "training_metrics.pkl"
+    if not metrics_path.exists():
+        raise FileNotFoundError(
+            f"No training_metrics.pkl in {run_dir}; cannot replot. "
+            "Pass the run directory of a completed run."
+        )
+    metrics = load_training_metrics(metrics_path)
+    fig_training = plot_training_metrics(metrics)
+    _save_figure(fig_training, run_dir / "figure_training_metrics")
+    print(f"[replot] Wrote {run_dir / 'figure_training_metrics.html'}")
+    print("[replot] (Trajectory figures from saved data will be added in the plot-utilities phase.)")
+
+
 @hydra.main(config_path="conf", config_name="config_unified", version_base=None)
 def main(cfg: DictConfig):
-    """Main entry point with wandb integration."""
-    
-    # Initialize wandb
+    """Main entry point with reproducible run context and wandb integration."""
+
+    # --- Replot mode: rebuild figures from an existing run directory and exit ---
+    replot_target = cfg.get("replot", None)
+    if replot_target:
+        run_replot(Path(hydra.utils.get_original_cwd()) / replot_target
+                   if not Path(replot_target).is_absolute() else Path(replot_target))
+        return
+
+    # --- Resolve seeds: single master seed -> deterministic per-role seeds ---
+    master_seed = int(cfg.seed)
+    derived_seeds = derive_seeds(master_seed, SEED_ROLES)
+
+    # --- Smoke-test guard ---
+    debug = bool(cfg.get("debug", False))
+    n_episodes = int(_training_cfg(cfg).get("n_episodes", 0))
+    if not debug and 0 < n_episodes < SMOKE_TEST_N_EPISODES_THRESHOLD:
+        raise SystemExit(
+            f"Refusing a real run with n_episodes={n_episodes} "
+            f"(< {SMOKE_TEST_N_EPISODES_THRESHOLD}). Set debug=true to flag it as exploratory."
+        )
+
+    # --- Canonical run directory: data/main_unified/<ts>_<agent>_<env>_seed<seed>/ ---
+    choices = HydraConfig.get().runtime.choices
+    agent_name = choices.get("agent", "agent")
+    env_name = choices.get("env", "env")
+    config_tag = f"{agent_name}_{env_name}"
+    run_dir = resolve_run_dir(__file__, config_tag, seed=master_seed, debug=debug)
+
+    # --- Self-contained run context: persist + log ---
+    context = capture_run_context(
+        master_seed=master_seed,
+        derived_seeds=derived_seeds,
+        hyperparameters=OmegaConf.to_container(cfg, resolve=True),
+        extra={"run_dir": str(run_dir), "agent": agent_name, "env": env_name},
+    )
+    (run_dir / "run_context.yaml").write_text(OmegaConf.to_yaml(OmegaConf.create(context)))
+    (run_dir / "config.yaml").write_text(OmegaConf.to_yaml(cfg))
+    print(format_run_context(context))
+    print(f"\nRun directory: {run_dir}")
+    print(f"Follow progress (this run's log is on stdout): {run_dir}\n")
+
+    # --- Weights & Biases ---
     wandb_cfg = cfg.wandb
     wandb.init(
         project=wandb_cfg.project_name,
@@ -218,11 +304,11 @@ def main(cfg: DictConfig):
         group=wandb_cfg.group,
         entity=wandb_cfg.entity,
         config=OmegaConf.to_container(cfg, resolve=True),  # type: ignore
-        mode=wandb_cfg.mode
+        mode=wandb_cfg.mode,
     )
-    
+
     try:
-        run_experiment(cfg)
+        run_experiment(cfg, run_dir, derived_seeds)
     finally:
         wandb.finish()
 
