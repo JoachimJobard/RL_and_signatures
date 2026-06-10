@@ -463,6 +463,8 @@ class ContinuousValueGradient:
                     t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
                     self.sliding_signature.append(x_t / self.training.scale)
                     self._path_data_dirty = True
+            # Start the controlled-horizon clock AFTER burn-in / preheat.
+            self._t_episode_start = float(self.wrapper.state.t)
             # Episode accumulators (as JAX arrays to avoid sync)
             episode_loss = jnp.array(0.0)
             episode_cost = jnp.array(0.0)
@@ -571,7 +573,12 @@ class ContinuousValueGradient:
     def _is_episode_done(self, x: jnp.ndarray, time_only: bool = False) -> bool:
         """Check if episode should terminate."""
         t = float(self.wrapper.state.t) if self.wrapper.state is not None else 0.0
-        if t >= self.training.max_time:
+        # max_time measures CONTROLLED time: the horizon clock starts after the
+        # burn-in / preheat zero-action steps (which also advance wrapper.state.t).
+        # _t_episode_start is set just before each rollout's control loop; without it
+        # a large step_size makes burn-in alone exceed max_time and the control loop
+        # never runs (zero training steps).
+        if t - getattr(self, "_t_episode_start", 0.0) >= self.training.max_time:
             return True
         if not time_only:
             if jnp.any(jnp.isnan(x)):
@@ -637,9 +644,11 @@ class ContinuousValueGradient:
                 _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
                 self.sliding_signature.append(x_t / self.training.scale)
                 self._path_data_dirty = True
-        
+
+        # Start the controlled-horizon clock AFTER burn-in / preheat (mirrors train()).
+        self._t_episode_start = float(self.wrapper.state.t)
         total_cost = 0.0
-        
+
         while not self._is_episode_done(x_t, time_only=True):
             path_data = self._get_path_data()
             mu, _ = self._select_action_jit(
