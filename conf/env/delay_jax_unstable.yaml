@@ -2,7 +2,7 @@
 # This environment supports delayed dynamics: dx/dt = Ax + Bu + A1*x(t-delay)
 
 environment_params:
-  _target_: src.env_rk_jax.JAXDDEEnv
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
   
   # System matrices
   A:

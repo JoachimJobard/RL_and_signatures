@@ -1,4 +1,4 @@
-_target_: src.env_rk_jax.JAXDDEEnv
+_target_: src.envs.env_rk_jax.JAXDDEEnv
 A: 
   _target_: jax.numpy.array
   object: [[-0.1]]

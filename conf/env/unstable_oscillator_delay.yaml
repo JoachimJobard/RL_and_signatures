@@ -2,7 +2,7 @@
 # This is a challenging benchmark: the system is unstable without control
 
 environment_params:
-  _target_: src.env_rk_jax.JAXDDEEnv
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
   
   # System matrices - harmonic oscillator structure
   A:

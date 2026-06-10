@@ -2,7 +2,7 @@
 # dx/dt = Ax + Bu,  A = [[0,-1],[1,0]]
 
 environment_params:
-  _target_: src.env_rk_jax.JAXDDEEnv
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
 
   A:
     _target_: numpy.array
