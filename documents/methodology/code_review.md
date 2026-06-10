@@ -3,7 +3,18 @@
 **Repository:** `RL_and_signatures` (Joachim Jobard internship handoff)
 **Reviewed commit:** `a1a18f1` (tagged `internship-handoff-2026-06-10`)
 **Date:** 2026-06-10
-**Reviewer:** code-review pass against the master thesis and Doya (2000).
+**Reviewer:** code-review pass, using the master thesis and Doya (2000) for context.
+
+> **Note on authority (added after reviewer feedback).** The master thesis is
+> **context**, not a specification: it describes the scientific work, and the code
+> is the artefact of record. A "CONTRADICTS" verdict below therefore means
+> "the code differs from the thesis's description", **not** "the code is
+> necessarily wrong" — each such divergence is a question for the maintainer, who
+> decides whether the code or the description should change. The verdicts that are
+> genuine correctness defects on the code's own terms (internal inconsistency,
+> dead/duplicated code, crashes, ignored configuration, precision loss) stand
+> independently of the thesis. Resolutions to date (2026-06-10), per maintainer
+> direction, are recorded inline in §2.
 
 ## 1. Scope and method
 
@@ -61,6 +72,21 @@ cost `uᵀRu`. The substantive defects are:
 8. The **soft actor-critic (`CSAC_jax.py`) is outside the thesis scope** and carries at least
    one latent crash; it should be quarantined or removed unless a specification is provided.
    *(F-G1.)*
+
+### Resolutions applied (2026-06-10, per maintainer direction)
+
+| Finding | Action | Commit |
+|---|---|---|
+| F-D1 (MG cost) | Replaced with quadratic tracking + control-effort cost `(x-x_t)'Q(x-x_t) + u'Ru`. | `d912b8c` |
+| F-A1 (oracle sign) | `critic_oracle` value set to `-x'Px`. | `409f731` |
+| F-B3 (clip_gradient) | Gradient clipping made opt-in **global-norm** via `build_adam`, **off by default** (`clip_gradient=None`); per-element hardcoded ±10 removed across agents. | `3b56ee8` |
+| F-E1 (float32) | Signature buffers default to **float64**; `dtype` parameter added; comparison diagnostic written. | `07b8d4a`, `7b1153e` |
+| F-D6 (env configs) | Fixed four broken `_target_` paths. | `d0615d2` |
+| §8 (dead code) | Removed dead loss helpers, duplicate env/network modules, stale config. | `c18f04d` |
+| F-G1 (CSAC) | Quarantined (kept, marked unsupported, load-time warning). | `aed40ed` |
+| F-C1 (signature augmentation) | **Deferred** — explained to maintainer; left as-is pending a decision on the intended representation (extra time channel + origin-channel sign). |  |
+| F-C2/F-H1 (window override + sweep) | **Deferred** to the experiment/cluster phase. |  |
+| F-B4 (`b1=0.1` actor Adam) | Not in the requested set; left as-is. |  |
 
 ---
 
