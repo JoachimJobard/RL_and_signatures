@@ -6,8 +6,9 @@ from signax.module import SignatureTransform
 
 
 class DequeBuffer:
-    def __init__(self, size: int):
+    def __init__(self, size: int, dtype=np.float64):
         self.size = size
+        self.dtype = dtype
         self.buffer = deque(maxlen=size)
     def append(self, item):
         self.buffer.append(item)
@@ -21,7 +22,7 @@ class DequeBuffer:
         return self.__str__()
     def to_array(self):
         """Convert buffer to numpy array efficiently."""
-        return np.array(self.buffer, dtype=np.float32)
+        return np.array(self.buffer, dtype=self.dtype)
 
 
 class SlidingSignature:
@@ -68,17 +69,18 @@ class SlidingSignature:
 class JAXCircularBuffer:
     """JAX-native circular buffer to avoid Python ↔ JAX conversions."""
     
-    def __init__(self, size: int, d: int):
+    def __init__(self, size: int, d: int, dtype=jnp.float64):
         self.size = size
         self.d = d
+        self.dtype = dtype
         # Pre-allocated JAX array
-        self._data = jnp.zeros((size, d), dtype=jnp.float32)
+        self._data = jnp.zeros((size, d), dtype=dtype)
         self._count = 0  # Number of items currently in buffer
         self._head = 0   # Next write position
-    
+
     def append(self, item: jnp.ndarray):
         """Append item to circular buffer."""
-        item = jnp.asarray(item, dtype=jnp.float32)
+        item = jnp.asarray(item, dtype=self.dtype)
         self._data = self._data.at[self._head].set(item)
         self._head = (self._head + 1) % self.size
         self._count = min(self._count + 1, self.size)
@@ -97,7 +99,7 @@ class JAXCircularBuffer:
     
     def reset(self):
         """Reset buffer to empty state."""
-        self._data = jnp.zeros((self.size, self.d), dtype=jnp.float32)
+        self._data = jnp.zeros((self.size, self.d), dtype=self.dtype)
         self._count = 0
         self._head = 0
 
@@ -113,8 +115,10 @@ class SlidingSignatureJAX:
                  bias: bool = False, 
                  origin_augmentation: bool = False,
                  time_origin: float = 1.0,
-                 use_jax_buffer: bool = False):  # Default to deque for better perf
+                 use_jax_buffer: bool = False,  # Default to deque for better perf
+                 dtype=np.float64):  # float64 by default (JAX x64 is enabled); float32 selectable for comparison
         self.depth = depth
+        self.dtype = dtype
         self.origin_augmentation = origin_augmentation
         self.d = d + time_augmentation + origin_augmentation * d
         self.d_raw = d  # Store raw dimension for buffer
@@ -126,9 +130,9 @@ class SlidingSignatureJAX:
         
         # Use DequeBuffer by default (faster for small windows)
         if use_jax_buffer:
-            self.buffer = JAXCircularBuffer(size=window_size + 1, d=d)
+            self.buffer = JAXCircularBuffer(size=window_size + 1, d=d, dtype=dtype)
         else:
-            self.buffer = DequeBuffer(size=window_size + 1)
+            self.buffer = DequeBuffer(size=window_size + 1, dtype=dtype)
         
         self.signature_transform = SignatureTransform(depth=depth)
         self.bias = bias
@@ -181,13 +185,13 @@ class SlidingSignatureJAX:
                           due to changing buffer size during warmup.
         """
         if self.use_jax_buffer:
-            self.buffer = JAXCircularBuffer(size=self.window_size + 1, d=self.d_raw)
+            self.buffer = JAXCircularBuffer(size=self.window_size + 1, d=self.d_raw, dtype=self.dtype)
         else:
-            self.buffer = DequeBuffer(size=self.window_size + 1)
-        
+            self.buffer = DequeBuffer(size=self.window_size + 1, dtype=self.dtype)
+
         # Pre-fill buffer to avoid recompilation from size changes
         if prefill_zeros:
-            zero_item = np.zeros(self.d_raw, dtype=np.float32)
+            zero_item = np.zeros(self.d_raw, dtype=self.dtype)
             for _ in range(self.window_size + 1):
                 self.buffer.append(zero_item)
         
@@ -199,7 +203,7 @@ class SlidingSignatureJAX:
         if self.use_jax_buffer:
             self.buffer.append(item)  # JAXCircularBuffer handles conversion
         else:
-            self.buffer.append(np.asarray(item, dtype=np.float32))
+            self.buffer.append(np.asarray(item, dtype=self.dtype))
         # Lazy computation - signature will be computed on access
         self._signature_dirty = True
     
