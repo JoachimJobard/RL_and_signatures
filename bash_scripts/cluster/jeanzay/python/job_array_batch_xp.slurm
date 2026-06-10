@@ -27,9 +27,10 @@ for var in NAME_PROJECT PATH_CONTENT_ROOT PATH_VENV_BIN PATH_PYTHON_SCRIPT \
     fi
 done
 
-PATH_PARENT=$( cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P )
+# SLURM copies this script to a spool dir, so BASH_SOURCE points there, not at the
+# repo. Locate _environment.sh via the exported (absolute) PATH_CONTENT_ROOT.
 # shellcheck source=/dev/null
-source "$PATH_PARENT/../_environment.sh"
+source "$PATH_CONTENT_ROOT/bash_scripts/cluster/jeanzay/_environment.sh"
 jeanzay_print_diagnostics
 
 # Effective variant lines: drop blank lines and #-comments.
