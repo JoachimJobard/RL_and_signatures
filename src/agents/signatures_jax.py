@@ -71,8 +71,8 @@ class CTACSignatureJAX:
         }
 
         self.key = jax.random.PRNGKey(rng_key)
+        self._init_env(env, rng_key)   # sets self.env / self.wrapper (needed by _init_oracle)
         self._init_oracle()
-        self._init_env(env, rng_key)
         self._init_episode_state(x0, eval_callback=eval_callback)
         self._init_checkpoints()
         self._init_signatures()
@@ -94,21 +94,48 @@ class CTACSignatureJAX:
             print("normalize_sigs is ", self.network.normalize_sigs)
 
     def _init_oracle(self)-> None:
-        # Oracle setup
-        if self.algorithm.actor_oracle:
+        """Build the analytic oracle for the actor_oracle / critic_oracle rungs.
+
+        For a LINEAR DELAYED plant (JAXDDEEnv, tau>0) the oracle is the DELAYED-LQR:
+        a history functional. The optimal control is u* = -K_aug @ xi and the optimal
+        value V*(xi) = -xi' P_aug xi, where xi = [x(t), x(t-dt), ..., x(t-K dt)] is the
+        discretised history window (newest first) and (K_aug, P_aug) come from the
+        augmented discrete Riccati (src.solvers.delayed_lqr). The earlier code used the
+        non-delayed continuous ARE (ignoring A1), which is NOT optimal on a delayed
+        plant — kept only as the fallback for non-delayed envs.
+        """
+        self._delayed_oracle = False
+        if not (self.algorithm.actor_oracle or self.algorithm.critic_oracle):
+            return
+        is_linear_delayed = (type(self.env).__name__ == "JAXDDEEnv"
+                             and float(self.env.max_delay) > 0)
+        if is_linear_delayed:
+            from src.solvers.oracle_agent import delayed_lqr_for_env
+            self.lqr = delayed_lqr_for_env(self.env)
+            self.K_aug = jnp.array(self.lqr.gain)
+            self.P_aug = jnp.array(self.lqr.P)
+            self.k_taps = int(self.lqr.k_taps)
+            self._delayed_oracle = True
+            print(f"[oracle] delayed-LQR: {self.k_taps} taps, "
+                  f"closed-loop spectral radius {self.lqr.closed_loop_spectral_radius():.4f}")
+        else:
             P = scipy.linalg.solve_continuous_are(
-                self.env.A, self.env.B, self.env.Q, self.env.R
-            )
-            print("P matrix for optimal LQR policy:\n", P)
+                self.env.A, self.env.B, self.env.Q, self.env.R)
             self.P = jnp.array(P)
             self.optimal_K = jnp.array(np.linalg.inv(self.env.R) @ self.env.B.T @ P)
+            print("[oracle] non-delayed continuous ARE.")
 
-        if self.algorithm.critic_oracle:
-            P = scipy.linalg.solve_continuous_are(
-                self.env.A, self.env.B, self.env.Q, self.env.R
-            )
-            self.P = jnp.array(P)
-            print("P matrix for optimal value function:\n", P)
+    def _delayed_oracle_window(self) -> jnp.ndarray:
+        """Unscaled newest-first history window xi = [x(t), x(t-dt), ..., x(t-K dt)]
+        flattened, reconstructed from the env buffer (subsampled to control cadence).
+        Matches the (K+1)-tap layout the delayed-LQR gain/value expect."""
+        buf = self.wrapper.state.buffer  # type: ignore
+        data = np.asarray(buf.data)
+        ptr = int(buf.ptr)
+        ordered = np.roll(data, -ptr, axis=0)            # oldest .. newest
+        newest_first = ordered[::-1]                      # newest .. oldest
+        taps = newest_first[::self.env.resolution][:self.k_taps + 1]  # control cadence
+        return jnp.asarray(taps).reshape(-1)
     
     def _init_episode_state(
         self, x0: jnp.ndarray | None, eval_callback: Callable[..., Any] | None = None
@@ -275,7 +302,10 @@ class CTACSignatureJAX:
             # 'constant'
             self._sigma_effective = self.noise.sigma
         if self.algorithm.actor_oracle:
-            mu = - self.optimal_K @ jnp.array(self.wrapper.state.x) #type: ignore
+            if getattr(self, "_delayed_oracle", False):
+                mu = -self.K_aug @ self._oracle_xi_t   # delayed-LQR control on the window
+            else:
+                mu = - self.optimal_K @ jnp.array(self.wrapper.state.x) #type: ignore
             self.key, subkey = jax.random.split(self.key)
             noise = jnp.zeros_like(mu)
             action = mu + noise
@@ -344,6 +374,10 @@ class CTACSignatureJAX:
             (x_next, metrics, context): Next state, step metrics, and full context
         """
         x_scaled = x_t / self.training.scale
+        # Delayed oracle: capture the history window at x(t) BEFORE the env step
+        # (buffer newest = x(t)); reused by the oracle-actor and the oracle-critic V_t.
+        if getattr(self, "_delayed_oracle", False):
+            self._oracle_xi_t = self._delayed_oracle_window()
         if self.signature_conf.state_augmentation:
             state = jnp.concatenate([self.sliding_signature.current_signature, x_scaled])  # type: ignore
         else:
@@ -372,10 +406,16 @@ class CTACSignatureJAX:
         # Value function evaluations (JIT-compiled, no float() sync)
         if self.algorithm.critic_oracle:
             # Value = expected discounted reward (reward = -(x'Qx + u'Ru)), so the LQR
-            # oracle value is the *negative* quadratic form V*(x) = -x' P x, matching
-            # get_value() and base_jax.py. A positive sign here corrupts V_dot and the TD error.
-            V_t = -x_t.T @ self.P @ x_t
-            V_next = -x_next.T @ self.P @ x_next
+            # oracle value is the *negative* quadratic form. For the delayed-LQR it is a
+            # functional of the history window, V*(xi) = -xi' P_aug xi (xi_t pre-step,
+            # xi_next post-step); for the non-delayed fallback, -x' P x.
+            if getattr(self, "_delayed_oracle", False):
+                xi_next = self._delayed_oracle_window()  # buffer now at x_next
+                V_t = -self._oracle_xi_t @ self.P_aug @ self._oracle_xi_t
+                V_next = -xi_next @ self.P_aug @ xi_next
+            else:
+                V_t = -x_t.T @ self.P @ x_t
+                V_next = -x_next.T @ self.P @ x_next
         else:
             V_t, V_next = self._jit_compute_values(self.critic_params, sig_t, sig_next)
         
@@ -587,7 +627,10 @@ class CTACSignatureJAX:
         action: Any
         if getattr(self.algorithm, 'actor_oracle', False):
             assert self.wrapper.state is not None
-            action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
+            if getattr(self, "_delayed_oracle", False):
+                action = -self.K_aug @ self._delayed_oracle_window()
+            else:
+                action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
         else:
             sig = self.sliding_signature.current_signature
             assert self.actor_params is not None
@@ -601,6 +644,9 @@ class CTACSignatureJAX:
         """Compute value function for a given state."""
         if getattr(self.algorithm, 'critic_oracle', False):
             assert self.wrapper.state is not None
+            if getattr(self, "_delayed_oracle", False):
+                xi = self._delayed_oracle_window()
+                return float(-xi @ self.P_aug @ xi)
             x_val = jnp.array(self.wrapper.state.x)
             return float(-x_val.T @ self.P @ x_val)
             
@@ -829,7 +875,10 @@ class CTACSignatureJAX:
                 sig_input = self.sliding_signature.current_signature
             
             if self.algorithm.actor_oracle:
-                mu = -self.optimal_K @ jnp.array(self.wrapper.state.x)  # type: ignore
+                if getattr(self, "_delayed_oracle", False):
+                    mu = -self.K_aug @ self._delayed_oracle_window()
+                else:
+                    mu = -self.optimal_K @ jnp.array(self.wrapper.state.x)  # type: ignore
             else:
                 mu = self.actor.apply(self.actor_params, sig_input) #type: ignore
             mu = jnp.clip(mu, -self.training.clip_action, self.training.clip_action)
