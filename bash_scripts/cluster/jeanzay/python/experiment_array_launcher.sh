@@ -44,6 +44,7 @@ SEED=0
 WANDB_MODE="offline"             # compute nodes: offline is safe (sync later from login)
 MODE="cpu"                       # cpu | gpu
 FINALIZE_CMD=""                  # optional; '{GROUP_DIR}' substituted post-submit
+PARTITION=""                     # optional override (e.g. prepost/visu — see PARTITIONS.md)
 
 S_BATCH_TIME="04:00:00"
 S_BATCH_TIME_FINALIZE="00:30:00"
@@ -61,6 +62,7 @@ while (( $# )); do
         --seed)             SEED="$2";             shift 2 ;;
         --wandb-mode)       WANDB_MODE="$2";       shift 2 ;;
         --mode)             MODE="$2";             shift 2 ;;
+        --partition)        PARTITION="$2";        shift 2 ;;
         --finalize)         FINALIZE_CMD="$2";     shift 2 ;;
         -A|--account)       S_BATCH_ACCOUNT="$2";  shift 2 ;;
         --qos)              S_BATCH_QOS="$2";      shift 2 ;;
@@ -82,6 +84,17 @@ case "$MODE" in
     gpu) : "${S_BATCH_ACCOUNT:=akz@v100}"; : "${S_BATCH_QOS:=qos_gpu-t3}" ;;
     *)   echo "Error: --mode must be cpu or gpu (got $MODE)." >&2; exit 1 ;;
 esac
+
+# Optional partition override (e.g. --partition prepost for light, non-billed
+# diagnostics; see PARTITIONS.md). The non-billed partitions take no --qos, so drop it.
+PARTITION_FLAG=()
+QOS_FLAG=(--qos="$S_BATCH_QOS")
+if [[ -n "$PARTITION" ]]; then
+    PARTITION_FLAG=(--partition="$PARTITION")
+    case "$PARTITION" in
+        prepost|visu|archive|compil|compil_h100) QOS_FLAG=() ;;  # non-billed: no qos
+    esac
+fi
 
 # ── Locate the project on $WORK ──────────────────────────────────────────────
 WORKDIR="${WORK:?WORK env var is not set — are you on Jean Zay?}"
@@ -132,7 +145,8 @@ TRAIN_JOB_ID=$(sbatch --parsable \
     --error="$SLURM_LOG_DIR/slurm-TRAIN-%A_%a.err" \
     --export=ALL,NAME_PROJECT="$NAME_PROJECT",PATH_CONTENT_ROOT="$PATH_CONTENT_ROOT",PATH_VENV_BIN="$PATH_VENV_BIN",PATH_PYTHON_SCRIPT="$PATH_PYTHON_SCRIPT",VARIANTS_FILE="$VARIANTS_FILE",COMMON_OVERRIDES="$COMMON_OVERRIDES",SEED="$SEED",EXPERIMENT_GROUP="$EXPERIMENT_GROUP",WANDB_MODE="$WANDB_MODE" \
     --account="$S_BATCH_ACCOUNT" \
-    --qos="$S_BATCH_QOS" \
+    "${QOS_FLAG[@]+"${QOS_FLAG[@]}"}" \
+    "${PARTITION_FLAG[@]+"${PARTITION_FLAG[@]}"}" \
     --time="$S_BATCH_TIME" \
     --cpus-per-task="$S_BATCH_CPU_PER_TASK" \
     --nodes=1 --ntasks-per-node=1 \
