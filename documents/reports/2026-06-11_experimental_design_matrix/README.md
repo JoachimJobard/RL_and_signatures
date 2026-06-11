@@ -35,6 +35,15 @@ budget unless stated.
 | **H2** | `MG_1D_limit_cycle` (Mackey–Glass $\tau=6$, nonlinear) | signature $J\approx0.05$ vs raw-history $0.28/15/\text{NaN}$; markovian fails | **supported (representational)** |
 | **H2 robustness** | `MG_1D_chaotic` ($\tau=17$, chaotic stress) | signature $J\approx0.088$ vs raw $0.30$, markovian $43.8$ — at **219× fewer features** | **robust to chaos** |
 
+![H1/H2 results summary](results_summary.png)
+
+*Consolidated summary of the four-cell grid and the oracle-ladder decomposition
+(lower is better in every panel; aggregates transcribed from the per-group
+`summary.yaml` on Jean Zay). Regenerate with
+[`make_results_summary_figure.py`](make_results_summary_figure.py). The per-cell
+`comparison.png` files (sub-optimality vs $\dim\Phi$, with seed CIs) are the canonical
+figures and live on Jean Zay — see §6.*
+
 ---
 
 ## 2. Corrections that make the comparison trustworthy
