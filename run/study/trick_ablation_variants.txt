@@ -1,0 +1,28 @@
+# Trick-ablation / convergence-timing study (value-gradient backbone).
+# Goal: on a SIMPLE linear case, measure how fast the agent reaches a near-optimal
+# controller, and which of the genuinely-removable "tricks" affect that — to set a
+# minimal episode budget and a minimal-trick config for the main study.
+#
+# Env (in --common): env=stable_non_normal_2D — a stable, NON-delayed 2D linear plant
+# (A=[[-1,0.9],[0.2,-0.8]]). No delay ⇒ the markovian representation spans the ordinary
+# -LQR value, so the agent CAN reach the true optimum and "near-optimal" is well posed
+# (normalised sub-optimality ρ → 0 vs the LQR oracle).
+#
+# Representation = markovian deg2 (fast, few features) for every variant — the
+# ablation axis is the TRICK, not the representation.
+#
+# Core Doya machinery is NOT ablated (it is not a trick): the critic_lr·dt continuous-
+# time update scaling, and the temporally-correlated (GP) exploration — i.i.d. per-step
+# noise has the wrong continuous limit (its trajectory effect ~√dt → 0). The removable
+# devices ablated here:
+#   - target network + Polyak averaging  -> tau_polyak=1.0 (target tracks the critic
+#     instantly = plain semi-gradient, no separate slow target)
+#   - GP-correlated exploration          -> noise.smooth=false (i.i.d. white noise)
+#   - divergence threshold               -> 1e9 (off; redundant on a bounded plant)
+#   - "minimal": all three removed at once.
+# Submit per seed reusing --experiment-group; analyse with run/study/ablation_convergence.py.
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 run_tag=baseline
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 run_tag=no_target_net
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.noise.smooth=false run_tag=white_noise
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.divergence_threshold=1000000000 run_tag=no_div_threshold
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 agent.noise.smooth=false agent.training.divergence_threshold=1000000000 run_tag=minimal
