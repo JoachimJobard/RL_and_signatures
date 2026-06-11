@@ -71,10 +71,11 @@ def collect(group_dir: Path):
         cfg = _load_yaml(cfg_path)
         with open(m_path, "rb") as f:
             metrics = pickle.load(f)
-        if not metrics.get("eval_cost") or not metrics.get("eval_episodes"):
+        ec_raw, ep_raw = metrics.get("eval_cost"), metrics.get("eval_episodes")
+        if ec_raw is None or ep_raw is None or len(ec_raw) == 0 or len(ep_raw) == 0:
             continue
-        eval_cost = np.asarray(metrics["eval_cost"], dtype=float)   # = integrated reward = -J
-        episodes = np.asarray(metrics["eval_episodes"], dtype=float)
+        eval_cost = np.asarray(ec_raw, dtype=float)   # = integrated reward = -J
+        episodes = np.asarray(ep_raw, dtype=float)
         j_oracle = _oracle_cost(cfg, cache)
         rho = (-eval_cost - j_oracle) / abs(j_oracle)
         variant = str(cfg.get("run_tag") or "?")
