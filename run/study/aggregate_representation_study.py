@@ -34,15 +34,27 @@ import numpy as np
 # =============================================================================
 # Dadebo & Luus, "Optimal Control of Time-Delay Systems by Dynamic Programming",
 # Optimal Control Applications & Methods 13, 29-41 (1992), Example 4 (two-stage
-# CSTR). For x0=[0.15,-0.03,0.1,0.0], Q=I_4, R=0.1 I_2, horizon tf=2.0 and delay
-# tau=0.20, their iterative dynamic programming gives the optimal performance index
-# I* = 0.02386 (Table V, three passes, P=40); Oh & Luus control-vector iteration
-# gives 0.02372. This is the SAME quantity as eval/total_cost_agent (the dt-weighted
-# integral I = cumsum(cost)*step_size, evaluate.py), so the agents' raw J is directly
-# comparable to it. Valid ONLY when the run uses the paper's regime (tf=2.0, tau=0.20).
-KNOWN_OPTIMA: dict[str, tuple[float, str]] = {
-    "ChemicalReactionEnv": (0.02386, r"Dadebo--Luus DP optimum $I^\star=0.0239$"),
+# CSTR). For x0=[0.15,-0.03,0.1,0.0], Q=I_4, R=0.1 I_2, horizon tf=2.0, their iterative
+# dynamic programming gives the optimal performance index I* as a function of the delay
+# tau (Table V, three passes, P=40). This is the SAME quantity as eval/total_cost_agent
+# (the dt-weighted integral I = cumsum(cost)*step_size, evaluate.py), so the agents' raw J
+# is directly comparable to it. The optimum is DELAY-DEPENDENT, so it is keyed by tau and
+# selected from each run's env.environment_params.delay.
+KNOWN_OPTIMA: dict[str, dict[float, float]] = {
+    "ChemicalReactionEnv": {0.05: 0.02294, 0.10: 0.02324, 0.20: 0.02386, 0.40: 0.02495},
 }
+
+
+def optimum_for(env_name: str, delay: float, tol: float = 1e-6) -> float | None:
+    """The Dadebo-Luus DP optimum I* for this env at this delay, or None if the env has
+    no tabulated optimum or the delay is not in Table V (within ``tol``)."""
+    table = KNOWN_OPTIMA.get(env_name)
+    if not table:
+        return None
+    for tau, i_star in table.items():
+        if abs(tau - delay) <= tol:
+            return i_star
+    return None
 
 
 # =============================================================================
@@ -59,6 +71,7 @@ class RunRecord:
     j_agent: float
     feature_dim: int
     is_linear: bool      # linear env -> analytic delayed-LQR oracle available
+    delay: float = 0.0   # env delay tau (selects the delay-dependent DP optimum)
 
 
 @dataclass
@@ -74,6 +87,7 @@ class CellAggregate:
     sem: float
     ci95: float
     values: list[float]
+    delay: float = 0.0   # env delay tau (selects the delay-dependent DP optimum)
 
 
 def _load_yaml(path: Path) -> dict:
@@ -123,6 +137,7 @@ def discover_runs(group_dir: Path) -> list[RunRecord]:
             seed=int(cfg["seed"]),
             j_agent=float(eval_data["eval_metrics"]["eval/total_cost_agent"]),
             feature_dim=int(rep.feature_dim), is_linear=is_linear,
+            delay=float(env_params.get("delay", 0.0) or 0.0),
         ))
     return records
 
@@ -192,6 +207,7 @@ def aggregate(records: list[RunRecord], oracle_by_env: dict[str, float] | None) 
             feature_dim=int(recs[0].feature_dim), metric_is_suboptimality=use_oracle,
             n_seeds=int(n), mean=float(np.mean(arr)) if n else float("nan"),
             std=std, sem=sem, ci95=float(1.96 * sem), values=[float(v) for v in arr],
+            delay=float(recs[0].delay),
         ))
     return cells
 
@@ -249,11 +265,17 @@ def build_comparison_figure(cells: list[CellAggregate]):
         # Ground-truth analytic/reference optimum (dashed, per the repo stroke
         # convention: dashed = analytical reference). Only the raw-cost panels carry a
         # known optimum (the sub-optimality panels are already normalised by an oracle).
-        if (not sub) and env in KNOWN_OPTIMA:
-            i_star, opt_label = KNOWN_OPTIMA[env]
-            opt_line = ax.axhline(i_star, color="#d62728", linestyle="--", linewidth=1.5,
-                                  zorder=1, label=opt_label)
-            handles_by_kind.setdefault("_optimum", opt_line)
+        # The optimum is delay-dependent, so it is selected from the panel's tau.
+        panel_delays = sorted({c.delay for c in cells if c.env_name == env})
+        if not sub:
+            for dly in panel_delays:
+                i_star = optimum_for(env, dly)
+                if i_star is None:
+                    continue
+                opt_label = rf"Dadebo--Luus DP optimum $I^\star={i_star:.4f}$ ($\tau={dly:g}$)"
+                opt_line = ax.axhline(i_star, color="#d62728", linestyle="--",
+                                      linewidth=1.5, zorder=1, label=opt_label)
+                handles_by_kind.setdefault(f"_optimum_{dly:g}", opt_line)
         ax.set_xscale("log")
         if ylog:
             ax.set_yscale("log")
