@@ -1,0 +1,26 @@
+# Dadebo CSTR — CONDITIONING sweep (exploratory; run with debug=true on qos_cpu-dev).
+# Goal: pick the no-clip conditioning that drives the value-gradient agent closest to the
+# Dadebo-Luus DP optimum I*=0.02386 (tau=0.20, tf=2) BEFORE the 5-seed grid. NO action
+# clipping in any variant (user preference; the control law starts at near-zero magnitude
+# because the critic is initialised at std 0.01, so it stays in the small optimal-control
+# regime |u*|<~0.3 and the stiff plant does not diverge). The levers swept are the ones
+# the methodology (experimental_design.md §7.1) identifies as productive for the TD
+# fixed-point / feedback-law residual: critic_lr, tau_polyak (target-network Polyak),
+# integral_td (less-biased TD target), and episode budget.
+#
+# Shared --common (matched horizon/window/x0 = the paper regime):
+#   agent=value_gradient env=chemical_reaction_4D debug=true
+#   agent.signature.window_size=23 agent.training.max_time=2
+#   agent.training.clip_action=null agent.training.divergence_threshold=50
+#   eval.x0_test=[0.15,-0.03,0.1,0.0] eval.T_sim=2 agent.training.n_episodes=800
+#
+# Reference points (rung-1, measured): no-control I=0.145; best constant control
+# u=(-0.05,0.15) I=0.065; no-clip lr=1e-2 markovian (200/800 ep) I=0.057/0.038; DP
+# optimum I*=0.02386. A "good" config is one whose I approaches I* (rho -> 0).
+agent.signature.kind=markovian agent.signature.degree=2 agent.training.critic_lr=1e-2                                    run_tag=mk_lr1e-2
+agent.signature.kind=markovian agent.signature.degree=2 agent.training.critic_lr=2e-2                                    run_tag=mk_lr2e-2
+agent.signature.kind=markovian agent.signature.degree=2 agent.training.critic_lr=1e-2 agent.algorithm.integral_td=true   run_tag=mk_integraltd
+agent.signature.kind=markovian agent.signature.degree=2 agent.training.critic_lr=1e-2 agent.training.tau_polyak=0.05     run_tag=mk_polyak05
+agent.signature.kind=markovian agent.signature.degree=2 agent.training.critic_lr=2e-2 agent.training.n_episodes=1500     run_tag=mk_lr2e-2_1500ep
+agent.signature.kind=signature agent.signature.depth=2  agent.training.critic_lr=1e-2                                    run_tag=sig2_lr1e-2
+agent.signature.kind=signature agent.signature.depth=2  agent.training.critic_lr=2e-2                                    run_tag=sig2_lr2e-2

@@ -4,11 +4,24 @@
 # state-dependent-gain B(x) plant with Arrhenius terms. Value-gradient backbone; value
 # linear in the feature map Phi.
 #
-# Env: env=chemical_reaction_4D (Dadebo CSTR, src/envs/chemical_process.py; delay=0.2,
-# Q=I_4, R=0.1 I_2, step_size dt=0.01, resolution=4). There is NO analytic oracle for this
-# nonlinear plant, so the aggregator reports the RAW cost J (ChemicalReactionEnv is a
-# SUBCLASS of JAXDDEEnv, not JAXDDEEnv itself, so aggregate_representation_study.py routes
-# it to the raw-J / log-y branch). All variants share env, seed, window, horizon, and budget.
+# Env: env=chemical_reaction_4D (Dadebo CSTR = Example 4 of Dadebo & Luus 1992;
+# src/envs/chemical_process.py; delay tau=0.2, Q=I_4, R=0.1 I_2, step_size dt=0.01,
+# resolution=4). The env reproduces the paper EXACTLY: same 4 ODEs, same x0, same cost
+# I = int_0^tf (x^T Q x + u^T R u) dt with tf=2.0.
+#
+# REFERENCE OPTIMUM (ground truth): Dadebo & Luus, "Optimal Control of Time-Delay Systems
+# by Dynamic Programming", Optimal Control Appl. & Methods 13, 29-41 (1992), Example 4,
+# Table V: for tau=0.20 the optimal performance index is I* = 0.02386 (their iterative DP,
+# P=40; Oh-Luus control-vector iteration gives 0.02372). Because eval/total_cost_agent is
+# the dt-weighted integral cumsum(cost)*step_size (evaluate.py), the agents' raw J is the
+# SAME quantity I and is DIRECTLY comparable to I*: the aggregator draws I* as a dashed
+# ground-truth line on the chemical-reaction panel (KNOWN_OPTIMA in
+# aggregate_representation_study.py) and the report states normalised sub-optimality
+# rho = (J - I*)/I*. There is no closed-form FEEDBACK law (the paper gives an open-loop
+# optimal trajectory via DP), so the aggregator still routes this env to the raw-J branch
+# (ChemicalReactionEnv is a SUBCLASS of JAXDDEEnv, not JAXDDEEnv itself); I* is overlaid as
+# a reference, not used to renormalise inside the aggregator. All variants share env, seed,
+# window, horizon, and budget.
 #
 # CONDITIONING (experimental_design.md §6, pinned empirically 2026-06-11 on this machine):
 #   The plant is OPEN-LOOP STABLE at x0=[0.15,-0.03,0.1,0.0] (zero control: max|x|~=0.45,
