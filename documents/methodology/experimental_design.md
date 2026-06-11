@@ -210,7 +210,18 @@ $\Phi$. Everything else is held identical:
    $x(t)$. Equalise the window/cadence first, then vary $\Phi$.
 5. **Everything else identical**: optimiser and its $dt$-scaling, exploration
    process and $\sigma$ schedule, episode/step budget, $Q,R$, integrator and $dt$,
-   burn-in, best-state restoration.
+   initial condition, best-state restoration.
+
+> **Setup correction (2026-06-11).** The DDE initial condition is the initial *path*
+> $\phi$ on $[-h,0]$ (a history function), loaded directly into the feature window;
+> control begins at $t=0$ from $\phi$. An earlier zero-control *burn-in/preheat*
+> overwrote $\phi$ with an uncontrolled-evolution path and (because training burned
+> while evaluation did not) made training and evaluation start from different initial
+> conditions — it has been removed. This materially changed the linear-cell numbers:
+> the Markovian variant is **stable and merely sub-optimal** ($\rho\approx0.57$), not
+> the open-loop *divergence* reported earlier; the strong-form H1 ("the Markovian
+> representation cannot stabilise") was therefore a burn-in artefact, and the
+> corrected H1 is the moderate form (history lowers $\rho$ from $0.57$ to $0.33$).
 
 Precise H2 claim, given the above: *with the value a linear functional of $\Phi$
 (matched hypothesis class) at matched capacity,
