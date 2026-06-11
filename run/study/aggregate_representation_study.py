@@ -29,6 +29,23 @@ import numpy as np
 
 
 # =============================================================================
+# Known analytic / reference optima (ground-truth ceilings without a closed-form
+# feedback law). Keyed by env class name; value is (I_star, citation_label).
+# =============================================================================
+# Dadebo & Luus, "Optimal Control of Time-Delay Systems by Dynamic Programming",
+# Optimal Control Applications & Methods 13, 29-41 (1992), Example 4 (two-stage
+# CSTR). For x0=[0.15,-0.03,0.1,0.0], Q=I_4, R=0.1 I_2, horizon tf=2.0 and delay
+# tau=0.20, their iterative dynamic programming gives the optimal performance index
+# I* = 0.02386 (Table V, three passes, P=40); Oh & Luus control-vector iteration
+# gives 0.02372. This is the SAME quantity as eval/total_cost_agent (the dt-weighted
+# integral I = cumsum(cost)*step_size, evaluate.py), so the agents' raw J is directly
+# comparable to it. Valid ONLY when the run uses the paper's regime (tf=2.0, tau=0.20).
+KNOWN_OPTIMA: dict[str, tuple[float, str]] = {
+    "ChemicalReactionEnv": (0.02386, r"Dadebo--Luus DP optimum $I^\star=0.0239$"),
+}
+
+
+# =============================================================================
 # Records and discovery
 # =============================================================================
 
@@ -229,6 +246,14 @@ def build_comparison_figure(cells: list[CellAggregate]):
                 [c.feature_dim for c in cs], means, yerr=yerr, fmt=f"o{STROKE_TRAINED}",
                 color=kind_color.get(kind), capsize=3, label=kind)
             handles_by_kind.setdefault(kind, line)
+        # Ground-truth analytic/reference optimum (dashed, per the repo stroke
+        # convention: dashed = analytical reference). Only the raw-cost panels carry a
+        # known optimum (the sub-optimality panels are already normalised by an oracle).
+        if (not sub) and env in KNOWN_OPTIMA:
+            i_star, opt_label = KNOWN_OPTIMA[env]
+            opt_line = ax.axhline(i_star, color="#d62728", linestyle="--", linewidth=1.5,
+                                  zorder=1, label=opt_label)
+            handles_by_kind.setdefault("_optimum", opt_line)
         ax.set_xscale("log")
         if ylog:
             ax.set_yscale("log")
@@ -241,7 +266,9 @@ def build_comparison_figure(cells: list[CellAggregate]):
 
     fig.suptitle("Representation comparison (value-gradient backbone)", fontsize=12)
     handles = list(handles_by_kind.values())
-    labels = list(handles_by_kind.keys())
+    # Label each handle by its artist label (errorbar -> kind; axhline -> citation),
+    # so the "_optimum" dict key is not shown verbatim.
+    labels = [h.get_label() for h in handles]
     prepare_figure(
         fig, fname="comparison", axes=list(axes),
         handles=handles or None, labels=labels or None,
