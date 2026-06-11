@@ -1,0 +1,18 @@
+# Oracle-ladder study (methodology §3 rung 2) — error decomposition on a delayed cell.
+# Actor-critic agent (CTACSignatureJAX, signature representation), env in --common
+# (a LINEAR delayed cell, so the delayed-LQR oracle K*/V* exists; wired into the agent
+# via agent.algorithm.{actor_oracle,critic_oracle}). Fixed representation (signature
+# depth3); the axis is which component is replaced by the analytic optimum.
+#
+# Reads off the decomposition of the full agent's sub-optimality rho vs the oracle:
+#   - full_learned:  both actor + critic learned  -> total error (baseline).
+#   - oracle_critic: critic = V* (true value), actor learned -> isolates ACTOR /
+#       policy-optimisation error (if rho stays high, the actor is the bottleneck;
+#       if it drops to ~0, the full agent's error was critic/representation).
+#   - oracle_actor:  actor = K* (true control), critic learned -> rho ~ 0 by
+#       construction (validation that the delayed-LQR oracle is correctly wired;
+#       confirmed J_agent = J_oracle exactly), and the critic learns V of the optimum.
+# Submit per seed reusing --experiment-group; rho per rung computed from eval.pkl.
+agent=signatures                                       run_tag=full_learned
+agent=signatures agent.algorithm.critic_oracle=true    run_tag=oracle_critic
+agent=signatures agent.algorithm.actor_oracle=true     run_tag=oracle_actor
