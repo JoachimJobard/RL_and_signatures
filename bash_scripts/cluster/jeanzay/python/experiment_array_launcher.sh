@@ -138,12 +138,23 @@ echo
 GRES_FLAG=()
 [[ "$MODE" == "gpu" ]] && GRES_FLAG=(--gres=gpu:"$S_BATCH_GPUS")
 
+# Pass the worker variables via the submitting ENVIRONMENT (--export=ALL), NOT as an
+# inline --export=VAR=val,VAR=val list: SLURM's inline --export grammar is
+# comma-delimited, so a value that itself contains commas — e.g. a Hydra list override
+# COMMON_OVERRIDES="... eval.x0_test=[0.15,-0.03,0.1,0.0] ..." — is silently truncated at
+# the first inner comma (the remainder is mis-parsed as further VAR=... pairs). Exporting
+# the variables into this shell and forwarding the whole environment with --export=ALL
+# preserves commas verbatim. (Verified failure mode on 2026-06-11: Hydra raised
+# "no viable alternative at input '[0.15'" because it received only "eval.x0_test=[0.15".)
+export NAME_PROJECT PATH_CONTENT_ROOT PATH_VENV_BIN PATH_PYTHON_SCRIPT \
+       VARIANTS_FILE COMMON_OVERRIDES SEED EXPERIMENT_GROUP WANDB_MODE
+
 TRAIN_JOB_ID=$(sbatch --parsable \
     --job-name="rlsig_${EXPERIMENT_GROUP}" \
     --array=0-"$N_LAST" \
     --output="$SLURM_LOG_DIR/slurm-TRAIN-%A_%a.out" \
     --error="$SLURM_LOG_DIR/slurm-TRAIN-%A_%a.err" \
-    --export=ALL,NAME_PROJECT="$NAME_PROJECT",PATH_CONTENT_ROOT="$PATH_CONTENT_ROOT",PATH_VENV_BIN="$PATH_VENV_BIN",PATH_PYTHON_SCRIPT="$PATH_PYTHON_SCRIPT",VARIANTS_FILE="$VARIANTS_FILE",COMMON_OVERRIDES="$COMMON_OVERRIDES",SEED="$SEED",EXPERIMENT_GROUP="$EXPERIMENT_GROUP",WANDB_MODE="$WANDB_MODE" \
+    --export=ALL \
     --account="$S_BATCH_ACCOUNT" \
     "${QOS_FLAG[@]+"${QOS_FLAG[@]}"}" \
     "${PARTITION_FLAG[@]+"${PARTITION_FLAG[@]}"}" \
