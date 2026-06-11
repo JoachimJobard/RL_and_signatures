@@ -202,24 +202,40 @@ def build_comparison_figure(cells: list[CellAggregate]):
     fig.subplots_adjust(left=0.16 if n_panels == 1 else 0.09, right=0.97, wspace=0.32)
 
     handles_by_kind: dict[str, Any] = {}
+    any_log = False
     for col, env in enumerate(envs):
         ax = axes[col]
+        sub = any(c.metric_is_suboptimality for c in cells if c.env_name == env)
+        finite = [c for c in cells if c.env_name == env and np.isfinite(c.mean)]
+        # Raw-cost (nonlinear) panels span orders of magnitude -> log-y; sub-optimality
+        # panels stay linear (they can be ~0 or negative). Log-y needs strictly positive
+        # means, so guard on it.
+        ylog = (not sub) and bool(finite) and all(c.mean > 0 for c in finite)
+        any_log = any_log or ylog
         for kind in ("signature", "raw_history", "markovian"):
-            cs = sorted((c for c in cells if c.env_name == env and c.kind == kind),
+            cs = sorted((c for c in cells
+                         if c.env_name == env and c.kind == kind and np.isfinite(c.mean)),
                         key=lambda c: c.feature_dim)
             if not cs:
                 continue
+            means = np.array([c.mean for c in cs])
+            errs = np.array([c.ci95 for c in cs])
+            if ylog:
+                # Clip the lower error so mean - lower stays > 0 on the log axis.
+                yerr = np.vstack([np.minimum(errs, means * (1.0 - 1e-6)), errs])
+            else:
+                yerr = errs
             line = ax.errorbar(
-                [c.feature_dim for c in cs], [c.mean for c in cs],
-                yerr=[c.ci95 for c in cs], fmt=f"o{STROKE_TRAINED}",
+                [c.feature_dim for c in cs], means, yerr=yerr, fmt=f"o{STROKE_TRAINED}",
                 color=kind_color.get(kind), capsize=3, label=kind)
             handles_by_kind.setdefault(kind, line)
-        sub = any(c.metric_is_suboptimality for c in cells if c.env_name == env)
         ax.set_xscale("log")
+        if ylog:
+            ax.set_yscale("log")
         ax.set_title(env)
         ax.set_xlabel(r"$\dim\Phi$")
         ax.set_ylabel(r"$(J-J_{\mathrm{oracle}})/|J_{\mathrm{oracle}}|$" if sub else r"$J$")
-        ax.grid(True, alpha=0.3)
+        ax.grid(True, alpha=0.3, which="both")
     if not envs:
         axes[0].set_title("(no data)")
 
@@ -231,7 +247,9 @@ def build_comparison_figure(cells: list[CellAggregate]):
         handles=handles or None, labels=labels or None,
         reserve_bottom=0.32, legend_y=0.14, legend_fontsize=8,
         formula=(r"Value linear in $\Phi$, swept capacity $\dim\Phi$. Linear cells: "
-                 r"normalised sub-optimality vs the delayed-LQR oracle; 95% CIs over seeds."),
+                 r"normalised sub-optimality vs the delayed-LQR oracle (linear $y$); "
+                 r"nonlinear cells: raw cost $J$ (log $y$). 95% CIs over seeds; "
+                 r"divergent (non-finite) variants omitted."),
     )
     return fig
 
