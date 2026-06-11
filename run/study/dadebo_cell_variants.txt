@@ -41,12 +41,18 @@
 #   agent.signature.window_size=23        # covers delay 0.2 at dt 0.01 (20 taps + margin);
 #                                         # identical to the auto-computed window, set
 #                                         # explicitly so every variant shares it.
-#   agent.training.max_time=4             # controlled horizon (matches the boundedness check)
+#   agent.training.max_time=2             # controlled horizon = paper horizon tf=2.0
 #   agent.training.clip_action=null       # NO clip: exact Doya law (see CONDITIONING above)
 #   agent.training.divergence_threshold=50 # episode-abort safeguard for the stiff plant
-#   eval.x0_test=[0.15,-0.03,0.1,0.0] eval.T_sim=4
-#   agent.training.n_episodes=800         # reduced budget (trick_ablation showed ~200 ep
-#                                         # suffice for markovian; 800 is a safe margin)
+#   agent.training.critic_lr=2e-2         # from the no-clip conditioning sweep (job 163009):
+#                                         # lr=2e-2 reached the lowest cost; lr=1e-2 was worse
+#                                         # and tau_polyak/integral_td gave no gain (the
+#                                         # latter is not a valid value_gradient key).
+#   eval.x0_test=[0.15,-0.03,0.1,0.0] eval.T_sim=2   # paper x0 and horizon tf=2.0
+#   agent.training.n_episodes=1500        # converged budget: at 1500 ep the markovian reaches
+#                                         # I=0.02696 (rho=+0.13 vs the DP optimum), vs I=0.0299
+#                                         # at 800 ep; the higher budget also lets the higher-dim
+#                                         # signature variants converge for a fair H2 comparison.
 #
 # Predicted outcomes (experimental_design.md §2.3, "Nonlinear delayed, stiff (stress)"):
 #   H1 POSITIVE  — the optimal control is a NONLINEAR functional of the history; a
