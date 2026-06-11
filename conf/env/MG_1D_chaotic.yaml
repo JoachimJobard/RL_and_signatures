@@ -1,0 +1,39 @@
+# Mackey-Glass 1D — CHAOTIC regime (nonlinear-delayed STRESS cell).
+#   dx/dt = -mu x + p x(t-tau)/(1 + x(t-tau)^n) + u
+#
+# The canonical chaotic Mackey-Glass: n=10, tau=17 (well above the chaotic onset
+# ~tau=16). The uncontrolled plant is a bounded CHAOTIC attractor about the
+# (delay-destabilised) equilibrium x*=1 — bounded, so the critic-only agent still
+# sees finite TD targets, but the control problem is far harder than the tau=6 limit
+# cycle (sensitive dependence, broadband history).
+#
+# Role: STRESS / robustness cell (methodology §2.3), NOT the primary H2 evidence — the
+# tau=6 limit cycle (MG_1D_limit_cycle) carries the primary claim. Here we test whether
+# the signature advantage is robust to chaos.
+#
+#   - x_target = 1.0 = the equilibrium x* (suppress the chaos to the fixed point);
+#   - step_size = 0.25 (TD step dt) — the sole conditioning lever, as on the limit
+#     cycle (dt=1 diverged there); no clipping / normalisation.
+#   - tau=17 at dt=0.25 => 68 delay taps: the feature window must be ~70, which makes
+#     raw-history degree>=3 infeasible (~57k monomials). The signature dimension is
+#     independent of window length (channels x depth), so the capacity sweep here is
+#     signature-focused (see run/study/mackey_glass_chaotic_variants.txt).
+# No analytic oracle (nonlinear) -> the aggregator reports raw cost J.
+environment_params:
+  _target_: src.envs.mackey_glass_1D.MackeyGlass1DEnv
+
+  delay: 17.0
+  mu: 0.1
+  n: 10
+  p: 0.2
+  x_target: 1.0      # the delay-destabilised equilibrium x* = (p/mu - 1)^(1/n) = 1
+
+  Q:
+    _target_: numpy.eye
+    N: 1
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+
+  step_size: 0.25
+  resolution: 5
