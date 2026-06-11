@@ -38,11 +38,11 @@ budget unless stated.
 ![H1/H2 results summary](results_summary.png)
 
 *Consolidated summary of the four-cell grid and the oracle-ladder decomposition
-(lower is better in every panel; aggregates transcribed from the per-group
-`summary.yaml` on Jean Zay). Regenerate with
-[`make_results_summary_figure.py`](make_results_summary_figure.py). The per-cell
-`comparison.png` files (sub-optimality vs $\dim\Phi$, with seed CIs) are the canonical
-figures and live on Jean Zay — see §6.*
+(lower is better in every panel; error bars are 95% CIs over 5 seeds; values from each
+group's `summary.yaml`). Regenerate with
+[`make_results_summary_figure.py`](make_results_summary_figure.py). The canonical per-cell
+`comparison.png` figures (cost vs $\dim\Phi$, full capacity sweep with seed CIs) are
+bundled in §6.1.*
 
 ---
 
@@ -72,21 +72,42 @@ Linear delayed plants, where the markovian–oracle gap controls how much *room*
 history representation has to improve on the current-state baseline. The gap is the
 delay-ignoring (ordinary) LQR cost above the delayed-LQR oracle.
 
-| Cell | Regime | Markovian–oracle gap | Markovian $\rho$ | Signature $\rho$ | H1 |
-|---|---|---:|---:|---:|---|
-| `delayed_velocity_oscillator` | linear DDE | ~18% | (small gap) | (lower) | moderate; H2 = sample-efficiency |
-| `delayed_oscillator_high_gap` | linear DDE (**new env**) | **54.5%** | **0.380** | **0.157** (depth 3) | **strong** |
+Metric $\rho$ = normalised sub-optimality vs the delayed-LQR oracle; mean ± 95% CI over
+5 seeds (from each group's `summary.yaml`). Lower is better. Bold = best per cell.
+
+**`delayed_oscillator_high_gap_study`** (strong H1 cell, 54.5% oracle gap):
+
+| Representation | Capacity | $\dim\Phi$ | $\rho$ |
+|---|---|---:|---:|
+| markovian | deg 2 | 5 | 0.380 ± 0.024 |
+| raw_history | deg 1 | 12 | 0.661 ± 0.001 |
+| raw_history | deg 2 | 90 | 0.413 ± 0.036 |
+| signature | depth 2 | 30 | 0.294 ± 0.036 |
+| signature | depth 3 | 155 | **0.157 ± 0.044** |
+
+**`delayed_velocity_study_v2`** (weaker H1 cell, ~18% gap):
+
+| Representation | Capacity | $\dim\Phi$ | $\rho$ |
+|---|---|---:|---:|
+| markovian | deg 2 | 5 | 0.572 ± 0.040 |
+| raw_history | deg 1 | 14 | 1.278 ± 0.007 |
+| raw_history | deg 2 | 119 | 0.500 ± 0.058 |
+| signature | depth 2 | 30 | **0.332 ± 0.059** |
+| signature | depth 3 | 155 | 0.330 ± 0.080 |
 
 The high-gap environment was **found by a bounded-plant parameter search** (maximise the
 markovian–oracle gap subject to open-loop boundedness): it sits at a $54.5\%$ gap while
 the zero-control trajectory stays bounded ($\max|x|\approx2.9$ from $x_0=[1,1]$, so the
 critic sees finite TD targets) and the delayed-LQR closed loop is stable (spectral
-radius $\approx0.94$). On this cell the history representation more than halves the
-sub-optimality ($0.380\to0.157$): an unambiguous H1 separation that the weak
-$18\%$-gap cell could not provide. On both cells H2 manifests here only as
-**sample-efficiency**, not a representational gap — correct, since on a *linear* plant
-the optimal control is a *linear* functional of the history (Kolmanovskii 2.7) and the
-signature's nonlinear features are not required.
+radius $\approx0.94$). On both cells the signature representation roughly **halves** the
+markovian sub-optimality ($0.380\to0.157$ on the high-gap cell, $0.572\to0.330$ on the
+velocity cell) — a clear H1 separation, sharpest on the high-gap cell, with
+non-overlapping confidence intervals against markovian. The under-capacity degree-1 raw
+history (linear $V$) fails on both ($\rho=0.66$ and $1.28$), as expected when the
+quadratic delayed-LQR value is not representable. H2 manifests on these *linear* cells
+only as **sample-efficiency / a smaller $\dim\Phi$ at matched $\rho$**, not a
+representational gap — correct, since the optimal control is a *linear* functional of the
+history (Kolmanovskii 2.7) and the signature's nonlinear features are not required.
 
 ## 4. H2 — signature beats raw-history at matched class and dimension
 
@@ -95,23 +116,47 @@ nonlinear functional of the history, so a linear functional of the raw history i
 expressively insufficient while a linear functional of the signature is dense in the
 continuous functionals of the path (Arribas Thm 4.2). Metric is raw cost $J$.
 
-| Cell | $\tau$ | Markovian | Raw-history | Signature | Feature efficiency |
-|---|---:|---:|---:|---:|---|
-| `MG_1D_limit_cycle` | 6 | fails | $0.28\,/\,15\,/\,\text{NaN}$ (across capacity) | **$\approx0.05$** | — |
-| `MG_1D_chaotic` (stress) | 17 | $43.8$ | $0.30$ (deg 2) | **$\approx0.088$** | **219× fewer features** than raw deg-2 |
+Metric = raw closed-loop cost $J$ (no closed-form oracle); mean ± 95% CI over 5 seeds.
+Lower is better. `NaN` = the variant diverged on at least one seed.
 
-- **Representational win (limit cycle).** The signature attains $J\approx0.05$; the
-  markovian variant fails outright (no history) and the raw-history variant is unstable
-  across its capacity sweep (a usable $0.28$ at low degree, then $\approx15$, then
-  divergence to `NaN`). This is the qualitative H2 outcome: signature succeeds where
-  raw-history cannot, at matched hypothesis class.
-- **Robust to chaos (stress cell).** At $\tau=17$ (above the chaotic onset $\tau\approx16$)
-  the signature still attains $J\approx0.088$ vs raw-history $0.30$ and markovian $43.8$,
-  while using **219× fewer features** than raw degree-2 — because the signature dimension
-  is independent of window length (channels × depth), whereas the raw-history monomial
-  dimension explodes with the ~70-tap window the $\tau=17$ delay requires (raw degree
-  $\geq3$ is infeasible at ~57k monomials). The matched-dimension comparison therefore
-  *favours the larger raw basis*, and the signature still wins.
+**`mackey_glass_limit_cycle_study`** ($\tau=6$ limit cycle, primary H2 cell):
+
+| Representation | Capacity | $\dim\Phi$ | $J$ |
+|---|---|---:|---:|
+| markovian | deg 2 | 2 | 30.30 ± 13.48 |
+| raw_history | deg 1 | 29 | 0.281 ± 0.002 |
+| raw_history | deg 2 | 464 | 15.31 ± 17.95 |
+| raw_history | deg 3 | 4959 | NaN (diverges) |
+| signature | depth 2 | 12 | 0.068 ± 0.012 |
+| signature | depth 3 | 39 | 0.057 ± 0.007 |
+| signature | depth 4 | 120 | **0.049 ± 0.014** |
+
+**`mackey_glass_chaotic_study`** ($\tau=17$ chaotic, robustness stress cell):
+
+| Representation | Capacity | $\dim\Phi$ | $J$ |
+|---|---|---:|---:|
+| markovian | deg 2 | 2 | 43.78 ± 12.01 |
+| raw_history | deg 1 | 71 | 1.112 ± 0.007 |
+| raw_history | deg 2 | 2627 | 0.297 ± 0.124 |
+| signature | depth 2 | 12 | **0.088 ± 0.026** |
+| signature | depth 3 | 39 | 0.106 ± 0.024 |
+| signature | depth 4 | 120 | 0.114 ± 0.028 |
+
+- **Representational win (limit cycle).** The signature attains $J\approx0.049$–$0.068$
+  *stably across depths*; the markovian variant is an order of magnitude worse
+  ($30.30$, high variance — no history) and the raw-history variant **degrades with
+  capacity**: a usable $0.281$ at degree 1, then $15.31$ (unstable across seeds) at degree
+  2, then divergence to `NaN` at degree 3. Even at *lower* feature dimension (depth-2
+  signature $\dim 12$ at $J=0.068$ vs degree-1 raw history $\dim 29$ at $J=0.281$) the
+  signature wins by $\sim4\times$: the H2 representational outcome — signature succeeds,
+  and *stably*, where raw-history cannot, at matched (indeed lower) $\dim\Phi$.
+- **Robust to chaos (stress cell).** At $\tau=17$ (above the chaotic onset
+  $\tau\approx16$) the depth-2 signature attains $J=0.088$ vs raw-history degree-2 $0.297$
+  and markovian $43.78$, at **219× fewer features** ($\dim 12$ vs $2627$) — because the
+  signature dimension is independent of window length (channels × depth), whereas the
+  raw-history monomial dimension explodes with the ~70-tap window the $\tau=17$ delay
+  requires (degree $\geq3$ infeasible). The matched-dimension comparison therefore
+  *favours the much larger raw basis*, and the signature still wins by $\sim3.4\times$.
 
 ## 5. Diagnostics underpinning the claims
 
@@ -173,35 +218,68 @@ verdict cannot be confounded by a training pathology.
   same cell** (§3): the explicit actor network is the bottleneck that the greedy
   value-gradient control law (Doya backbone) structurally avoids.
 
-## 6. Figures and data — paths
+## 6. Figures and data
 
-Each experiment group writes `comparison.png`, `summary.yaml` (means / SEM / 95% CI
-across seeds), and `aggregation_data.json` (machine-readable, the figure regenerates
-from it) into its group directory. Canonical location is Jean Zay (the `data/` tree is
-git-ignored); group directories are named per cell at submit time.
+Each experiment group on Jean Zay writes `comparison.png` ($\rho$ or $J$ vs $\dim\Phi$,
+with seed CIs), `summary.yaml` (means / SEM / 95% CI across seeds), and
+`aggregation_data.json` (machine-readable, the figure regenerates from it); every
+variant×seed sub-directory additionally holds the **training-dynamics figures** (§6.2).
+The `data/` tree is git-ignored, so the figures below were pulled from Jean Zay
+(`$WORK/.../data/main_unified/<group>/`) and committed into this report directory for
+sharing.
 
-| Cell / study | Canonical figure (Jean Zay) |
-|---|---|
-| `delayed_velocity_oscillator` | `data/main_unified/<group>/comparison.png` |
-| `delayed_oscillator_high_gap` | `data/main_unified/<group>/comparison.png` |
-| `MG_1D_limit_cycle` | `data/main_unified/<group>/comparison.png` |
-| `MG_1D_chaotic` | `data/main_unified/<group>/comparison.png` |
-| Trick ablation / convergence | `data/main_unified/trick_ablation_convergence/comparison.png` |
-| Oracle-ladder decomposition | `data/main_unified/oracle_ladder_high_gap/comparison.png` |
+| Cell / study | Jean Zay group | Bundled here |
+|---|---|---|
+| high-gap linear (H1) | `delayed_oscillator_high_gap_study` | [`figures/cell_high_gap_comparison.png`](figures/cell_high_gap_comparison.png) |
+| delayed-velocity linear (H1) | `delayed_velocity_study_v2` | [`figures/cell_delayed_velocity_comparison.png`](figures/cell_delayed_velocity_comparison.png) |
+| Mackey–Glass $\tau=6$ (H2) | `mackey_glass_limit_cycle_study` | [`figures/cell_mackey_glass_limit_cycle_comparison.png`](figures/cell_mackey_glass_limit_cycle_comparison.png) |
+| Mackey–Glass $\tau=17$ (H2 stress) | `mackey_glass_chaotic_study` | [`figures/cell_mackey_glass_chaotic_comparison.png`](figures/cell_mackey_glass_chaotic_comparison.png) |
+| trick ablation / convergence | `trick_ablation_convergence` | [`figures/trick_ablation_convergence.png`](figures/trick_ablation_convergence.png) |
+| oracle-ladder decomposition | `oracle_ladder_high_gap` | per-rung×seed dirs only — **no aggregated `comparison.png`** (finalize step not yet run) |
 
-**Bundled for sharing (this directory, committed to GitHub).** Only the locally-available
-linear control run (`delay_jax`, 1000 episodes — a supplementary pipeline-validation
-control, see Appendix) is small enough to carry in the repo:
+Each cell's `summary.yaml` (the exact aggregates behind the §3/§4 tables) is also bundled
+under [`figures/`](figures/). The supplementary `delay_jax` control run remains in this
+directory (`linear_cell_study_*`, see Appendix).
 
-| File | Content |
-|---|---|
-| [`linear_cell_study_comparison.png`](linear_cell_study_comparison.png) | $\rho$ vs $\dim\Phi$, linear `delay_jax` cell |
-| [`linear_cell_study_summary.yaml`](linear_cell_study_summary.yaml) | per-cell mean / std / SEM / 95% CI, 5 seeds |
-| [`linear_cell_study_aggregation_data.json`](linear_cell_study_aggregation_data.json) | same, machine-readable |
+### 6.1 Per-cell results figures (canonical, with seed CIs)
 
-To share the four-cell and oracle-ladder figures via GitHub, copy each group's
-`comparison.png` + `summary.yaml` + `aggregation_data.json` from Jean Zay into this
-directory and commit — they are all low-weight (PNG ≈ 30 KB, YAML/JSON ≈ 2 KB).
+H1 — sub-optimality $\rho$ vs $\dim\Phi$ on the two linear cells (signature in purple
+attains the lowest $\rho$):
+
+![High-gap linear cell — H1](figures/cell_high_gap_comparison.png)
+![Delayed-velocity linear cell — H1](figures/cell_delayed_velocity_comparison.png)
+
+H2 — raw cost $J$ (log scale) vs $\dim\Phi$ on the two Mackey–Glass cells (signature
+stays low and flat across capacity; raw-history diverges, divergent seeds omitted):
+
+![Mackey–Glass limit cycle — H2](figures/cell_mackey_glass_limit_cycle_comparison.png)
+![Mackey–Glass chaotic — H2 robustness](figures/cell_mackey_glass_chaotic_comparison.png)
+
+Trick ablation / convergence:
+
+![Trick ablation and convergence](figures/trick_ablation_convergence.png)
+
+### 6.2 Training-dynamics figures (present for every variant×seed)
+
+Yes — each run directory carries training-dynamics figures, not only the aggregate
+comparison. Per variant×seed the harness writes:
+
+- `figure_training_metrics.png` — episodic cost $\sum \tfrac12(x^\top Q x + u^\top R u)$,
+  episodic TD loss, gradient magnitude, critic-weight trajectories, and signature-feature
+  traces, all vs episode;
+- `training_snapshot.png` — a snapshot of the learned value/control;
+- `figure_agent_vs_no_control.png` and `figure_multiple_trajectories.png` — closed-loop
+  trajectories of the trained controller vs the uncontrolled plant;
+- `figure_visited_states.png` — state-visitation coverage (oracle-ladder runs).
+
+Representative example — the headline H2 win (Mackey–Glass limit cycle, signature
+depth 4, seed 0):
+
+![Training metrics — MG limit cycle, signature depth 4](figures/example_training_metrics_mg_limitcycle_sig_depth4.png)
+
+The full set (≈115 figures per study group) was downloaded to the local git-ignored
+`data/main_unified/<group>/<variant>_seed<k>/` tree; only this one representative figure
+is committed to keep the bundle light. Ask if a specific variant×seed should be added.
 
 ## 7. Open threads
 

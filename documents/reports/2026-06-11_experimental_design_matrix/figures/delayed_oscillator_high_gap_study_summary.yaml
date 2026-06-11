@@ -1,0 +1,82 @@
+n_runs: 25
+cells:
+- env_name: JAXDDEEnv
+  kind: markovian
+  capacity: 2
+  feature_dim: 5
+  metric_is_suboptimality: true
+  n_seeds: 5
+  mean: 0.38007208542932963
+  std: 0.02761052913144388
+  sem: 0.012347804006529347
+  ci95: 0.02420169585279752
+  values:
+  - 0.40921976417538436
+  - 0.36588921835758226
+  - 0.3757768189709945
+  - 0.40574743592259244
+  - 0.34372718972009436
+- env_name: JAXDDEEnv
+  kind: raw_history
+  capacity: 1
+  feature_dim: 12
+  metric_is_suboptimality: true
+  n_seeds: 5
+  mean: 0.6605733066781567
+  std: 0.0016077429162751858
+  sem: 0.0007190044902270137
+  ci95: 0.0014092488008449469
+  values:
+  - 0.6628175346128229
+  - 0.6591968323916368
+  - 0.6591873049889062
+  - 0.6600099899845885
+  - 0.6616548714128295
+- env_name: JAXDDEEnv
+  kind: raw_history
+  capacity: 2
+  feature_dim: 90
+  metric_is_suboptimality: true
+  n_seeds: 5
+  mean: 0.41267788698669455
+  std: 0.04147676470229738
+  sem: 0.018548973072220153
+  ci95: 0.0363559872215515
+  values:
+  - 0.44140508297678277
+  - 0.37332013631646943
+  - 0.41876284103975187
+  - 0.36772968664878597
+  - 0.46217168795168245
+- env_name: JAXDDEEnv
+  kind: signature
+  capacity: 2
+  feature_dim: 30
+  metric_is_suboptimality: true
+  n_seeds: 5
+  mean: 0.29399760277944986
+  std: 0.04160638357402051
+  sem: 0.0186069403938881
+  ci95: 0.03646960317202068
+  values:
+  - 0.31884564700823675
+  - 0.31523793211371604
+  - 0.2561023972825848
+  - 0.33673144220739337
+  - 0.24307059528531796
+- env_name: JAXDDEEnv
+  kind: signature
+  capacity: 3
+  feature_dim: 155
+  metric_is_suboptimality: true
+  n_seeds: 5
+  mean: 0.1574524835026651
+  std: 0.04980300769330711
+  sem: 0.022272582137235937
+  ci95: 0.04365426098898244
+  values:
+  - 0.10475988434705827
+  - 0.140262264671338
+  - 0.23827122708212314
+  - 0.14062938697950988
+  - 0.16333965443329634

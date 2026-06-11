@@ -26,12 +26,14 @@ C_LADDER = "#2ca02c"      # oracle-ladder rungs
 fig, axes = plt.subplots(2, 2, figsize=(11, 8.5))
 
 # --- Panel A: H1, high-gap linear cell (metric = normalised sub-optimality rho) ---
+# Values + 95% CIs from delayed_oscillator_high_gap_study/summary.yaml (5 seeds).
 axA = axes[0, 0]
 labels = ["markovian", "signature\n(depth 3)"]
 vals = [0.380, 0.157]
-bars = axA.bar(labels, vals, color=[C_MARKOVIAN, C_SIG], width=0.6)
-for b, v in zip(bars, vals):
-    axA.text(b.get_x() + b.get_width() / 2, v + 0.01, f"{v:.3f}",
+errs = [0.024, 0.044]
+bars = axA.bar(labels, vals, yerr=errs, capsize=5, color=[C_MARKOVIAN, C_SIG], width=0.6)
+for b, v, e in zip(bars, vals, errs):
+    axA.text(b.get_x() + b.get_width() / 2, v + e + 0.012, f"{v:.3f}",
              ha="center", va="bottom", fontsize=10)
 axA.set_ylabel(r"normalised sub-optimality $\rho$")
 axA.set_title("H1 (strong): history halves $\\rho$\n"
@@ -41,37 +43,37 @@ axA.annotate("lower is better", xy=(0.02, 0.95), xycoords="axes fraction",
              fontsize=8, style="italic", va="top")
 
 # --- Panel B: H2, Mackey-Glass limit cycle tau=6 (metric = raw cost J, log scale) ---
+# Values + 95% CIs from mackey_glass_limit_cycle_study/summary.yaml (5 seeds).
 axB = axes[0, 1]
-labels = ["markovian", "raw-history\n(best stable)", "signature"]
-vals = [np.nan, 0.28, 0.05]  # markovian fails (no finite usable cost)
-colors = [C_MARKOVIAN, C_RAW, C_SIG]
-plot_vals = [v if np.isfinite(v) else 0 for v in vals]
-bars = axB.bar(labels, plot_vals, color=colors, width=0.6)
+labels = ["markovian", "raw-history\n(deg 1, stable)", "signature\n(depth 4)"]
+vals = [30.30, 0.281, 0.049]
+errs = [13.48, 0.002, 0.014]
+bars = axB.bar(labels, vals, yerr=errs, capsize=5,
+               color=[C_MARKOVIAN, C_RAW, C_SIG], width=0.6)
 axB.set_yscale("log")
-axB.set_ylim(0.02, 50)
-for b, v in zip(bars, vals):
-    if np.isfinite(v):
-        axB.text(b.get_x() + b.get_width() / 2, v * 1.12, f"{v:.2f}",
-                 ha="center", va="bottom", fontsize=10)
-    else:
-        axB.text(b.get_x() + b.get_width() / 2, 0.025, "fails",
-                 ha="center", va="bottom", fontsize=10, color="firebrick")
+axB.set_ylim(0.02, 100)
+for b, v, e in zip(bars, vals, errs):
+    axB.text(b.get_x() + b.get_width() / 2, (v + e) * 1.12, f"{v:.3g}",
+             ha="center", va="bottom", fontsize=10)
 axB.set_ylabel(r"raw closed-loop cost $J$ (log)")
 axB.set_title("H2 (representational): signature succeeds\n"
               r"Mackey-Glass limit cycle $\tau=6$", fontsize=11)
-axB.annotate("raw-history unstable across capacity:\n0.28 / 15 / NaN",
+axB.annotate("raw-history degrades with capacity:\ndeg1 0.28 / deg2 15 / deg3 NaN",
              xy=(0.5, 0.93), xycoords="axes fraction", ha="center", va="top",
              fontsize=8, style="italic")
 
 # --- Panel C: H2 robustness, Mackey-Glass chaotic tau=17 (raw cost J, log scale) ---
+# Values + 95% CIs from mackey_glass_chaotic_study/summary.yaml (5 seeds).
 axC = axes[1, 0]
-labels = ["markovian", "raw-history\n(deg 2)", "signature"]
-vals = [43.8, 0.30, 0.088]
-bars = axC.bar(labels, vals, color=[C_MARKOVIAN, C_RAW, C_SIG], width=0.6)
+labels = ["markovian", "raw-history\n(deg 2)", "signature\n(depth 2)"]
+vals = [43.78, 0.297, 0.088]
+errs = [12.01, 0.124, 0.026]
+bars = axC.bar(labels, vals, yerr=errs, capsize=5,
+               color=[C_MARKOVIAN, C_RAW, C_SIG], width=0.6)
 axC.set_yscale("log")
 axC.set_ylim(0.05, 100)
-for b, v in zip(bars, vals):
-    axC.text(b.get_x() + b.get_width() / 2, v * 1.12, f"{v:.3g}",
+for b, v, e in zip(bars, vals, errs):
+    axC.text(b.get_x() + b.get_width() / 2, (v + e) * 1.12, f"{v:.3g}",
              ha="center", va="bottom", fontsize=10)
 axC.set_ylabel(r"raw closed-loop cost $J$ (log)")
 axC.set_title("H2 robust to chaos: signature wins\n"
