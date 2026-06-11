@@ -1,4 +1,16 @@
-# Environment configuration for the Chemical reaction described in S. Dadebo et al.,
+# Environment configuration for the Chemical reaction described in S. Dadebo et al.
+#
+# STRESS / ROBUSTNESS cell of the representation study (experimental_design.md §2.3, §6):
+# stiff, 4-D, state-dependent gain B(x), Arrhenius terms. NO analytic oracle, so the
+# aggregator reports the RAW cost J.
+#
+# STABILITY CONSTRAINT (see the docstring of src/envs/chemical_process.py): open-loop
+# stable at x0=[0.15,-0.03,0.1,0.0] (max|x|~=0.45), but diverges to NaN under SUSTAINED
+# negative control of magnitude >~2 (Arrhenius positive feedback). The critic-only
+# value-gradient agent does not enter that regime, so the Dadebo grid runs with
+# clip_action=null (exact Doya law) + divergence_threshold as the only safeguard. If a
+# regime change ever drives sustained large-negative control, re-enable a GENEROUS hard
+# clip (agent.training.clip_action~=5), NOT tanh squashing.
 
 environment_params:
   _target_: src.envs.chemical_process.ChemicalReactionEnv

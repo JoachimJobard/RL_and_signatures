@@ -1,0 +1,56 @@
+# Dadebo CSTR cell study — the STRESS / ROBUSTNESS cell (stiff nonlinear delayed plant).
+# NOT primary H2 evidence (the Mackey-Glass cells carry that, experimental_design.md §2.3,
+# §6); the question here is whether the H1/H2 ordering SURVIVES a stiff, 4-D,
+# state-dependent-gain B(x) plant with Arrhenius terms. Value-gradient backbone; value
+# linear in the feature map Phi.
+#
+# Env: env=chemical_reaction_4D (Dadebo CSTR, src/envs/chemical_process.py; delay=0.2,
+# Q=I_4, R=0.1 I_2, step_size dt=0.01, resolution=4). There is NO analytic oracle for this
+# nonlinear plant, so the aggregator reports the RAW cost J (ChemicalReactionEnv is a
+# SUBCLASS of JAXDDEEnv, not JAXDDEEnv itself, so aggregate_representation_study.py routes
+# it to the raw-J / log-y branch). All variants share env, seed, window, horizon, and budget.
+#
+# CONDITIONING (experimental_design.md §6, pinned empirically 2026-06-11 on this machine):
+#   The plant is OPEN-LOOP STABLE at x0=[0.15,-0.03,0.1,0.0] (zero control: max|x|~=0.45,
+#   settles; per-step random control even at U[-5,5] stays bounded ~0.6). Divergence to NaN
+#   occurs ONLY under SUSTAINED negative control of magnitude >~2 (the Arrhenius positive-
+#   feedback channel: u<0 enlarges x2,x4 via the -u*(x+0.25) term, inflating
+#   R = (x1+0.5) exp(25 x2/(x2+2))). The critic-only agent (critic std_init=0.01 so
+#   dV/dx~=0 at init; smooth exploration sigma=0.1) does NOT enter that regime: a no-clip
+#   smoke run (60 ep, 1 seed) left ALL of {markovian, raw deg1/2, signature depth2/4}
+#   bounded and learning (25-40% cost reduction). Hence NO action clip is used here
+#   (clip_action=null keeps the EXACT Doya control law u=1/2 R^-1 B(x)^T dV/dx, identical to
+#   the MG/linear cells); the only safeguard is divergence_threshold + best-state restore.
+#   See the comment block in src/envs/chemical_process.py for the documented constraint.
+#
+# Launch --common (matched information set across variants — same window/cadence/horizon/budget):
+#   env=chemical_reaction_4D
+#   agent.signature.window_size=23        # covers delay 0.2 at dt 0.01 (20 taps + margin);
+#                                         # identical to the auto-computed window, set
+#                                         # explicitly so every variant shares it.
+#   agent.training.max_time=4             # controlled horizon (matches the boundedness check)
+#   agent.training.clip_action=null       # NO clip: exact Doya law (see CONDITIONING above)
+#   agent.training.divergence_threshold=50 # episode-abort safeguard for the stiff plant
+#   eval.x0_test=[0.15,-0.03,0.1,0.0] eval.T_sim=4
+#   agent.training.n_episodes=800         # reduced budget (trick_ablation showed ~200 ep
+#                                         # suffice for markovian; 800 is a safe margin)
+#
+# Predicted outcomes (experimental_design.md §2.3, "Nonlinear delayed, stiff (stress)"):
+#   H1 POSITIVE  — the optimal control is a NONLINEAR functional of the history; a
+#     history-dependent variant should attain lower cost than the Markovian one. (MEASURED
+#     at this cell; the falsification reading is that an outcome contrary to MG signals a
+#     conditioning/optimisation confound, not evidence against H1.)
+#   H2 ROBUSTNESS ONLY — does the signature's advantage over raw history at matched/lower
+#     dim(Phi) SURVIVE stiffness? This cell is a stress test of the MG-cell H2 result, not
+#     independent H2 evidence. Critical pair: raw deg 2 vs signature depth 2.
+#
+# Capacity sweep: plot J vs dim(Phi); the signature curve should lie at or below the
+# raw-history curve at matched dim. raw deg3 is DROPPED — with 24 taps x 4 states the
+# degree-3 monomial dimension is infeasible (degree-2 is already ~4.7k features).
+# Submit per seed reusing --experiment-group dadebo_cstr_study; aggregate with --finalize.
+agent=value_gradient agent.signature.kind=markovian    agent.signature.degree=2 run_tag=markovian_deg2
+agent=value_gradient agent.signature.kind=raw_history   agent.signature.degree=1 run_tag=raw_deg1
+agent=value_gradient agent.signature.kind=raw_history   agent.signature.degree=2 run_tag=raw_deg2
+agent=value_gradient agent.signature.kind=signature     agent.signature.depth=2  run_tag=sig_depth2
+agent=value_gradient agent.signature.kind=signature     agent.signature.depth=3  run_tag=sig_depth3
+agent=value_gradient agent.signature.kind=signature     agent.signature.depth=4  run_tag=sig_depth4

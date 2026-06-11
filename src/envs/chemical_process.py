@@ -6,6 +6,35 @@ from src.envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
 from src.utils.solver_buffer_jax import get_delayed_interpolated
 
 class ChemicalReactionEnv(JAXDDEEnv):
+    """Dadebo et al. CSTR — the stiff nonlinear delayed STRESS cell of the
+    representation study (experimental_design.md §2.3, §6). 4-D state, state-dependent
+    input gain B(x), Arrhenius reaction terms.
+
+    STABILITY / CONTROL-MAGNITUDE CONSTRAINT (pinned empirically 2026-06-11):
+    The plant is OPEN-LOOP STABLE at the study operating point
+    x0=[0.15, -0.03, 0.1, 0.0] — zero control gives max|x| ~= 0.45 and settles; even
+    per-step random control at U[-5, 5] stays bounded (~0.6). It diverges to NaN ONLY
+    under SUSTAINED negative control of magnitude >~ 2: a negative u enlarges x2, x4 via
+    the -u*(x+0.25) term in x_2_dot / x_4_dot, which inflates the Arrhenius rate
+    R1 = (x1 + 0.5) * exp(25*x2/(x2+2)) (and R2 analogously), a positive-feedback loop.
+    Concretely, constant u=(-2,-2) already NaNs within T=4; constant u=(-1,-1), all
+    positive u, and i.i.d. random u stay finite.
+
+    Consequence for the critic-only value-gradient agent: because the critic is
+    initialised at std 0.01 (so dV/dx ~= 0 and the control law u = 1/2 R^-1 B(x)^T dV/dx
+    starts near zero) and exploration noise is small/smooth (sigma=0.1), the learned
+    control does NOT enter the sustained-large-negative regime — a no-clip smoke run left
+    {markovian, raw deg1/2, signature depth2/4} all bounded and learning (25-40% cost
+    reduction). The Dadebo grid is therefore launched with clip_action=null (the EXACT
+    Doya law, identical to the MG/linear cells), the only safeguard being
+    divergence_threshold + best-state restoration. If a future operating point, larger
+    exploration noise, or a different horizon DOES drive sustained negative control,
+    re-enable a GENEROUS hard action clip (agent.training.clip_action ~= 5, well above the
+    |u| ~= 1-2 the controller uses) rather than tanh squashing: a hard clip leaves the
+    control law exact inside the bound, whereas tanh would replace it everywhere and break
+    the fairness protocol's "everything else identical" across cells.
+    """
+
     def __init__(
         self,
         delay: float = 1,
