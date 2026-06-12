@@ -1,0 +1,29 @@
+# Connected-cruise-control vehicle platoon (Ge, Orosz & Stepan; OVM with reaction delay).
+#
+# The PRIMARY high-dimensional HISTORY-DEPENDENT cell: a chain of N=5 vehicles (state dim
+# 2N=10) following the Optimal-Velocity Model with reaction/communication delay sigma=0.5 s.
+# Unlike the Dadebo CSTR (near-Markovian: delayed-LQR history-kernel ratio 0.009, +1% gap),
+# here the delay sits on EVERY feedback term, so the optimal controller genuinely depends on
+# history: the linearise->delayed-LQR gate gives ratio ||K_hist||/||K_now||~=0.17 and a
+# markovian-oracle cost gap of ~12-39% under a propagating (lead-vehicle) disturbance. The
+# nonlinear range policy V(h) makes the optimal control a NONLINEAR functional of the
+# history, so this cell tests H2 as well. See src/envs/platoon.py for the model and the gate.
+#
+# Conditioning note: at this regime the open loop is asymptotically stable (delayed-LQR
+# OL spectral radius 0.993) but STRING-UNSTABLE (a lead perturbation amplifies ~100x down
+# the chain before the slow decay), so use a SMALL initial perturbation + a divergence guard
+# for the critic-only value-gradient agent (exploding TD targets otherwise). Q=I_10, R=0.1 I_5
+# default from the env.
+environment_params:
+  _target_: src.envs.platoon.PlatoonEnv
+  n_vehicles: 5
+  alpha: 1.0
+  beta: 0.5
+  delay: 0.5
+  v_star: 15.0
+  v_max: 30.0
+  h_st: 5.0
+  h_go: 35.0
+  step_size: 0.05
+  resolution: 4
+  x_target: 0.0  # unused; equilibrium is the origin in deviation coordinates
