@@ -69,3 +69,12 @@ algorithm:
   # a history_function), with control starting at t=0. There is NO zero-control
   # burn-in / preheat (it would overwrite phi with an uncontrolled-evolution path).
   fix_initial_state: true   # fix phi = constant x0 across episodes (vs sampling it)
+  # Critic solver. Default is semi-gradient TD (SGD on the TD loss). LSTD solves the
+  # linear-in-Phi critic's continuous-time TD fixed point E[phi*delta]=0 directly by
+  # least squares (theta = -(M + reg*I)^-1 b), stable where semi-gradient TD diverges
+  # (deadly triad with high-dim correlated signature features on multi-D state) and
+  # free of the projected-fixed-point bias (methodology 7.1). Accumulates M,b over
+  # transitions with exponential forgetting across episodes, re-solving each episode end.
+  lstd: false             # true: use LSTD instead of semi-gradient TD for the critic
+  lstd_reg: 1.0e-3        # Tikhonov regularisation on the LSTD system (M + reg*I)
+  lstd_forget: 0.7        # exponential forgetting of M,b across episodes (1.0 = full growing batch)

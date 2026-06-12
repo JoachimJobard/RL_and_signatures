@@ -113,6 +113,16 @@ class ContinuousValueGradient:
         self._select_action_jit = self._make_action_jit_fn()
         self._jit_critic_update = self._make_critic_update_fn()
 
+        # LSTD critic solver (opt-in). Accumulators for the continuous-time TD fixed
+        # point E[phi*delta]=0; solved directly each episode end (see _on_episode_end).
+        self._lstd = bool(getattr(self.algorithm, "lstd", False))
+        if self._lstd:
+            d = int(self.sliding_signature.signature_size)
+            self._lstd_M = np.zeros((d, d))
+            self._lstd_b = np.zeros(d)
+            self._lstd_reg = float(getattr(self.algorithm, "lstd_reg", 1e-3))
+            self._lstd_forget = float(getattr(self.algorithm, "lstd_forget", 0.7))
+
     def _build_network(self):
         if self.network.normalize_layers:
             return CriticFlaxLayerNorm(hidden_dims=self.network.hidden_dims, stddev=self.network.std_init)
@@ -272,10 +282,22 @@ class ContinuousValueGradient:
         sig_next = ctx.sig_next
         reward = ctx.reward
         dt = ctx.dt
+        if getattr(self, "_lstd", False):
+            # Accumulate the LSTD system; the critic is solved at episode end. The
+            # continuous-time TD residual is delta = r + theta^T[(phi_next-phi_t)/dt
+            # - phi_t/tau], so the fixed point E[phi*delta]=0 gives M theta = -b with
+            # M = sum phi_t[(phi_next-phi_t)/dt - phi_t/tau]^T, b = sum phi_t r.
+            phi_t = np.asarray(sig_t, dtype=np.float64).reshape(-1)
+            phi_n = np.asarray(sig_next, dtype=np.float64).reshape(-1)
+            diff = (phi_n - phi_t) / float(dt) - phi_t / float(self.discount.tau)
+            self._lstd_M += np.outer(phi_t, diff)
+            self._lstd_b += phi_t * float(reward)
+            zero = jnp.array(0.0)
+            return zero, zero
         # Critic update (JIT-compiled)
         self.critic_params, self.target_params, self.critic_opt_state, c_loss, td_error, critic_grad_norm = \
             self._jit_critic_update(
-                self.critic_params, self.target_params, self.critic_opt_state, 
+                self.critic_params, self.target_params, self.critic_opt_state,
                 sig_t, sig_next, reward, dt)
         # Return JAX arrays - defer float() to episode end
         return c_loss, critic_grad_norm
@@ -355,6 +377,10 @@ class ContinuousValueGradient:
 
     def _on_episode_start(self, episode: int, x_init: np.ndarray) -> None:
         """Hook called at the start of each episode. Override for custom logic."""
+        if getattr(self, "_lstd", False):
+            # Exponential forgetting so the LSTD system tracks the (improving) policy.
+            self._lstd_M *= self._lstd_forget
+            self._lstd_b *= self._lstd_forget
         if self.noise.smooth:
             # Generate pre-sampled Gaussian Process noise
             # Kernel: Squared Exponential (RBF): k(t, t') = sigma^2 * exp(-|t-t'|^2 / (2 * l^2))
@@ -652,7 +678,21 @@ class ContinuousValueGradient:
 
     def _on_episode_end(self, episode: int, episode_metrics: dict) -> None:
         """Hook called at the end of each episode. Override for custom logic."""
-        pass
+        if getattr(self, "_lstd", False):
+            # Solve the regularised LSTD system theta = -(M + reg*I)^-1 b and write it
+            # into the (bias-free, linear) critic. No target network / optimiser state
+            # is used in LSTD; critic and target share the solved parameters.
+            d = self._lstd_b.shape[0]
+            try:
+                theta = -np.linalg.solve(self._lstd_M + self._lstd_reg * np.eye(d), self._lstd_b)
+            except np.linalg.LinAlgError:
+                theta = -np.linalg.lstsq(self._lstd_M + self._lstd_reg * np.eye(d),
+                                         self._lstd_b, rcond=None)[0]
+            if np.all(np.isfinite(theta)):
+                kernel = self.critic_params["params"]["Dense_0"]["kernel"]
+                new_kernel = jnp.asarray(theta.reshape(kernel.shape), dtype=kernel.dtype)
+                self.critic_params = {"params": {"Dense_0": {"kernel": new_kernel}}}
+                self.target_params = self.critic_params
 
     def save(self, filename: str) -> None:
         """Save critic/target parameters and configs to a file."""

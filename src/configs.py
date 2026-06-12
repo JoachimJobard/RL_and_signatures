@@ -120,6 +120,12 @@ class AlgorithmConfig:
     # CTACJAX-specific (Markov baseline with delayed state)
     delayed_state: bool = False
     whole_state_delay: bool = False
+    # LSTD critic solver (value-gradient agent): direct least-squares solve of the
+    # continuous-time TD fixed point instead of semi-gradient SGD (stable for high-dim
+    # signature features; see conf/agent/value_gradient.yaml and value_gradient_jax.py).
+    lstd: bool = False
+    lstd_reg: float = 1.0e-3
+    lstd_forget: float = 0.7
 
 
 # =============================================================================
