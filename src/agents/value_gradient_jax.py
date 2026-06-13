@@ -120,6 +120,9 @@ class ContinuousValueGradient:
             d = int(self.sliding_signature.signature_size)
             self._lstd_M = np.zeros((d, d))
             self._lstd_b = np.zeros(d)
+            self._lstd_mu = np.zeros(d)        # running feature mean (centring vector)
+            self._lstd_phisum = np.zeros(d)    # accumulates this episode's feature sum
+            self._lstd_n = 0.0
             self._lstd_reg = float(getattr(self.algorithm, "lstd_reg", 1e-3))
             self._lstd_forget = float(getattr(self.algorithm, "lstd_forget", 0.7))
 
@@ -287,11 +290,24 @@ class ContinuousValueGradient:
             # continuous-time TD residual is delta = r + theta^T[(phi_next-phi_t)/dt
             # - phi_t/tau], so the fixed point E[phi*delta]=0 gives M theta = -b with
             # M = sum phi_t[(phi_next-phi_t)/dt - phi_t/tau]^T, b = sum phi_t r.
+            #
+            # CENTRED features phi_c = phi - mu (running mean, frozen per episode). The
+            # signature's time-augmentation channel contributes a large DETERMINISTIC
+            # constant block (the clock advances identically every window), which is the
+            # additive-constant gauge of the value function. In a bias-free critic it
+            # dominates the feature second moment (effective rank -> 1, cond ~1e15) and is
+            # an undamped TD direction. Centring removes it (gauge fix) WITHOUT changing the
+            # affine span, so the Arribas density property is preserved. The value-gradient
+            # control uses d/dx (theta^T phi_c) = theta^T dphi/dx (mu is constant), so the
+            # kernel solved here drives the control unchanged.
             phi_t = np.asarray(sig_t, dtype=np.float64).reshape(-1)
             phi_n = np.asarray(sig_next, dtype=np.float64).reshape(-1)
-            diff = (phi_n - phi_t) / float(dt) - phi_t / float(self.discount.tau)
-            self._lstd_M += np.outer(phi_t, diff)
-            self._lstd_b += phi_t * float(reward)
+            phi_c = phi_t - self._lstd_mu                          # centred test feature
+            diff = (phi_n - phi_t) / float(dt) - phi_c / float(self.discount.tau)
+            self._lstd_M += np.outer(phi_c, diff)
+            self._lstd_b += phi_c * float(reward)
+            self._lstd_phisum += phi_t                             # for next episode's mean
+            self._lstd_n += 1.0
             zero = jnp.array(0.0)
             return zero, zero
         # Critic update (JIT-compiled)
@@ -378,7 +394,13 @@ class ContinuousValueGradient:
     def _on_episode_start(self, episode: int, x_init: np.ndarray) -> None:
         """Hook called at the start of each episode. Override for custom logic."""
         if getattr(self, "_lstd", False):
-            # Exponential forgetting so the LSTD system tracks the (improving) policy.
+            # Refresh the centring mean from the previous episode's features (frozen
+            # during the upcoming episode so the LSTD system is consistent), then apply
+            # exponential forgetting so it tracks the (improving) policy.
+            if self._lstd_n > 0:
+                self._lstd_mu = self._lstd_phisum / self._lstd_n
+            self._lstd_phisum = np.zeros_like(self._lstd_phisum)
+            self._lstd_n = 0.0
             self._lstd_M *= self._lstd_forget
             self._lstd_b *= self._lstd_forget
         if self.noise.smooth:

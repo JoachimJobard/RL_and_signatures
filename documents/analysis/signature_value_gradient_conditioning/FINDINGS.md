@@ -74,3 +74,32 @@ Raw numbers and the figure regenerate via
 `uv run python run/study/diagnose_signature_conditioning.py`
 (outputs to `data/diagnose_signature_conditioning/`; the committed copy here is a
 snapshot).
+
+## Update (correction): conditioning is real but NOT the operative barrier
+
+Implementing the prescribed fix — **centred features** in the LSTD critic (running
+feature mean subtracted; the gauge fix) — and testing it on the platoon signature
+**did not** make the agent learn: across regularisations the closed-loop cost stayed
+$I\approx12$–$124$, far worse than no-control ($0.075$) and than the markovian critic
+($0.039$). Centring **does** restore the feature-Gram effective rank ($1.07\to6.17$, as
+the analysis predicted), so the conditioning diagnosis is correct *as far as it goes* —
+but conditioning was **necessary, not sufficient**: it is not what blocks the control.
+
+The binding barrier is the **value-gradient control law itself**, i.e. the **vertical
+derivative** $\partial_x V=\theta^\top\partial_x\Phi$. Evidence: the *ideal* critic — a
+least-squares fit with $R^2=1.0$ (perfect value on the data) — still yields bad control
+($I=11$ for signature depth-2). A perfect value fit does not imply a usable gradient,
+because $\partial_x V$ probes the critic **off** the (thin, low-dimensional) trajectory
+manifold on which it was fit, where a high-dimensional signature critic extrapolates
+unreliably; the markovian critic's low-dimensional polynomial gradient generalises off
+that manifold and so controls well. So there are **two distinct issues**: (1) feature
+conditioning (real, fixed by centring), and (2) the off-manifold vertical-derivative of
+the value-gradient control law (the operative one, untouched by centring).
+
+Implications for next steps (none yet validated): the operative barrier (2) is a property
+of the *value-gradient* control with high-dimensional signature features on thin-manifold
+data, not of the representation's capacity ($R^2=1$) nor (only) its conditioning. Candidate
+directions: an explicit **actor** (actor-critic) that learns the control directly and does
+not differentiate the signature critic; off-manifold **excitation** of the endpoint so
+$\partial_x V$ is constrained where the control queries it; or a lower-dimensional
+signature (depth-1, smaller window) whose vertical derivative is better behaved.
