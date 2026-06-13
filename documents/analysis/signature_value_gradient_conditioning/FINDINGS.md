@@ -103,3 +103,26 @@ directions: an explicit **actor** (actor-critic) that learns the control directl
 not differentiate the signature critic; off-manifold **excitation** of the endpoint so
 $\partial_x V$ is constrained where the control queries it; or a lower-dimensional
 signature (depth-1, smaller window) whose vertical derivative is better behaved.
+
+## Second correction: the "ideal-critic" / vertical-derivative test is itself confounded
+
+Quantifying barrier (2) directly (cosine between the value-gradient control
+$u=\tfrac12R^{-1}B^\top\partial_xV$ from the ideal least-squares critic and the oracle
+control $u^\star=-K\xi$, on- and off-manifold, vs depth and window) gave cosine $\approx0$
+for **every** representation at **every** perturbation level — **including markovian at
+$\eta=0$**. But markovian *does* learn a good controller in the RL loop ($I=0.039$). The
+only consistent reading: an $R^2=1$ **least-squares value fit has a gradient nearly
+orthogonal to the control-relevant gradient** — matching a function in $L^2$ does not match
+its derivative. Hence the "ideal-critic control test" is **not a valid probe of a
+representation's control adequacy** (it fails markovian too), so it does **not** establish
+a signature-specific barrier (2); and value-fit $R^2$ says nothing about the control
+gradient. The robust, valid distinction that remains between markovian (learns) and
+signature (fails) is the **conditioning of the learning dynamics**: the markovian TD/LSTD
+iteration is well-conditioned (Gram rank 6, cond $10^6$) and converges, the signature's is
+not (rank 1, cond $10^{15}$). Centring fixes the *feature Gram* but not the LSTD control,
+which points at the LSTD **drift matrix** $M=\mathbb{E}[\phi((\phi'-\phi)/dt-\phi/\tau)^\top]$
+(distinct from the Gram) and/or the least-squares-policy-iteration loop — not yet isolated.
+Net: the validated facts are the feature-conditioning gap (signature rank 1 vs markovian
+rank 6, unaffected by excitation) and that conditioning fixes alone (centring, whitening,
+Tikhonov) do not yet recover signature control; the precise learning-dynamics mechanism and
+a working fix are open. This is flagged to prevent over-claiming either barrier.
