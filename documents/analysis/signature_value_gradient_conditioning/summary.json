@@ -1,0 +1,71 @@
+{
+  "regime": {
+    "n_vehicles": 5,
+    "alpha": 3.0,
+    "beta": 1.0,
+    "delay": 0.2,
+    "step_size": 0.05,
+    "resolution": 4
+  },
+  "tau": 10.0,
+  "tf": 15.0,
+  "window_length": 9,
+  "oracle_closed_loop_cost": 0.0282626373526169,
+  "reference_bars": {
+    "no_control": 0.075,
+    "markovian_lqr": 0.058,
+    "delayed_lqr_optimum": 0.0282626373526169,
+    "markovian_rl": 0.039
+  },
+  "representations": [
+    {
+      "name": "markovian d2",
+      "kind": "markovian",
+      "dim": 65,
+      "feat_absmax": 0.36750495433807373,
+      "gram_cond_1ic": 1031554256954.8523,
+      "eff_rank_1ic": 1.3782964992664253,
+      "gram_cond_24ic": 9049234.236907525,
+      "eff_rank_24ic": 6.277934727104928,
+      "value_fit_r2": 0.9999982994502679,
+      "ideal_critic_control_cost": 48.220472106337574
+    },
+    {
+      "name": "raw_hist d2",
+      "kind": "raw_history",
+      "dim": 4185,
+      "feat_absmax": 0.36750495433807373,
+      "gram_cond_1ic": 30879822920762.5,
+      "eff_rank_1ic": 1.5190594796883656,
+      "gram_cond_24ic": 47603656217573.38,
+      "eff_rank_24ic": 9.96777705135391,
+      "value_fit_r2": 0.9999997635380494,
+      "ideal_critic_control_cost": 21.331866194307818
+    },
+    {
+      "name": "signature d2",
+      "kind": "signature",
+      "dim": 462,
+      "feat_absmax": 1.0,
+      "gram_cond_1ic": 1250306437824646.2,
+      "eff_rank_1ic": 1.0240300036106198,
+      "gram_cond_24ic": 1250072427261585.8,
+      "eff_rank_24ic": 1.0792206644967057,
+      "value_fit_r2": 0.9997478895078589,
+      "ideal_critic_control_cost": 11.328892779350275
+    },
+    {
+      "name": "signature d3",
+      "kind": "signature",
+      "dim": 9723,
+      "feat_absmax": 1.0,
+      "gram_cond_1ic": 1278107644794848.0,
+      "eff_rank_1ic": 1.0253022993039116,
+      "gram_cond_24ic": 1277866660348503.8,
+      "eff_rank_24ic": 1.0878268236162902,
+      "value_fit_r2": 0.9999980266855037,
+      "ideal_critic_control_cost": 0.7603455084376042
+    }
+  ],
+  "interpretation": "value-fit R2=1.0 for every representation -> NOT a representation / non-Markovian problem; the signature CAN linearly represent the value. The distinguishing fact is in the feature conditioning: with a SINGLE initial condition every representation is rank ~1, but exciting with 24 diverse ICs raises the markovian/raw-history effective rank to 6-10 (their linear critic becomes identifiable) while the SIGNATURE stays at effective rank ~1 (cond ~1e15) -- it is INTRINSICALLY near-collinear, dominated by a single direction (the monotone time-augmentation channel) plus the algebraic shuffle redundancies of iterated integrals. So the signature linear critic is unidentifiable irrespective of data excitation, which is why semi-gradient TD diverges and LSTD (plain or whitened) cannot recover a usable critic. Root cause: signature-specific feature collinearity, NOT representation capacity. Candidate fixes: log-signature (the minimal, non-redundant representation) or per-channel signature normalisation so no single channel dominates. (The ideal-critic control costs are all > no-control because the least-squares critic, fit on the oracle's narrow on-trajectory distribution, has unreliable vertical derivatives off that distribution -- a confound of that particular test, not the conditioning finding.)"
+}
