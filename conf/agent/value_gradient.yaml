@@ -78,3 +78,5 @@ algorithm:
   lstd: false             # true: use LSTD instead of semi-gradient TD for the critic
   lstd_reg: 1.0e-3        # Tikhonov regularisation on the LSTD system (M + reg*I)
   lstd_forget: 0.7        # exponential forgetting of M,b across episodes (1.0 = full growing batch)
+  lstd_rank: 0            # >0: truncated-SVD LSTD in the top-k PC subspace of the centred
+                          # feature covariance (cures rank-deficiency for high-dim signatures)

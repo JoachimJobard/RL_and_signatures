@@ -122,9 +122,11 @@ class ContinuousValueGradient:
             self._lstd_b = np.zeros(d)
             self._lstd_mu = np.zeros(d)        # running feature mean (centring vector)
             self._lstd_phisum = np.zeros(d)    # accumulates this episode's feature sum
+            self._lstd_C = np.zeros((d, d))    # centred feature 2nd moment (for truncation PCA)
             self._lstd_n = 0.0
             self._lstd_reg = float(getattr(self.algorithm, "lstd_reg", 1e-3))
             self._lstd_forget = float(getattr(self.algorithm, "lstd_forget", 0.7))
+            self._lstd_rank = int(getattr(self.algorithm, "lstd_rank", 0))
 
     def _build_network(self):
         if self.network.normalize_layers:
@@ -306,6 +308,7 @@ class ContinuousValueGradient:
             diff = (phi_n - phi_t) / float(dt) - phi_c / float(self.discount.tau)
             self._lstd_M += np.outer(phi_c, diff)
             self._lstd_b += phi_c * float(reward)
+            self._lstd_C += np.outer(phi_c, phi_c)                 # centred 2nd moment (PCA)
             self._lstd_phisum += phi_t                             # for next episode's mean
             self._lstd_n += 1.0
             zero = jnp.array(0.0)
@@ -403,6 +406,7 @@ class ContinuousValueGradient:
             self._lstd_n = 0.0
             self._lstd_M *= self._lstd_forget
             self._lstd_b *= self._lstd_forget
+            self._lstd_C *= self._lstd_forget
         if self.noise.smooth:
             # Generate pre-sampled Gaussian Process noise
             # Kernel: Squared Exponential (RBF): k(t, t') = sigma^2 * exp(-|t-t'|^2 / (2 * l^2))
@@ -705,11 +709,32 @@ class ContinuousValueGradient:
             # into the (bias-free, linear) critic. No target network / optimiser state
             # is used in LSTD; critic and target share the solved parameters.
             d = self._lstd_b.shape[0]
-            try:
-                theta = -np.linalg.solve(self._lstd_M + self._lstd_reg * np.eye(d), self._lstd_b)
-            except np.linalg.LinAlgError:
-                theta = -np.linalg.lstsq(self._lstd_M + self._lstd_reg * np.eye(d),
-                                         self._lstd_b, rcond=None)[0]
+            rank = int(getattr(self, "_lstd_rank", 0))
+            if rank > 0 and self._lstd_n > 0:
+                # Truncated-SVD LSTD: project onto the top-k principal components of the
+                # CENTRED feature covariance (the directions that actually carry data
+                # variance), solve the LSTD there, and map back. This discards the
+                # rank-deficient null/noise subspace that wrecks the full-D solve, rather
+                # than amplifying it (as per-feature whitening did). With U_k the top-k
+                # eigenvectors: M_k = U_k^T M U_k, b_k = U_k^T b, theta = U_k theta_k.
+                C = self._lstd_C / max(self._lstd_n, 1.0)
+                evals, evecs = np.linalg.eigh((C + C.T) / 2.0)
+                Uk = evecs[:, -rank:]                       # top-k eigenvectors
+                Mk = Uk.T @ self._lstd_M @ Uk
+                bk = Uk.T @ self._lstd_b
+                scale = np.trace(Mk) / rank if rank > 0 else 1.0
+                try:
+                    theta_k = -np.linalg.solve(Mk + self._lstd_reg * abs(scale) * np.eye(rank), bk)
+                except np.linalg.LinAlgError:
+                    theta_k = -np.linalg.lstsq(Mk + self._lstd_reg * abs(scale) * np.eye(rank),
+                                               bk, rcond=None)[0]
+                theta = Uk @ theta_k
+            else:
+                try:
+                    theta = -np.linalg.solve(self._lstd_M + self._lstd_reg * np.eye(d), self._lstd_b)
+                except np.linalg.LinAlgError:
+                    theta = -np.linalg.lstsq(self._lstd_M + self._lstd_reg * np.eye(d),
+                                             self._lstd_b, rcond=None)[0]
             if np.all(np.isfinite(theta)):
                 kernel = self.critic_params["params"]["Dense_0"]["kernel"]
                 new_kernel = jnp.asarray(theta.reshape(kernel.shape), dtype=kernel.dtype)

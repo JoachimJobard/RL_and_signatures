@@ -126,6 +126,9 @@ class AlgorithmConfig:
     lstd: bool = False
     lstd_reg: float = 1.0e-3
     lstd_forget: float = 0.7
+    lstd_rank: int = 0        # >0: project onto top-k PCs of the centred feature covariance
+                              # before solving (truncated-SVD LSTD; cures rank-deficiency by
+                              # discarding the null/noise directions). 0 = no truncation.
 
 
 # =============================================================================
