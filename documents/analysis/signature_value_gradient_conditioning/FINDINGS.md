@@ -378,3 +378,61 @@ gradient in the loss (**derivative matching / Sobolev** — the $O(1)$ limit of 
 penalise $\lVert\partial_xV\rVert$ (a smoothness prior), or do not differentiate the critic at all (an
 **explicit actor**, trained by policy gradient). These are the same three escapes the nonlinearity
 analysis reached, now grounded in the general principle.
+
+## MAJOR CORRECTION: the magnitude blow-up is a continuous-vs-discrete control-law mismatch — and the platoon *works*
+
+The "$\sim20$–$25\times$ magnitude blow-up" tracked throughout the platoon sections is **not** a
+gradient pathology and **not** a nonlinearity signature — it is a **time-discretisation mismatch
+between the control law and the value function**, and once corrected the value-gradient history/
+signature control **succeeds on the platoon**. Two convention-free tests settle it
+([`run/study/mwe_real_platoon_fd_gradient.py`](../../../run/study/mwe_real_platoon_fd_gradient.py),
+[`run/study/mwe_platoon_gradient_direction.py`](../../../run/study/mwe_platoon_gradient_direction.py)):
+
+1. **No-critic finite difference.** Differentiating the *exact* value by central differences — no
+   critic, no fit, even the analytic linearised value — gives $\cos(u,u^\star)\approx0.98$–$0.99$ but
+   $\lVert u\rVert/\lVert u^\star\rVert\approx19$–$27$. No estimation is involved, so the magnitude
+   excess lives in the **control law**, not the gradient.
+2. **Rescale-to-oracle (closed loop).** The continuous-formula control $u=\tfrac12R^{-1}B^\top\partial_xV$
+   (analytic gradient) has $\cos=0.934$, $\lVert u\rVert/\lVert u^\star\rVert=22.7$; closed-loop it
+   fails ($I=67.6$); **rescaled by the single scalar $1/22.7$ it recovers the oracle**
+   ($I=0.0293$ vs $I^\star=0.0283$). A single scalar cannot repair a direction or gradient error — only
+   a scale one.
+
+**Mechanism.** Doya's law $u=\tfrac12R^{-1}B^\top\partial_xV$ is the *continuous-time* HJB control
+($R^{-1}$; $B$ sets the state *velocity*). The platoon oracle is the *discrete* delayed-LQR,
+$u^\star=-(R+B^\top PB)^{-1}B^\top PA\,\xi$ ($B$ sets the *next state*). Applying the continuous law to a
+discrete-time value mismatches the scale by $\sim(R+B^\top PB)/R$ (here $\approx22.7$), with near-constant
+direction. On E0 it never appeared because there the value (continuous Riccati) and the control law were
+both continuous-time. The deployable fix is the **discrete control formula** (the scale is computable
+from the model — no oracle needed); rescaling is the diagnostic shortcut.
+
+**Consequence — the platoon succeeds; H1 holds there.** With the magnitude corrected, the fitted
+critics give near-oracle closed-loop control:
+
+| rep | dim | value $R^2$ | grad $\cos(u,u^\star)$ | $I$ (rescaled) | vs oracle $0.0283$ |
+|---|---|---|---|---|---|
+| markovian | 65 | 0.972 | 0.404 | 0.0440 | weak (can't represent history) |
+| raw-history | 1325 | 1.000 | 0.934 | **0.0293** | = oracle |
+| signature | 462 | 0.988 | 0.645 | **0.0346** | near oracle |
+
+raw-history and signature beat markovian — **H1 (history $>$ current-state) holds on the platoon**, the
+hardest, most history-dependent cell. (H2, signature $>$ raw-history, is *not* shown in this
+configuration — raw-history's gradient direction is better here; H2 needs the matched-dimension
+comparison and likely different signature window/depth.)
+
+**What this overturns and what survives.**
+- **Overturned (magnitude-based):** "nonlinearity is the platoon's obstruction" and "the platoon fails
+  for all representations" — both were confounded by the discretisation scale (and the linear-vs-nonlinear
+  comparison further confounded by the $B$ vs $B_d$ convention: in *direction* terms the linear-delayed and
+  nonlinear-platoon critics are comparable, $\cos\approx0.93$). The platoon is **not** a fundamental
+  failure case.
+- **Survives (convention-free):** the value fit is excellent for all representations (the H1/H2
+  *representation* result); and the genuine extraction statistic is the gradient **direction**
+  $\cos(u,u^\star)$ — representation-dependent (raw-history $0.93$, signature $0.65$, markovian $0.40$),
+  with markovian worst because it cannot represent the history-dependent value.
+
+**Reporting rule going forward.** Report the gradient as a **direction** ($\cos$), never a magnitude —
+the magnitude is a discretisation convention. The two clean, convention-free axes are value-fit $R^2$
+(representation, H1/H2) and gradient $\cos$ (extraction). The earlier off-manifold / Sobolev analysis
+still governs the *direction* (it is why the critic's $\cos$ is imperfect and why the cheat raised it);
+the magnitude sections should be read as discretisation bookkeeping, not findings.
