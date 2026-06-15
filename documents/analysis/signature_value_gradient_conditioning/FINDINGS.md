@@ -254,3 +254,60 @@ So "add more trajectories" and "add the gradient constraint" are **not interchan
 former fixes the along-manifold derivative, only the latter (derivative matching, $\cos\to1$, $I\to$
 oracle on E0) fixes the across-manifold one. On-policy data is trapped on a state-dimensional
 manifold; the value-gradient law reads a derivative pointing off it.
+
+## Scope correction: history-dependence is tractable; the platoon's obstruction is NONLINEARITY
+
+The geometry story above is correct but its *scope* was over-stated. A sequence of studies on the
+platoon and on a controllable spring-mass surrogate (scripts under `run/study/mwe_*`) separates the
+failure into independent mechanisms and locates the one that actually kills the real platoon.
+
+**(a) Actuation and exploration are not the axes.** On a simple controllable linear platoon
+([`mwe_platoon_actuation_exploration.py`](../../../run/study/mwe_platoon_actuation_exploration.py)),
+with the analytic oracle value as the label, exploration (action noise) recovers the value-gradient
+history control under **full *or* single-actuator** actuation, with even $\sigma=0.02$ — the
+off-manifold geometry is solvable and under-actuation does not break it (the control needs
+$B^\top\partial_xV$ and exploration injects through $B$, so need and coverage shrink together).
+
+**(b) The bottleneck is value-label quality.** Keeping the same off-manifold states and swapping only
+the label from the analytic $V^\star$ to the realized Monte-Carlo return-to-go of the noisy policy
+([`mwe_platoon_value_target.py`](../../../run/study/mwe_platoon_value_target.py)) flips it from "works"
+to "diverges" ($I\sim10^{12}$), full and under actuation alike: the high-dimensional critic overfits
+the noisy single-sample labels ($R^2=1$) and its gradient explodes. So exploration supplies off-
+manifold *states*; real RL cannot supply accurate off-manifold *values*.
+
+**(c) On the real platoon, exploration and data amount saturate, and the learnt control is a
+magnitude blow-up.** With the analytic label and min-norm least squares (the ridge term is actively
+harmful here), exploration lifts the control direction to $\cos\approx0.93$ but the magnitude stays
+$\sim20$–$40\times$ the (gentle) oracle and the closed loop fails; adding data
+([`mwe_real_platoon_data_amount.py`](../../../run/study/mwe_real_platoon_data_amount.py)) only
+saturates ($\cos$ and magnitude frozen across $n/d=2\to60$). The blow-up — not the direction — is
+the killer, and it does not yield to more data or exploration.
+
+**(d) The decisive experiment — off-manifold cheat on linear-delayed vs nonlinear.** Inject ideal
+off-manifold data directly (perturb the window, label with the analytic value):
+- on E0 (linear, no delay) the cheat snaps to the *exact* oracle;
+- on an **exact linear delayed** system — the platoon's linearised matrices simulated via the
+  augmented Markov form, so history genuinely matters with *no* nonlinearity
+  ([`mwe_linear_delayed_cheat.py`](../../../run/study/mwe_linear_delayed_cheat.py)) — the control
+  works: magnitude $\approx1.15\times$ the oracle, $I\to$ oracle ($0.998$ vs $0.947$);
+- on the **nonlinear platoon** ([`mwe_real_platoon_offmanifold_cheat.py`](../../../run/study/mwe_real_platoon_offmanifold_cheat.py)),
+  the *same* cheat leaves the magnitude at $\sim23\times$ and diverging.
+
+The only difference between the last two is linear vs nonlinear dynamics (identical $A,A_1,B$, oracle,
+quadratic label, cheat). Therefore:
+
+> **History-dependence is *not* the obstruction** — the value-gradient history critic recovers near-
+> oracle control on the exact linear delayed system. **Nonlinearity is.** The $\sim20\times$ control-
+> magnitude blow-up is a nonlinearity signature: the linearised quadratic value $-\xi^\top P_{\mathrm{aug}}\xi$
+> and its linear-in-features gradient do not match the nonlinear plant off the linearisation regime,
+> and no amount of off-manifold data with the *linearised* label removes it (the label itself is the
+> wrong function away from the origin).
+
+**Net (corrected scope).** The off-manifold-gradient mechanism (tangent/normal, the cheat, derivative
+matching) governs the *linear* cases — E0 and the linear delayed cell — and there history-dependence
+is tractable. The real platoon sits at the intersection of *two* hard problems: off-manifold geometry
+**and** nonlinearity, with nonlinearity dominant. The predicted lever for the platoon is therefore a
+**nonlinear value target** (realized nonlinear return / higher-order critic), not more exploration,
+more data, more actuation, or a better linear-quadratic fit — at the cost of the label noise that
+mechanism (b) shows is itself fatal to a high-dimensional critic. An explicit actor (never
+differentiates the critic) or a model-based gradient remain the structural escapes.
