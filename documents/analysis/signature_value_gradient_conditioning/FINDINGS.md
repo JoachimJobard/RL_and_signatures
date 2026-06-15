@@ -193,3 +193,64 @@ gradient-constrained critic or an explicit actor (which never differentiates the
 demonstrated. The earlier "conditioning" framing is **superseded**: centring repaired the Gram of
 $V$ but never touched $\partial_xV$, which is why it did not restore control; and the truncated-SVD
 partial success is explained as shrinking $\mathcal N$ (the gradient null space).
+
+### Trajectory-count sweep (E0): more on-policy data saturates *below* the optimum
+
+Does adding oracle trajectories — past the point where the number of samples exceeds the
+number of features — restore the value-gradient control on E0? See
+[`run/study/mwe_e0_trajectory_sweep.py`](../../../run/study/mwe_e0_trajectory_sweep.py)
+(analytic target $V^\star=-x^\top Px$; pool oracle rollouts from $n_{ic}$ ICs over the plane;
+deploy from a canonical $x_0$).
+
+| rep | $n_{ic}$ | $n_{\text{pts}}$ | $\operatorname{cond}$ | eff. rank | $\cos_{L^2}$ | $I_{\text{cl}}$ |
+|---|---|---|---|---|---|---|
+| markovian $d{=}5$ | 1 | 120 | $10^6$ | 1.2 | 1.000 | 1.3055 (oracle) |
+| markovian $d{=}5$ | 256 | 30720 | $42$ | 1.9 | 1.000 | 1.3055 |
+| signature $d{=}30$ | 1 | 120 | $10^{18}$ | 1.4 | $-0.06$ | 1621.8 |
+| signature $d{=}30$ | 4 | 480 | $10^{18}$ | 1.5 | 0.25 | 3.30 |
+| signature $d{=}30$ | 16 | 1920 | $10^{18}$ | 3.9 | 0.59 | 1.90 |
+| signature $d{=}30$ | 256 | 30720 | $10^{18}$ | **5.2** | **0.63** | **1.82** |
+| raw-history $d{=}189$ | 256 | 30720 | $10^{20}$ | **2.0** | **0.62** | **2.12** |
+
+**Adding trajectories removes the catastrophic blow-up but saturates short of the oracle.**
+Signature improves $I:1621\to1.82$ and $\cos:-0.06\to0.63$, then **stops** by $n_{ic}\approx16$
+($n_{ic}=64,256$ are identical). Two consequences:
+
+1. **"Samples $\gg$ features" is not the cure.** At $n_{ic}=256$ there are $30720$ points versus
+   $d=30$/$189$ — a $10^3\times$ excess — and it changes nothing past the plateau, because the
+   **effective rank saturates far below $d$** (signature $\to5.2$ of $30$; raw-history $\to2.0$ of
+   $189$) and $\operatorname{cond}$ stays $\sim10^{18}$ regardless of $n_{ic}$.
+
+2. **The saturation has a structural cause.** The oracle flow is autonomous and deterministic, so
+   the history is a function of the current state and **every window lies on a manifold of
+   dimension $=$ the state dimension** (here $2$), for any window length or trajectory count. On
+   E0 this manifold is exactly the $2$-D linear subspace $\mathcal M=\operatorname{im}(L)$,
+   $L=[\,e^{-M(L-1)\,dt};\dots;e^{-M\,dt};I\,]$, $M=A-BK$. The high-dimensional window features are
+   therefore intrinsically collinear on $\mathcal M$ — their image is $\approx5$-D (signature) /
+   $\approx2$-D (raw-history), the eff-rank ceiling. Adding trajectories fills $\mathcal M$ in its
+   **tangent** directions, which pins the derivative of $V_\theta$ *along* $\mathcal M$ (this lifts
+   $\cos$ from $0$ to $0.63$). But the control law needs $\partial V/\partial x(t)$: the change in
+   value when the **current state is moved with its past held fixed**. In the data the present and
+   its history move *together* along the flow (the past is the backward image of the present), so a
+   perturbation that moves the current state alone points **off** $\mathcal M$ — and no on-policy
+   trajectory ever leaves $\mathcal M$ to constrain it. Markovian escapes because its features
+   depend only on $x(t)$: its manifold is the state space itself, so moving the current state stays
+   on it (no off-manifold direction), and one trajectory already makes its $5$ features full-rank
+   ($\cos=1$, $I=$ oracle).
+
+**Confirmation (tangent/normal decomposition).**
+[`run/study/mwe_e0_tangent_normal.py`](../../../run/study/mwe_e0_tangent_normal.py) decomposes the
+window-gradient error $E=\nabla_{\mathrm{win}}V_\theta-\nabla_{\mathrm{win}}V^\star$ at the deployed
+states into the part along $\mathcal M$ and the part across it. The result is unambiguous:
+$\lVert P_{\mathcal M}E\rVert\approx0$ (the along-manifold derivative is recovered *exactly*) and the
+entire error lies in the normal complement (normal energy fraction $=1.000$), while $94\%$ of the
+directions the control differentiates along — moving the current state with the past frozen — are
+themselves normal to $\mathcal M$. With strictly on-manifold (full-history) windows this normal
+error is **independent of $n_{ic}$**, confirming that on-policy trajectories cannot touch it; the
+small $\cos$ gain in the sweep above came only from the front-padded (flow-inconsistent, hence
+off-manifold) windows incidentally leaking a little normal information.
+
+So "add more trajectories" and "add the gradient constraint" are **not interchangeable**: the
+former fixes the along-manifold derivative, only the latter (derivative matching, $\cos\to1$, $I\to$
+oracle on E0) fixes the across-manifold one. On-policy data is trapped on a state-dimensional
+manifold; the value-gradient law reads a derivative pointing off it.
