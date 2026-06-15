@@ -126,3 +126,70 @@ Net: the validated facts are the feature-conditioning gap (signature rank 1 vs m
 rank 6, unaffected by excitation) and that conditioning fixes alone (centring, whitening,
 Tikhonov) do not yet recover signature control; the precise learning-dynamics mechanism and
 a working fix are open. This is flagged to prevent over-claiming either barrier.
+
+## Resolution (MWE): the value-fit identifies the critic only modulo $\ker G$, and the control reads the unidentified part
+
+A minimal working example settles the mechanism. See
+[`run/study/mwe_history_representation_control.py`](../../../run/study/mwe_history_representation_control.py):
+a plain 2-D double-integrator LQR with **no delay** (markovian is exactly optimal; the true
+value is the known quadratic $V^\star(x)=-x^\top P x$, $u^\star=-Kx$). No learning loop — the
+critic is solved in closed form (ridge-fit to the *true* value along the oracle rollout, so
+value-fit $R^2=1$ by construction and the critic is not the variable). The value-gradient
+control $u=\tfrac12R^{-1}B^\top\partial_xV$ is then read off each representation.
+
+**Result (hypothesis H0 — the window-machinery alone, no history to exploit).**
+
+| representation | dim | value-fit $R^2$ | $\lVert u\rVert/\lVert u^\star\rVert$ | $\cos_{L^2}(u,u^\star)$ | closed-loop $I$ | vs no-control ($0.075\to 6.0$) |
+|---|---|---|---|---|---|---|
+| markovian deg-2 | 5 | 1.000 | 0.98 | 1.000 | **1.3055** (= oracle) | OK |
+| raw-history deg-2 | 189 | 1.000 | 5.12 | 0.253 | 209.0 | worse than no-control |
+| signature depth-2 | 30 | 1.000 | 17.30 | $-0.061$ | 1621.8 | worse than no-control |
+
+The failure is **active harm by a large, misdirected gradient** ($\lVert u\rVert/\lVert u^\star\rVert=17$,
+$\cos\approx0$), not a vanishing one (which would recover no-control). It is robust across
+$R$, $x_0$, window length, and depth, and it hits raw-history too — so it is **not**
+history-dependence, **not** representational capacity ($R^2=1$), and **not** signature-specific
+algebra.
+
+**The mechanism (functional-analytic).** Let $\Gamma=\gamma([0,L])$ be the oracle trajectory (a
+regular $C^1$ curve), $\mu$ its occupation measure (support $=\Gamma$, a Lebesgue-null 1-D set),
+$H=L^2(\mu)$, and $E_\mu:\mathbb R^d\to H$, $E_\mu\theta=\theta^\top\phi$ the evaluation operator
+(synthesis). Its adjoint is analysis, $E_\mu^\ast f=\mathbb E_\mu[\phi f]$, and the feature Gram is
+the composition $G=E_\mu^\ast E_\mu$, $G_{k\ell}=\langle\phi_k,\phi_\ell\rangle_H$. Because
+$\lVert E_\mu\theta\rVert_H^2=\theta^\top G\theta$ and $G\succeq0$,
+$$\ker E_\mu=\ker G=:\mathcal N .$$
+The least-squares fit is the projection $\widehat V=\Pi_{\mathcal F}V^\star$,
+$\mathcal F=\operatorname{span}\{\phi_k\}\subset H$, with normal equations $G\theta=E_\mu^\ast V^\star$;
+the minimiser set is the affine space $\theta^\star+\mathcal N$ ($\theta^\star$ any exact global
+representer). The loss is **exactly constant** on it: for $\nu\in\mathcal N$,
+$$L(\theta+\nu)=L(\theta)+2\!\!\int(\theta^\top\phi-V^\star)\,\nu^\top\phi\,d\mu+\nu^\top G\nu=L(\theta),$$
+both added terms vanishing because $\nu^\top\phi=0$ $\mu$-a.e. So the data fixes $\theta$ only
+**modulo $\mathcal N$** — $\nu=\widehat\theta-\theta^\star\in\mathcal N$ is a gauge indeterminacy, not a
+bias.
+
+**Lemma (the fit pins only the tangential derivative).** For $\nu\in\mathcal N$,
+$\nu^\top\phi(\gamma(s))\equiv0$; differentiating in $s$ gives
+$\langle D\phi(\gamma(s))^\top\nu,\ \gamma'(s)\rangle=0$. Hence the induced gradient error
+$e(x)=D\phi(x)^\top\nu$ is **normal** to $\Gamma$ and otherwise free (the $n-1$ normal components
+are unconstrained). Side by side:
+$$\nu^\top G\,\nu=0\quad(\text{loss frozen})\qquad\text{but}\qquad D\phi^\top\nu\neq0\quad(\text{control moves}),$$
+no contradiction because $\ker G\not\subseteq\ker(D\phi^\top)$. The value-gradient law consumes
+exactly the unidentified normal derivative; markovian escapes because $d=5$ is fully excited by
+the curve ($\mathcal N=\{0\}$, $\operatorname{cond}G\sim10^6$), whereas the signature has $d=30$
+with $\operatorname{rank}_{\mathrm{eff}}G\approx1$ ($\operatorname{cond}\sim10^{15}$: shuffle
+redundancy + scale decay), so $\mathcal N$ is effectively $\approx29$-dimensional.
+
+**Consequences.**
+- **Not a finite-sample problem.** The empirical $G$ converges to the population $G=\mathbb E_\mu[\phi\phi^\top]$, whose kernel $\mathcal N$ **persists**; sampling the *same* curve more densely does not remove it. The deficiency is of the **support dimension** (the normal bundle is never sampled), not the sample count.
+- **Training does not self-correct.** TD/LSTD solve the *projected* fixed point $V_\theta=\Pi_\mu\mathcal T V_\theta$; the projector annihilates $\mathcal N$ and the normal derivative at **every** iteration, and the $L^2(\mu)$ contraction is blind to the gradient. Every policy's occupation measure is again 1-D, so the deficiency is reproduced, not annealed. Action-noise exploration (white, or the RBF Gaussian-process mode) only thickens $\mu$ to an $O(\sigma)$ tube through $\operatorname{range}(B)$, at $O(\sigma^{-2})$ gradient variance — a bias–variance wall; the smooth/GP mode, being low-frequency, covers the normal bundle *less*.
+
+**Validated fix (derivative matching).** Refitting with the analytic endpoint-gradient constrained,
+$$\textstyle\min_\theta\ \lVert\theta^\top\phi-V^\star\rVert_{L^2(\mu)}^2+\gamma\sum_t\lVert J_t^\top\theta-\partial_xV^\star(x_t)\rVert^2,\qquad J_t=\partial_{x(t)}\phi,$$
+i.e. replacing the $L^2(\mu)$ norm by the Sobolev norm $\lVert V\rVert_{L^2(\mu)}^2+\gamma\lVert\nabla V\rVert_{L^2(\mu)}^2$ under which $\nabla$ is bounded by construction, **snaps both signature and raw-history to the exact oracle** ($I=1.3055$, $\cos=1.000$, $\lVert u\rVert/\lVert u^\star\rVert=1.00$) at $\gamma\in\{1,100\}$. This proves the barrier is the *fitting objective*, not the representation: matching $V$ in $L^2$ does not match $\partial_xV$.
+
+**Scope.** Shown on E0 (no delay) with an analytic gradient target. The transfer claim — that a
+gradient-constrained critic or an explicit actor (which never differentiates the critic) fixes the
+*platoon RL* — is the next test (E1 scalar delayed LQR, then the platoon agent), not yet
+demonstrated. The earlier "conditioning" framing is **superseded**: centring repaired the Gram of
+$V$ but never touched $\partial_xV$, which is why it did not restore control; and the truncated-SVD
+partial success is explained as shrinking $\mathcal N$ (the gradient null space).
