@@ -311,3 +311,70 @@ is tractable. The real platoon sits at the intersection of *two* hard problems: 
 more data, more actuation, or a better linear-quadratic fit — at the cost of the label noise that
 mechanism (b) shows is itself fatal to a high-dimensional critic. An explicit actor (never
 differentiates the critic) or a model-based gradient remain the structural escapes.
+
+## The general principle: a value fit does not control its gradient — and what does / does not fix it
+
+The platoon failures are all instances of one fact, independent of representation. **Differentiation
+is an unbounded operator**: there is no constant $C$ with $\lVert\nabla f\rVert\le C\lVert f\rVert$, so
+making the regression residual $\lVert\widehat V-V^\star\rVert$ small gives *no* control over
+$\lVert\nabla\widehat V-\nabla V^\star\rVert$. Canonical witness: $g_n(x)=\tfrac1n\sin(n^2x)$ has
+$\lVert g_n\rVert_\infty=1/n\to0$ but $\lVert g_n'\rVert_\infty=n\to\infty$ — arbitrarily small in
+value, arbitrarily large in derivative. Two precise reasons the value fit leaves the gradient free:
+
+- **Weak norm / unboundedness.** Regression controls the $L^2(\mu)$ (value) norm; the gradient lives
+  in the strictly stronger $H^1$ norm, and $L^2\not\Rightarrow H^1$ (Rellich). Minimisation reaches
+  *small*, and "small in value" does not propagate to the derivative.
+- **Degenerate measure.** Even at *exactly* zero residual ($R^2=1$, as we routinely have),
+  $\lVert\widehat V-V^\star\rVert_{L^2(\mu)}=0$ only forces $\widehat V=V^\star$ **$\mu$-a.e.** — on the
+  data/occupation support, a measure-zero set in state space. The gradient is a neighbourhood
+  (off-support) quantity, hence unconstrained. This is the off-manifold mechanism, restated.
+
+In the finite-dimensional critic this appears as: the value fit pins $\theta$ only in the
+well-excited Gram directions; the small-singular-value directions are free, and differentiation
+amplifies them ($\partial_x\phi$ is large there) into a large gradient while the value stays exact.
+
+**Where the gradient is bad — spatially.** The gradient-error map
+([`run/study/mwe_platoon_gradient_error_map.py`](../../../run/study/mwe_platoon_gradient_error_map.py))
+probes the cheat-trained critic over $(\lVert x\rVert,\ \text{off-manifold }\eta)$. Result: the
+**value error is $\approx0$ everywhere** (every $\lVert x\rVert$, on- and off-manifold), the gradient
+**direction is good** ($\cos\approx0.93$–$1.0$), and the gradient **magnitude is uniformly
+$\sim20$–$25\times$ too large** — *not* localised off-manifold or far from origin, not correlated with
+the (zero) value error. So the failure is a near-uniform magnitude inflation of an otherwise-correct
+gradient, co-existing with a perfect pointwise value — the cleanest statement of "good value, bad
+gradient".
+
+**Levers that do NOT fix it** (all act on the value or the features, not the gradient):
+- *Feature centring / standardising* ("centrer-réduire",
+  [`mwe_platoon_feature_scaling.py`](../../../run/study/mwe_platoon_feature_scaling.py)): the value fit
+  is over-determined here, so standardising is a pure affine reparametrisation — raw/centered/
+  standardised give **identical** gradients for raw-history. For the signature, *reducing* (per-feature
+  $1/\sigma_k$) is catastrophic ($\cos\,0.01$, $1400\times$): it amplifies the near-constant features,
+  re-triggering the documented "whitening amplifies the near-null directions".
+- *A nonlinear value target* ([`mwe_real_platoon_nonlinear_label.py`](../../../run/study/mwe_real_platoon_nonlinear_label.py)):
+  the exact deterministic nonlinear return-to-go (validated against the rollout) does **not** help — the
+  nonlinear value is **erratic off-manifold** (inconsistent histories produce large transients), so the
+  fit chases non-smooth targets and the gradient blows up *more* (raw-history $2117\times$; degree-3
+  **reverses**, $\cos<0$). A *smooth-but-wrong* (linearised) vs *right-but-erratic* (nonlinear) dilemma,
+  and **higher capacity worsens the latter**.
+- *A neural-net critic* ([`mwe_e0_nn_critic.py`](../../../run/study/mwe_e0_nn_critic.py), E0, analytic
+  $\nabla V^\star$): the dissociation persists ($R^2=1$, gradient bad) and the MLP is *worse* than the
+  linear rich basis on-manifold ($92\times$, $\cos=-0.6$). SGD's spectral bias smooths the function *on
+  the data*, not its *off-manifold extrapolation gradient* — which is what the control reads. With the
+  cheat the MLP improves but, on E0's quadratic value, still loses to the linear critic (which
+  represents the value exactly). Capacity is a liability when the value is low-degree.
+
+**Why sampling is the conceptually-correct fix but does not scale.** Full-dimensional sampling around
+the trajectory *does* pin the gradient (it is the cheat; it works on E0 and the linear-delayed cell),
+because $\nabla f$ is determined by $f$ on an open set. But filling an $n$-dimensional neighbourhood to
+resolution $h$ costs $O(h^{-n})$ samples (curse of dimensionality — feasible at $n=2$, hopeless at
+$n=10$), only pins the gradient at scales coarser than $h$ unless the model is smoothness-bounded, and
+in control requires off-manifold access (exploring-starts in sim, or an $O(\sigma)$ tube with
+$O(\sigma^{-2})$ variance) the on-policy algorithm does not have.
+
+**Conclusion (general).** The dissociation is structural — it is a property of the *loss* (value-only)
+and the *data* (degenerate measure), not of the approximator (linear or neural) or the conditioning
+(centring/whitening/Tikhonov). It is removed only by changing the object being controlled: put the
+gradient in the loss (**derivative matching / Sobolev** — the $O(1)$ limit of dense sampling),
+penalise $\lVert\partial_xV\rVert$ (a smoothness prior), or do not differentiate the critic at all (an
+**explicit actor**, trained by policy gradient). These are the same three escapes the nonlinearity
+analysis reached, now grounded in the general principle.
