@@ -124,7 +124,9 @@ def value_along(sol, m, xs, mu, p, n, T):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--debug", action="store_true")
     ap.add_argument("--n-cheb", type=int, default=N_CHEB)
+    ap.add_argument("--delay", type=float, default=REGIME["delay"], help="tau (6=limit cycle, 17=chaotic)")
     args = ap.parse_args()
+    REGIME["delay"] = args.delay
     env = make_env(); dt = env.step_size; tau = float(env.max_delay)
     mu, p, n, xs = REGIME["mu"], REGIME["p"], REGIME["n"], REGIME["x_target"]
     n_cheb = args.n_cheb

@@ -145,10 +145,20 @@ def closed_loop(env, control_owin, k, x0):
     return I, np.array(xs)
 
 
+def make_env_tau(delay):
+    from src.envs.mackey_glass_1D import MackeyGlass1DEnv
+    return MackeyGlass1DEnv(delay=delay, step_size=REGIME["step_size"], resolution=REGIME["resolution"],
+                            Q=Q, R=R, n=REGIME["n"], p=REGIME["p"], mu=REGIME["mu"], x_target=REGIME["x_target"])
+
+
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--delay", type=float, default=REGIME["delay"], help="tau (6=limit cycle, 17=chaotic)")
+    ap.add_argument("--n-list", type=str, default="10,14,18,22", help="comma-separated N_cheb sweep")
     args = ap.parse_args()
-    env = make_env(); dt = env.step_size; tau = float(env.max_delay)
+    global N_CHEB_SWEEP
+    N_CHEB_SWEEP = [int(s) for s in args.n_list.split(",")]
+    env = make_env_tau(args.delay); dt = env.step_size; tau = float(env.max_delay)
     A, A1, B, xs = linearise()
     k = int(round(tau / dt))                   # control-cadence history taps spanning tau
     Rinv = np.linalg.inv(R)
