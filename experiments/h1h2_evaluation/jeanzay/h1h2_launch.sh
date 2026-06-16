@@ -37,13 +37,13 @@ fi
 CELLS_STR="${CELLS[*]}"; SEEDS_STR="${SEEDS[*]}"
 N_TASKS=$(( ${#CELLS[@]} * ${#SEEDS[@]} ))
 
-# Off-manifold data strategy (the ker-G ablation): both (default) | on_only | rigorous.
-# 'rigorous' adds N_OFF off-sheet WINDOW perturbations per MG task, each labelled by its own BVP
-# (costly: ~N_OFF extra BVP solves per MG cell/seed). Override via env: DATA_MODE=... N_OFF=...
-DATA_MODE="${DATA_MODE:-both}"
+# Uniform on-sheet / off-sheet sampling (the ker-G axis): on_sheet | on_off_sheet (default).
+# on_off_sheet adds N_OFF off-sheet WINDOW perturbations per task, each RE-LABELLED through the
+# cell's oracle (analytic for linear cells, one Pontryagin BVP each for MG). Override: DATA_MODE=...
+DATA_MODE="${DATA_MODE:-on_off_sheet}"
 N_OFF="${N_OFF:-500}"
-# rigorous mode does ~N_OFF extra BVP solves per MG task -> give it a longer wall (still < 20h t3 cap).
-[[ "$DATA_MODE" == "rigorous" && -z "$SMOKE" ]] && TIME="06:00:00"
+# on_off_sheet does ~N_OFF extra BVP solves per MG task -> give it a longer wall (still < 20h t3 cap).
+[[ "$DATA_MODE" == "on_off_sheet" && -z "$SMOKE" ]] && TIME="06:00:00"
 
 # Output folder derives from the harness name (per repo convention); SLURM logs live in slurm/.
 TS=$(date +%Y%m%d_%H%M%S)

@@ -40,11 +40,17 @@ REPS = {
     "raw_history": dict(kind="raw_history", degree=2),
     "signature":   dict(kind="signature",   depth=2),
 }
-# data-generation defaults (n_train kept comfortably > feature_dim)
-N_IC = 8
-AUG_PER = 3
-EPS_TRAIN = 0.3
-SUBSAMPLE = 2
+# UNIFORM data-sampling parameters (identical procedure across every environment):
+#   on-sheet    = windows along the optimal/oracle trajectory from a set of initial conditions;
+#   off-sheet   = perturb an on-sheet window by EPS and RE-LABEL it through the cell's own oracle
+#                 (analytic V* for the linear/linearised cells, a Pontryagin BVP for Mackey-Glass).
+# Same EPS and same off-sheet count N_OFF everywhere; only the oracle's label function and the
+# trajectory integrator are cell-specific (intrinsic to the env), never the sampling logic.
+N_IC = 12          # oracle-trajectory initial conditions (linear/linearised cells)
+N_IC_MG = 30       # constant-history initial conditions (MG cells; more, for n>d at win~25)
+SUBSAMPLE = 1      # keep every window of each trajectory
+N_OFF = 500        # off-sheet windows (uniform count; instant for linear cells, 1 BVP each for MG)
+EPS = 0.25         # off-sheet window perturbation (the state is O(1) in every cell)
 
 
 # ============================== cell registry ==============================
@@ -116,48 +122,65 @@ def mg_linear_feedback(cell):
     return lambda W: -Kc @ (z_from_window(W, dt, theta, 1) - xs)
 
 
-def mg_offmanifold_windows(cell, on_windows, n_off, eps, seed):
-    """RIGOROUS off-manifold for MG: perturb on-manifold WINDOWS directly (as for the linear cells)
-    and label each by its OWN Pontryagin BVP. Each off-sheet window therefore costs one BVP solve
-    (vs the cheap perturbed-IC route, which off-sets the initial history instead of the window)."""
-    from src.solvers.mackey_glass_pontryagin import solve_pontryagin, value_along
-    mg = cell["mg"]; oc = cell["oracle"]; dt = cell["dt"]
-    D, Pc, Kc, Nmat, M, theta = oc["D"], oc["Pc"], oc["Kc"], oc["Nmat"], oc["M"], oc["theta"]
-    R = float(oc["R"][0, 0]); m = D.shape[0]; A_cl = M - Nmat @ Kc; xs = mg["xs"]
-    rng = np.random.default_rng(seed + 7777)
-    pick = rng.integers(0, len(on_windows), size=n_off)
+def oracle_label(cell):
+    """Return a function W -> V*(W) (reward convention). UNIFORM interface; the underlying oracle is
+    analytic for the linear/linearised cells and a per-window Pontryagin BVP for Mackey-Glass. The MG
+    label returns None if the BVP fails to converge for that perturbed window."""
+    oc, dt, n = cell["oracle"], cell["dt"], cell["n"]
+    if cell.get("nonlinear"):
+        from src.solvers.mackey_glass_pontryagin import solve_pontryagin, value_along
+        mg = cell["mg"]
+        D, Pc, Kc, Nmat, M, theta = oc["D"], oc["Pc"], oc["Kc"], oc["Nmat"], oc["M"], oc["theta"]
+        R = float(oc["R"][0, 0]); m = D.shape[0]; A_cl = M - Nmat @ Kc; xs = mg["xs"]
+        def lab(W):
+            z0 = z_from_window(W, dt, theta, 1)                  # window -> collocation IC
+            sol, _ = solve_pontryagin(z0, D, Pc, A_cl, xs, mg["mu"], mg["p"], mg["n_exp"], R, T=20.0)
+            if not sol.success:
+                return None
+            _, _, _, Vcost = value_along(sol, m, xs, Pc, R)
+            return -float(Vcost[0])                             # reward convention
+        return lab
+    if oc["kind"] == "markovian":
+        P = oc["P"]; return lambda W: -float(np.asarray(W)[-1] @ P @ np.asarray(W)[-1])
+    Pc, theta = oc["Pc"], oc["theta"]
+    return lambda W: -float((lambda z: z @ Pc @ z)(z_from_window(W, dt, theta, n)))
+
+
+def on_sheet_windows(cell, rng):
+    """On-sheet data: windows along the optimal/oracle trajectory from a set of initial conditions.
+    Linear cells roll the env under u*; MG cells integrate the Pontryagin optimum. Returns (Ws, Vs)."""
+    lab = oracle_label(cell)
+    if cell.get("nonlinear"):
+        from src.solvers.mackey_glass_pontryagin import build_pontryagin_dataset
+        mg = cell["mg"]; m = mg["m"]
+        ics = [x0 * np.ones(m) for x0 in np.linspace(0.5, 1.45, N_IC_MG)]
+        Ws, Vs, _ = build_pontryagin_dataset(cell["oracle"], mg["mu"], mg["p"], mg["n_exp"], mg["xs"],
+                                             cell["dt"], cell["window_length"], ics, T=20.0, stride=SUBSAMPLE)
+        return list(Ws), list(Vs.tolist())
+    _, us = label_fns(cell)
     Ws, Vs = [], []
-    for i in pick:
-        Wp = on_windows[i] + eps * rng.standard_normal(on_windows[i].shape)   # off-sheet window
-        z0 = z_from_window(Wp, dt, theta, 1)                                   # window -> collocation IC
-        sol, _ = solve_pontryagin(z0, D, Pc, A_cl, xs, mg["mu"], mg["p"], mg["n_exp"], R, T=20.0)
-        if not sol.success:
-            continue
-        _, _, _, Vcost = value_along(sol, m, xs, Pc, R)
-        Ws.append(Wp); Vs.append(-float(Vcost[0]))      # reward convention; window labelled by its own BVP
+    for _ in range(N_IC):
+        traj, _ = rollout(cell, us, cell["x0"](rng))
+        for W in traj[::SUBSAMPLE]:
+            Ws.append(W); Vs.append(lab(W))
     return Ws, Vs
 
 
-def generate_data_mg(cell, seed, mode="both", n_off=500):
-    """Pontryagin-labelled dataset. Off-manifold strategy by mode:
-      on_only  : on-manifold only -- constant-history ICs on the optimal characteristics.
-      both     : + off-manifold PERTURBED INITIAL HISTORIES (cheap: one BVP per IC -> a trajectory).
-      rigorous : + off-manifold WINDOW perturbations, each labelled by ITS OWN BVP (costly but the
-                 same off-sheet geometry as the linear cells -- n_off BVP solves)."""
-    from src.solvers.mackey_glass_pontryagin import build_pontryagin_dataset
-    mg = cell["mg"]; m = mg["m"]; xs = mg["xs"]; rng = np.random.default_rng(seed)
-    n_const = 48 if mode == "on_only" else 30
-    ics = [x0 * np.ones(m) for x0 in np.linspace(0.5, 1.45, n_const)]
-    if mode == "both":
-        for _ in range(18):
-            ics.append(xs + 0.3 * rng.standard_normal(m))       # cheap off-manifold (perturbed IC)
-    Ws, Vs, _ = build_pontryagin_dataset(cell["oracle"], mg["mu"], mg["p"], mg["n_exp"], xs,
-                                         cell["dt"], cell["window_length"], ics, T=20.0, stride=1)
-    Ws, Vs = list(Ws), list(Vs.tolist())
-    if mode == "rigorous":
-        offW, offV = mg_offmanifold_windows(cell, Ws, n_off, eps=0.2, seed=seed)
-        Ws += offW; Vs += offV
-    return np.array(Ws), np.array(Vs)
+def generate_data(cell, seed, off_sheet, n_off=N_OFF):
+    """UNIFORM sampler across EVERY environment. on-sheet = optimal-trajectory windows; if off_sheet,
+    add n_off windows perturbed by EPS and RE-LABELLED through the cell's oracle (analytic / BVP). The
+    only per-cell parts are the env integrator and the oracle label -- the sampling logic is identical."""
+    rng = np.random.default_rng(seed)
+    on_W, on_V = on_sheet_windows(cell, rng)
+    W, V = list(on_W), list(on_V)
+    if off_sheet:
+        lab = oracle_label(cell)
+        for i in rng.integers(0, len(on_W), n_off):
+            Wp = np.asarray(on_W[i]) + EPS * rng.standard_normal(np.asarray(on_W[i]).shape)
+            v = lab(Wp)
+            if v is not None:
+                W.append(Wp); V.append(v)
+    return np.array(W), np.array(V)
 
 
 def deploy_mg(cell):
@@ -195,26 +218,6 @@ def rollout(cell, control_fn, x0):
     return np.array(Ws), I
 
 
-def generate_data(cell, Vs, us, seed, on_only=False):
-    """On-manifold oracle rollouts + (unless on_only) off-manifold perturbed windows. MATCHED
-    n_train: on_only replaces the AUG_PER off-manifold rounds with (1+AUG_PER)x more on-manifold
-    rollouts, so the on-sheet vs on+off-sheet comparison is at equal sample count."""
-    rng = np.random.default_rng(seed)
-    n_ic = N_IC * (1 + AUG_PER) if on_only else N_IC
-    aug = 0 if on_only else AUG_PER
-    on = []
-    for _ in range(n_ic):
-        Ws, _ = rollout(cell, us, cell["x0"](rng))
-        on.append(Ws[::SUBSAMPLE])
-    onman = np.concatenate(on, 0)
-    items = [onman]
-    for _ in range(aug):
-        items.append(onman + EPS_TRAIN * rng.standard_normal(onman.shape))
-    Wtr = np.concatenate(items, 0)
-    Vtr = np.array([Vs(W) for W in Wtr])
-    return Wtr, Vtr
-
-
 # ============================== fit + evaluate one representation ==============================
 def evaluate_rep(cell, rep_cfg, Wtr, Vtr, dep_W, u_star_dep, half_RinvBT):
     import jax, jax.numpy as jnp
@@ -241,11 +244,10 @@ def main():
                     choices=["markovian", "linear_dde", "platoon", "mg_limit_cycle", "mg_chaotic"])
     ap.add_argument("--rep", default="all", choices=["all", *REPS.keys()])
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--data-mode", default="both", choices=["both", "on_only", "rigorous"],
-                    help="both = on + off-manifold via perturbed ICs (default); on_only = on-manifold "
-                         "only (matched n_train); rigorous = on + off-manifold WINDOW perturbations, "
-                         "each labelled by its own BVP (MG only; = both for linear cells)")
-    ap.add_argument("--n-off", type=int, default=500, help="rigorous mode: number of off-sheet window BVPs")
+    ap.add_argument("--data-mode", default="on_off_sheet", choices=["on_sheet", "on_off_sheet"],
+                    help="on_sheet = optimal-trajectory windows only; on_off_sheet = + off-sheet "
+                         "windows (perturb + re-label through the cell's oracle). Uniform across envs.")
+    ap.add_argument("--n-off", type=int, default=N_OFF, help="number of off-sheet windows (on_off_sheet mode)")
     ap.add_argument("--out-dir", default=None, help="explicit output dir (job arrays); else auto")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -258,16 +260,15 @@ def main():
     print(f"\n=== H1/H2 cell '{cell['name']}' | seed {args.seed} ===")
     print(f"oracle gate: cos={gcos:.4f}  |u|/|u*|={gmag:.4f}  (must be 1.000)")
 
-    on_only = args.data_mode == "on_only"
-    if cell.get("nonlinear"):                                   # MG cells: Pontryagin labels
+    # deployment (cos reference) is cell-specific; the DATA SAMPLING is uniform (generate_data).
+    if cell.get("nonlinear"):
         dep_W, u_star_dep = deploy_mg(cell)
         _, I_or = rollout(cell, mg_linear_feedback(cell), cell["x0c"])
-        Wtr, Vtr = generate_data_mg(cell, args.seed, mode=args.data_mode, n_off=args.n_off)
-    else:                                                       # linear cells: analytic labels (rigorous == both)
+    else:
         Vs, us = label_fns(cell)
         dep_W, I_or = rollout(cell, us, cell["x0c"])
         u_star_dep = np.array([us(W) for W in dep_W])
-        Wtr, Vtr = generate_data(cell, Vs, us, args.seed, on_only=on_only)
+    Wtr, Vtr = generate_data(cell, args.seed, off_sheet=(args.data_mode == "on_off_sheet"), n_off=args.n_off)
     _, I_nc = rollout(cell, lambda W: np.zeros(B.shape[1]), cell["x0c"])
     print(f"data_mode: {args.data_mode}   reference: no-control I={I_nc:.4f}   "
           f"oracle-feedback I*={I_or:.4f}  (n_train={len(Wtr)})")
