@@ -118,6 +118,8 @@ def main():
     ap.add_argument("--rep", default="signature", choices=list(REPS))
     ap.add_argument("--tau", type=float, default=2.0, help="discount time-constant for LSTD")
     ap.add_argument("--explore", type=float, default=0.0, help="exploration noise sigma during data collection")
+    ap.add_argument("--damp", type=float, default=1.0,
+                    help="critic damping alpha: theta <- (1-alpha) theta + alpha theta_lstd (1=full LSPI)")
     ap.add_argument("--n-iter", type=int, default=N_ITER)
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -157,12 +159,14 @@ def main():
     depW = deployment_windows()
     u_star_dep = np.array([np.asarray(u_star(W)).reshape(-1) for W in depW])
 
+    theta = np.zeros(D)                                          # zero critic -> zero (no-control) policy
     policy = lambda W: np.zeros(B.shape[1])
     for it in range(args.n_iter):
         P, PN, RW = collect_dataset(cell, feat, policy, seed=it, t_collect=t_collect, sigma=args.explore)
         if len(P) == 0:
             print(f"{it:>5}  (no transitions — policy diverged data collection)"); break
-        theta = lstd_solve(P, PN, RW, D, dt, args.tau)
+        theta_lstd = lstd_solve(P, PN, RW, D, dt, args.tau)
+        theta = (1.0 - args.damp) * theta + args.damp * theta_lstd      # damped (soft) policy-iteration step
         policy = greedy(feat, theta, half_RinvBT)
         I = rollout(cell, feat, policy, cell["x0c"], tf)
         u_rep = np.array([np.asarray(policy(W)).reshape(-1) for W in depW])
