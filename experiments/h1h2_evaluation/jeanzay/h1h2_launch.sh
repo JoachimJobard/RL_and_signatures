@@ -37,13 +37,21 @@ fi
 CELLS_STR="${CELLS[*]}"; SEEDS_STR="${SEEDS[*]}"
 N_TASKS=$(( ${#CELLS[@]} * ${#SEEDS[@]} ))
 
+# Off-manifold data strategy (the ker-G ablation): both (default) | on_only | rigorous.
+# 'rigorous' adds N_OFF off-sheet WINDOW perturbations per MG task, each labelled by its own BVP
+# (costly: ~N_OFF extra BVP solves per MG cell/seed). Override via env: DATA_MODE=... N_OFF=...
+DATA_MODE="${DATA_MODE:-both}"
+N_OFF="${N_OFF:-500}"
+# rigorous mode does ~N_OFF extra BVP solves per MG task -> give it a longer wall (still < 20h t3 cap).
+[[ "$DATA_MODE" == "rigorous" && -z "$SMOKE" ]] && TIME="06:00:00"
+
 # Output folder derives from the harness name (per repo convention); SLURM logs live in slurm/.
 TS=$(date +%Y%m%d_%H%M%S)
-EXPDIR="$PATH_CONTENT_ROOT/data/h1h2_evaluation/${PREFIX}${TS}_array"
+EXPDIR="$PATH_CONTENT_ROOT/data/h1h2_evaluation/${PREFIX}${TS}_${DATA_MODE}_array"
 SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
 
-EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPDIR=$EXPDIR,CELLS_STR=$CELLS_STR,SEEDS_STR=$SEEDS_STR"
+EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPDIR=$EXPDIR,CELLS_STR=$CELLS_STR,SEEDS_STR=$SEEDS_STR,DATA_MODE=$DATA_MODE,N_OFF=$N_OFF"
 WORKER_DIR="$PATH_CONTENT_ROOT/experiments/h1h2_evaluation/jeanzay"
 
 echo "cells = ${CELLS_STR} | seeds = ${SEEDS_STR} | tasks = $N_TASKS"

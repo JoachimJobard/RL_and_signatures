@@ -39,13 +39,14 @@ if (( SLURM_ARRAY_TASK_ID >= N_TASKS )); then
 fi
 CELL=${CELLS[$(( SLURM_ARRAY_TASK_ID / N_SEEDS ))]}
 SEED=${SEEDS[$(( SLURM_ARRAY_TASK_ID % N_SEEDS ))]}
-echo "Task [$SLURM_ARRAY_TASK_ID/$((N_TASKS-1))]: cell=$CELL seed=$SEED -> $EXPDIR"
+echo "Task [$SLURM_ARRAY_TASK_ID/$((N_TASKS-1))]: cell=$CELL seed=$SEED data_mode=${DATA_MODE:-both} -> $EXPDIR"
 echo
 
 # Stagger task starts to avoid filesystem contention.
 sleep "$(( SLURM_ARRAY_TASK_ID * 3 ))"
 
-python run/study/h1h2_evaluation.py --cell "$CELL" --seed "$SEED" --out-dir "$EXPDIR"
+python run/study/h1h2_evaluation.py --cell "$CELL" --seed "$SEED" \
+    --data-mode "${DATA_MODE:-both}" --n-off "${N_OFF:-500}" --out-dir "$EXPDIR"
 STATUS=$?
 echo
 echo "Task $SLURM_ARRAY_TASK_ID (cell=$CELL seed=$SEED) finished with exit code $STATUS"

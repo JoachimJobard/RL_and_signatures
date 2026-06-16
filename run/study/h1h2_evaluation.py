@@ -116,19 +116,48 @@ def mg_linear_feedback(cell):
     return lambda W: -Kc @ (z_from_window(W, dt, theta, 1) - xs)
 
 
-def generate_data_mg(cell, seed):
-    """Pontryagin-labelled dataset: BVP from a cloud of histories (constant levels spanning
-    around/below/above x*, plus off-manifold perturbed histories), sampled along trajectories."""
+def mg_offmanifold_windows(cell, on_windows, n_off, eps, seed):
+    """RIGOROUS off-manifold for MG: perturb on-manifold WINDOWS directly (as for the linear cells)
+    and label each by its OWN Pontryagin BVP. Each off-sheet window therefore costs one BVP solve
+    (vs the cheap perturbed-IC route, which off-sets the initial history instead of the window)."""
+    from src.solvers.mackey_glass_pontryagin import solve_pontryagin, value_along
+    mg = cell["mg"]; oc = cell["oracle"]; dt = cell["dt"]
+    D, Pc, Kc, Nmat, M, theta = oc["D"], oc["Pc"], oc["Kc"], oc["Nmat"], oc["M"], oc["theta"]
+    R = float(oc["R"][0, 0]); m = D.shape[0]; A_cl = M - Nmat @ Kc; xs = mg["xs"]
+    rng = np.random.default_rng(seed + 7777)
+    pick = rng.integers(0, len(on_windows), size=n_off)
+    Ws, Vs = [], []
+    for i in pick:
+        Wp = on_windows[i] + eps * rng.standard_normal(on_windows[i].shape)   # off-sheet window
+        z0 = z_from_window(Wp, dt, theta, 1)                                   # window -> collocation IC
+        sol, _ = solve_pontryagin(z0, D, Pc, A_cl, xs, mg["mu"], mg["p"], mg["n_exp"], R, T=20.0)
+        if not sol.success:
+            continue
+        _, _, _, Vcost = value_along(sol, m, xs, Pc, R)
+        Ws.append(Wp); Vs.append(-float(Vcost[0]))      # reward convention; window labelled by its own BVP
+    return Ws, Vs
+
+
+def generate_data_mg(cell, seed, mode="both", n_off=500):
+    """Pontryagin-labelled dataset. Off-manifold strategy by mode:
+      on_only  : on-manifold only -- constant-history ICs on the optimal characteristics.
+      both     : + off-manifold PERTURBED INITIAL HISTORIES (cheap: one BVP per IC -> a trajectory).
+      rigorous : + off-manifold WINDOW perturbations, each labelled by ITS OWN BVP (costly but the
+                 same off-sheet geometry as the linear cells -- n_off BVP solves)."""
     from src.solvers.mackey_glass_pontryagin import build_pontryagin_dataset
     mg = cell["mg"]; m = mg["m"]; xs = mg["xs"]; rng = np.random.default_rng(seed)
-    # n_train must comfortably exceed raw-history deg-2 dim (~350 for win=25) so the H2 test
-    # reflects expressivity, not conditioning: many constant levels + off-manifold histories.
-    ics = [x0 * np.ones(m) for x0 in np.linspace(0.5, 1.45, 30)]
-    for _ in range(18):
-        ics.append(xs + 0.3 * rng.standard_normal(m))           # off-manifold histories
+    n_const = 48 if mode == "on_only" else 30
+    ics = [x0 * np.ones(m) for x0 in np.linspace(0.5, 1.45, n_const)]
+    if mode == "both":
+        for _ in range(18):
+            ics.append(xs + 0.3 * rng.standard_normal(m))       # cheap off-manifold (perturbed IC)
     Ws, Vs, _ = build_pontryagin_dataset(cell["oracle"], mg["mu"], mg["p"], mg["n_exp"], xs,
                                          cell["dt"], cell["window_length"], ics, T=20.0, stride=1)
-    return np.array(Ws), Vs
+    Ws, Vs = list(Ws), list(Vs.tolist())
+    if mode == "rigorous":
+        offW, offV = mg_offmanifold_windows(cell, Ws, n_off, eps=0.2, seed=seed)
+        Ws += offW; Vs += offV
+    return np.array(Ws), np.array(Vs)
 
 
 def deploy_mg(cell):
@@ -166,16 +195,20 @@ def rollout(cell, control_fn, x0):
     return np.array(Ws), I
 
 
-def generate_data(cell, Vs, us, seed):
-    """On-manifold (oracle rollouts, sub-sampled) + off-manifold (perturbed) windows, n>d."""
+def generate_data(cell, Vs, us, seed, on_only=False):
+    """On-manifold oracle rollouts + (unless on_only) off-manifold perturbed windows. MATCHED
+    n_train: on_only replaces the AUG_PER off-manifold rounds with (1+AUG_PER)x more on-manifold
+    rollouts, so the on-sheet vs on+off-sheet comparison is at equal sample count."""
     rng = np.random.default_rng(seed)
+    n_ic = N_IC * (1 + AUG_PER) if on_only else N_IC
+    aug = 0 if on_only else AUG_PER
     on = []
-    for _ in range(N_IC):
+    for _ in range(n_ic):
         Ws, _ = rollout(cell, us, cell["x0"](rng))
         on.append(Ws[::SUBSAMPLE])
     onman = np.concatenate(on, 0)
     items = [onman]
-    for _ in range(AUG_PER):
+    for _ in range(aug):
         items.append(onman + EPS_TRAIN * rng.standard_normal(onman.shape))
     Wtr = np.concatenate(items, 0)
     Vtr = np.array([Vs(W) for W in Wtr])
@@ -208,6 +241,11 @@ def main():
                     choices=["markovian", "linear_dde", "platoon", "mg_limit_cycle", "mg_chaotic"])
     ap.add_argument("--rep", default="all", choices=["all", *REPS.keys()])
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--data-mode", default="both", choices=["both", "on_only", "rigorous"],
+                    help="both = on + off-manifold via perturbed ICs (default); on_only = on-manifold "
+                         "only (matched n_train); rigorous = on + off-manifold WINDOW perturbations, "
+                         "each labelled by its own BVP (MG only; = both for linear cells)")
+    ap.add_argument("--n-off", type=int, default=500, help="rigorous mode: number of off-sheet window BVPs")
     ap.add_argument("--out-dir", default=None, help="explicit output dir (job arrays); else auto")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -220,17 +258,19 @@ def main():
     print(f"\n=== H1/H2 cell '{cell['name']}' | seed {args.seed} ===")
     print(f"oracle gate: cos={gcos:.4f}  |u|/|u*|={gmag:.4f}  (must be 1.000)")
 
+    on_only = args.data_mode == "on_only"
     if cell.get("nonlinear"):                                   # MG cells: Pontryagin labels
         dep_W, u_star_dep = deploy_mg(cell)
         _, I_or = rollout(cell, mg_linear_feedback(cell), cell["x0c"])
-        Wtr, Vtr = generate_data_mg(cell, args.seed)
-    else:                                                       # linear cells: analytic labels
+        Wtr, Vtr = generate_data_mg(cell, args.seed, mode=args.data_mode, n_off=args.n_off)
+    else:                                                       # linear cells: analytic labels (rigorous == both)
         Vs, us = label_fns(cell)
         dep_W, I_or = rollout(cell, us, cell["x0c"])
         u_star_dep = np.array([us(W) for W in dep_W])
-        Wtr, Vtr = generate_data(cell, Vs, us, args.seed)
+        Wtr, Vtr = generate_data(cell, Vs, us, args.seed, on_only=on_only)
     _, I_nc = rollout(cell, lambda W: np.zeros(B.shape[1]), cell["x0c"])
-    print(f"reference: no-control I={I_nc:.4f}   oracle-feedback I*={I_or:.4f}  (n_train={len(Wtr)})")
+    print(f"data_mode: {args.data_mode}   reference: no-control I={I_nc:.4f}   "
+          f"oracle-feedback I*={I_or:.4f}  (n_train={len(Wtr)})")
     reps = list(REPS) if args.rep == "all" else [args.rep]
     rows = {}
     print(f"\n{'rep':>12}{'dim':>6}{'n/d':>7}{'valR2':>9}{'gradcos':>9}{'I_cl':>10}")
@@ -256,15 +296,16 @@ def main():
               f"cost reduction {100*m2:+.1f}%)")
 
     from src.utils.run_context import script_data_dir
+    tag = f"{cell['name']}_{args.data_mode}_seed{args.seed}"
     if args.out_dir is not None:                                # job-array mode: per-task path
-        out = Path(args.out_dir) / f"{cell['name']}_seed{args.seed}"
+        out = Path(args.out_dir) / tag
     else:
         debug = "_debug_" if args.debug else ""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = script_data_dir(__file__) / f"{debug}{ts}_{cell['name']}_seed{args.seed}"
+        out = script_data_dir(__file__) / f"{debug}{ts}_{tag}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "summary.json").write_text(json.dumps(dict(
-        cell=cell["name"], seed=args.seed, gate=dict(cos=gcos, mag=gmag),
+        cell=cell["name"], seed=args.seed, data_mode=args.data_mode, gate=dict(cos=gcos, mag=gmag),
         I_nc=I_nc, I_or=I_or, reps=rows), indent=2))
     print(f"\nwrote {out}")
 
