@@ -436,3 +436,131 @@ the magnitude is a discretisation convention. The two clean, convention-free axe
 (representation, H1/H2) and gradient $\cos$ (extraction). The earlier off-manifold / Sobolev analysis
 still governs the *direction* (it is why the critic's $\cos$ is imperfect and why the cheat raised it);
 the magnitude sections should be read as discretisation bookkeeping, not findings.
+
+---
+
+## Regularising the extraction recovers the oracle on the ROUGH (nonlinear) target
+
+**Context.** The true nonlinear value $V_{nl}$ (Monte-Carlo cost-to-go under the oracle control,
+99.93% quadratic) destroyed the raw-history gradient: a $\sim2\%$ RMS difference $\Delta V=V_{nl}-V_{lin}$
+flipped $\cos$ from $0.997$ (smooth $V_{lin}$) to $-0.226$. The SVD diagnosis: the least-squares fit
+$\theta=\sum_i (u_i^\top y/\sigma_i)\,v_i$ amplifies each mode by $1/\sigma_i$; $V_{lin}$ is smooth
+(energy in large-$\sigma$ modes, safe) while $\Delta V$ is rough (flat energy $\sim10^{-3}$ across all
+modes, including $\sigma_i\sim10^{-14}$, amplified to $\sim10^{11}$). $\text{cond}(\Phi)\approx10^{17}$.
+
+**Test (`run/study/mwe_truncation_ridge_sweep.py`).** Apply the two SVD-prescribed regularisers to the
+same rough $V_{nl}$ fit and sweep their strength: truncated SVD (rank $k$, coeff $u_i^\top y/\sigma_i$
+for $i<k$ else $0$) and ridge/Tikhonov ($\lambda$, the bounded filter $\sigma_i/(\sigma_i^2+\lambda)$
+replacing the unbounded $1/\sigma_i$). Report value $R^2$ on $V_{nl}$, gradient $\cos$ vs the continuous
+oracle, and closed-loop $I$. Config: $n_{\text{train}}=3232$, raw-history deg-2 dim $1325$ ($n/d=2.4$),
+$\text{cond}(\Phi)=4.4\times10^{17}$; references no-control $I=0.0753$, continuous oracle $I^\star=0.0282$.
+
+**Result — the catastrophe was entirely the unregularised $1/\sigma$ amplification.**
+
+| fit | val $R^2$ | grad $\cos$ | $I_{cl}$ | |
+|---|---|---|---|---|
+| $V_{nl}$ full ($k=d$, $\lambda=0$) | $-7\times10^{6}$ | $0.254$ | $69.23$ | broken (≫ no-control) |
+| $V_{nl}$ + truncation $k=160$ | $1.000$ | $0.901$ | $0.0315$ | ≈ oracle |
+| $V_{nl}$ + truncation $k=320$ | $1.000$ | $0.883$ | $0.0304$ | ≈ oracle |
+| $V_{nl}$ + ridge $\lambda=10^{-4}$ | $1.000$ | $0.987$ | $0.0281$ | **= oracle** |
+| $V_{nl}$ + ridge $\lambda=10^{-3}$ | $1.000$ | $0.991$ | $0.0283$ | **= oracle** |
+
+Both regularisers exhibit the predicted inverted-U in $\cos$ / U in $I$ with a clear sweet spot. Ridge
+recovers the oracle essentially exactly ($I=0.0281$ vs $I^\star=0.0282$) over a wide plateau
+$\lambda\in[10^{-6},10^{-1}]$; truncation recovers near-oracle for $k\in[160,320]$ (effective rank of
+the value content). Below the sweet spot the value is under-fit; above it the small-$\sigma$ roughness
+modes re-enter and the gradient re-collapses ($k\ge640$, $\lambda\le10^{-9}$ both return to $I\approx70$).
+Figure: `/tmp/truncation_ridge_sweep.png` (cos and $I$ vs $k$ and vs $\lambda$).
+
+**Interpretation.** "Fit a critic and differentiate it" is an ill-posed inverse problem here, and the
+gradient's sensitivity to target roughness is *not* a property of the representation or of the
+nonlinearity — it is the unregularised pseudoinverse. Damping the small-$\sigma$ modes (ridge $\lambda$,
+or rank truncation) restores the value-gradient control to the oracle even on a realistic (rough,
+Monte-Carlo) value. This is the deployable fix and the methodological result: the value-gradient method
+requires explicit regularisation of the extraction (ridge / truncated-SVD / Sobolev / explicit actor),
+selected on the gradient-direction statistic, not the value $R^2$ (which is $1.000$ across the entire
+broken-to-recovered range and so is blind to the pathology).
+
+**Caveat on $n/d$.** At this $n/d=2.4$ even the smooth $V_{lin}$ full fit is degraded ($\cos=0.534$,
+$I=0.287$) — lower sample density worsens conditioning for every target; the prior $\cos=0.997$ for
+$V_{lin}$ was at $n/d=10.9$. The regularised $V_{nl}$ fit ($\cos=0.99$, $I=0.0281$) *beats* the
+unregularised $V_{lin}$ fit at the same $n/d$, which underlines that the binding constraint is the
+extraction's conditioning, not the target's nonlinearity.
+
+### On-manifold only (no cheat): off-manifold data buys ROBUSTNESS, not recovery per se
+
+Re-running with `--no-cheat --subsample 1 --n-ic 10` (on-manifold oracle windows only, but **dense** so
+$n_{\text{train}}=3010$, $n/d=2.3$, matched to the with-cheat $n/d=2.4$ — the only difference is now
+on-manifold vs off-manifold data, not sample density):
+
+| target $V_{nl}$ | full fit | best truncation | best ridge |
+|---|---|---|---|
+| with cheat ($n/d{=}2.4$) | $\cos .25$, $I{=}69.2$ | $k{=}320$: $\cos .88$, $I{=}.0304$ | $\lambda{=}10^{-3}$: $\cos .99$, $I{=}\mathbf{.0281}$ |
+| no cheat ($n/d{=}2.3$) | $\cos .08$, $I{=}229.8$ | $k{=}320$: $\cos .90$, $I{=}.0306$ | $\lambda{=}10^{-12}$: $\cos .78$, $I{=}.0349$ |
+
+References: no-control $0.0753$, oracle $0.0282$. The earlier `--no-cheat` run at $n/d=1.0$ (sparse,
+$n_{\text{train}}=808$) is superseded by this matched-density run; at $n/d=1.0$ the comparison was
+confounded by sample count.
+
+Three observations, refining the "two orthogonal defects" framing:
+
+1. **The catastrophe is present in both** (worse on-manifold-only, $I=230$ vs $69$). At $n/d=2.3$ even the
+   smooth $V_{lin}$ full fit is poor ($\cos 0.135$): the overdetermined on-manifold $\Phi$ still has many
+   near-zero $\sigma$ (the off-manifold feature directions are never excited), and the full lstsq inverts
+   numerical-noise content there. **Truncation is mandatory** for on-manifold data.
+2. **On-manifold truncation can approach the oracle — but only at a single finely-tuned rank.** $k=320$
+   gives $\cos 0.90$, $I=0.0306$, nearly matching the with-cheat truncation. But it is a **narrow spike,
+   not a plateau**: $k=160$ gives $I=0.60$ and $k=640$ gives $I=197$ (catastrophic). One could only locate
+   $k=320$ by tuning against the oracle one does not have.
+3. **Ridge fails without the cheat.** Best no-cheat ridge is $I=0.0349$, $\cos 0.78$ at $\lambda=10^{-12}$
+   (barely regularised), decaying monotonically as $\lambda$ grows. The wide, oracle-exact ridge plateau
+   ($\lambda\in[10^{-6},10^{-1}]$, $\cos 0.99$, $I=0.0281$) is **unique to the with-cheat data**.
+
+**Refined conclusion.** Off-manifold data does not merely "enable recovery" (truncation reaches
+near-oracle either way at the right rank) — it makes the regularised solution **robust and
+oracle-reaching**: a wide plateau in *both* regularisers, tunable *without* knowing the oracle.
+On-manifold-only leaves the normal-to-manifold gradient ($\ker G$, transverse to the 1-D oracle
+trajectory) genuinely under-determined, so regularisation can only occasionally land a benign $\theta$ at
+a single tuned rank and ridge cannot reach the oracle at all. This is the $\ker G$ identifiability defect,
+visible here as **fragility (narrow spike, no ridge plateau)** rather than as an absolute ceiling. The two
+levers therefore remain distinct: regularisation tames the roughness/conditioning ($1/\sigma$
+amplification of $\Delta V$); off-manifold data (or a Sobolev / derivative-matching loss) constrains the
+transverse gradient and is what yields the stable, oracle-tunable plateau.
+
+### Signature representation: implicit regularisation with off-manifold data, total collapse without
+
+Re-running the same sweep with `--rep signature --order 2` (depth-2 signature, dim $462$) against the
+rough $V_{nl}$, both with the off-manifold cheat and on-manifold-only dense (`--no-cheat --subsample 1
+--n-ic 10`). Master comparison (references no-control $I=0.0753$, oracle $I^\star=0.0282$):
+
+| rep | data | full (unreg.) fit | best regularised | character |
+|---|---|---|---|---|
+| raw-history o2 | cheat ($n/d{=}2.4$) | $\cos .25$, $I{=}69.2$ | ridge $\lambda10^{-3}$: $\cos .99$, $I{=}.0281$ | catastrophe → oracle (robust plateau) |
+| raw-history o2 | no-cheat ($n/d{=}2.3$) | $\cos .08$, $I{=}229.8$ | trunc $k320$: $\cos .90$, $I{=}.0306$ | catastrophe → near-oracle (fragile spike); ridge fails |
+| signature o2 | cheat ($n/d{=}7.0$) | $\cos .89$, $I{=}.0314$ | ridge $\lambda10^{-4}$: $\cos .92$, $I{=}.0301$ | already near-oracle unregularised |
+| signature o2 | no-cheat ($n/d{=}6.5$) | $\cos .18$, $I{=}81.1$ | best $\approx$ no-control ($I{=}.075$, $\cos{\sim}0$) | unrecoverable — collapses to no-control |
+
+Two qualitatively opposite facts:
+
+1. **With off-manifold data, the signature is intrinsically the best-conditioned.** $\text{cond}(\Phi)$:
+   signature $2.8\times10^{15}$ vs raw-history $4.4\times10^{17}$ — two orders of magnitude better, at lower
+   dimension ($462$ vs $1325$). The $1/\sigma$ amplification of the rough target is therefore much milder:
+   the signature's **full unregularised fit is already near-oracle** ($I=0.0314$), no catastrophe. Where
+   raw-history must descend from $I=69$ to the oracle via ridge, the signature is born near it — a wide
+   flat ridge plateau $\cos\approx0.88$–$0.92$ over $\lambda\in[10^{-12},10^{-1}]$. The structured,
+   low-dimensional signature feature set acts as an **implicit regulariser against target roughness**.
+2. **Without off-manifold data, the signature is the most fragile.** It collapses completely: no
+   regularisation strength yields useful control (best $\approx$ no-control, $\cos\sim0$ at every $k$ and
+   $\lambda$), whereas raw-history at least retained a lucky truncation rank ($k=320$) reaching
+   near-oracle. This is the documented signature degeneracy — on the 1-D manifold $\ker G$ is near-maximal
+   / effective rank collapses, so the transverse gradient is essentially unconstrained and spectral
+   regularisation cannot synthesise it; the minimum-useful-gradient solution is "do nothing."
+
+**Reading.** Off-manifold information (the cheat, equivalently a Sobolev / derivative-matching loss)
+matters **more for the signature than for raw-history**. The signature trades: with correct data geometry
+(off-manifold) it is the most robust and best-conditioned representation, near-oracle even unregularised;
+with degenerate (on-manifold-only) data it is the most broken, unrecoverable by any spectral regulariser.
+This refines the H1/H2 narrative: on the *smooth* target raw-history led on gradient direction
+($\cos 0.997$ vs $0.78$); on the *rough* target *with* off-manifold data the signature's conditioning
+advantage reverses the picture (near-oracle unregularised); *without* off-manifold data the signature
+requires that information more imperatively than raw-history.
