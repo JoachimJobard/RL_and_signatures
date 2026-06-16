@@ -78,6 +78,21 @@ def make_cell(name):
             z = np.zeros(env.N); z[1::2] = 0.4 * rng.standard_normal(env.N // 2); return z
         return dict(name=name, env=env, oracle=oracle, n=env.N, dt=dt, window_length=5, tf=15.0,
                     clip=3.0, x0=x0s, x0c=x0c)
+    if name in ("mg_limit_cycle", "mg_chaotic"):
+        from src.envs.mackey_glass_1D import MackeyGlass1DEnv
+        from src.solvers.mackey_glass_pontryagin import mg_gp
+        tau = 6.0 if name == "mg_limit_cycle" else 17.0
+        mu, p, n_exp, xs, dt = 0.1, 0.2, 10, 1.0, 0.25
+        Ncheb = 18 if tau == 6.0 else 28
+        Q = np.array([[1.0]]); R = np.array([[0.1]])
+        env = MackeyGlass1DEnv(delay=tau, step_size=dt, resolution=5, Q=Q, R=R, n=n_exp,
+                               p=p, mu=mu, x_target=xs)
+        A0 = np.array([[-mu]]); A1 = np.array([[p * mg_gp(xs, n_exp)]]); B = np.array([[1.0]])
+        oracle = build_delayed_oracle(A0, A1, B, Q, R, tau, Ncheb)
+        win = int(round(tau / dt)) + 1
+        return dict(name=name, env=env, oracle=oracle, n=1, dt=dt, window_length=win, tf=40.0,
+                    clip=5.0, x0c=np.array([0.8]), nonlinear=True, xstar=xs,
+                    mg=dict(mu=mu, p=p, n_exp=n_exp, xs=xs, tau=tau, m=Ncheb + 1))
     raise ValueError(f"unknown cell {name}")
 
 
@@ -91,6 +106,38 @@ def label_fns(cell):
     def Vs(W): z = z_from_window(W, dt, theta, n); return -float(z @ Pc @ z)
     def us(W): z = z_from_window(W, dt, theta, n); return -Kc @ z
     return Vs, us
+
+
+def mg_linear_feedback(cell):
+    """Linear-oracle feedback u = -Kc (z - x* 1) on the MG window (the deployable near-optimal
+    feedback reference for I_or)."""
+    oc, dt, xs = cell["oracle"], cell["dt"], cell["xstar"]
+    Kc, theta = oc["Kc"], oc["theta"]
+    return lambda W: -Kc @ (z_from_window(W, dt, theta, 1) - xs)
+
+
+def generate_data_mg(cell, seed):
+    """Pontryagin-labelled dataset: BVP from a cloud of histories (constant levels spanning
+    around/below/above x*, plus off-manifold perturbed histories), sampled along trajectories."""
+    from src.solvers.mackey_glass_pontryagin import build_pontryagin_dataset
+    mg = cell["mg"]; m = mg["m"]; xs = mg["xs"]; rng = np.random.default_rng(seed)
+    # n_train must comfortably exceed raw-history deg-2 dim (~350 for win=25) so the H2 test
+    # reflects expressivity, not conditioning: many constant levels + off-manifold histories.
+    ics = [x0 * np.ones(m) for x0 in np.linspace(0.5, 1.45, 30)]
+    for _ in range(18):
+        ics.append(xs + 0.3 * rng.standard_normal(m))           # off-manifold histories
+    Ws, Vs, _ = build_pontryagin_dataset(cell["oracle"], mg["mu"], mg["p"], mg["n_exp"], xs,
+                                         cell["dt"], cell["window_length"], ics, T=20.0, stride=1)
+    return np.array(Ws), Vs
+
+
+def deploy_mg(cell):
+    """Nonlinear optimal trajectory + control from x0c (the cos reference)."""
+    from src.solvers.mackey_glass_pontryagin import build_pontryagin_dataset
+    mg = cell["mg"]; ic = [cell["x0c"][0] * np.ones(mg["m"])]
+    Ws, _, Us = build_pontryagin_dataset(cell["oracle"], mg["mu"], mg["p"], mg["n_exp"], mg["xs"],
+                                         cell["dt"], cell["window_length"], ic, T=20.0, stride=1)
+    return np.array(Ws), Us
 
 
 # ============================== rollout / closed loop ==============================
@@ -157,29 +204,33 @@ def evaluate_rep(cell, rep_cfg, Wtr, Vtr, dep_W, u_star_dep, half_RinvBT):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--cell", required=True, choices=["markovian", "linear_dde", "platoon"])
+    ap.add_argument("--cell", required=True,
+                    choices=["markovian", "linear_dde", "platoon", "mg_limit_cycle", "mg_chaotic"])
     ap.add_argument("--rep", default="all", choices=["all", *REPS.keys()])
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--out-dir", default=None, help="explicit output dir (job arrays); else auto")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
     cell = make_cell(args.cell)
     oc = cell["oracle"]; R, B = oc["R"], oc["B"]
     half_RinvBT = 0.5 * np.linalg.inv(R) @ B.T
-    Vs, us = label_fns(cell)
 
-    # gate the oracle before using it
     gcos, gmag = doya_gate(oc, cell["dt"])
     print(f"\n=== H1/H2 cell '{cell['name']}' | seed {args.seed} ===")
     print(f"oracle gate: cos={gcos:.4f}  |u|/|u*|={gmag:.4f}  (must be 1.000)")
 
-    # references and deployment trajectory (for cos)
-    dep_W, I_or = rollout(cell, us, cell["x0c"])
+    if cell.get("nonlinear"):                                   # MG cells: Pontryagin labels
+        dep_W, u_star_dep = deploy_mg(cell)
+        _, I_or = rollout(cell, mg_linear_feedback(cell), cell["x0c"])
+        Wtr, Vtr = generate_data_mg(cell, args.seed)
+    else:                                                       # linear cells: analytic labels
+        Vs, us = label_fns(cell)
+        dep_W, I_or = rollout(cell, us, cell["x0c"])
+        u_star_dep = np.array([us(W) for W in dep_W])
+        Wtr, Vtr = generate_data(cell, Vs, us, args.seed)
     _, I_nc = rollout(cell, lambda W: np.zeros(B.shape[1]), cell["x0c"])
-    u_star_dep = np.array([us(W) for W in dep_W])
-    print(f"reference: no-control I={I_nc:.4f}   continuous oracle I*={I_or:.4f}")
-
-    Wtr, Vtr = generate_data(cell, Vs, us, args.seed)
+    print(f"reference: no-control I={I_nc:.4f}   oracle-feedback I*={I_or:.4f}  (n_train={len(Wtr)})")
     reps = list(REPS) if args.rep == "all" else [args.rep]
     rows = {}
     print(f"\n{'rep':>12}{'dim':>6}{'n/d':>7}{'valR2':>9}{'gradcos':>9}{'I_cl':>10}")
@@ -204,10 +255,13 @@ def main():
               f"(I {rows['signature']['I']:.4f} vs {rows['raw_history']['I']:.4f}; "
               f"cost reduction {100*m2:+.1f}%)")
 
-    debug = "_debug_" if args.debug else ""
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     from src.utils.run_context import script_data_dir
-    out = script_data_dir(__file__) / f"{debug}{ts}_{cell['name']}_seed{args.seed}"
+    if args.out_dir is not None:                                # job-array mode: per-task path
+        out = Path(args.out_dir) / f"{cell['name']}_seed{args.seed}"
+    else:
+        debug = "_debug_" if args.debug else ""
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out = script_data_dir(__file__) / f"{debug}{ts}_{cell['name']}_seed{args.seed}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "summary.json").write_text(json.dumps(dict(
         cell=cell["name"], seed=args.seed, gate=dict(cos=gcos, mag=gmag),

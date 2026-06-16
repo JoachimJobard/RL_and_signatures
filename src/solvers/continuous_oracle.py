@@ -65,7 +65,7 @@ def build_delayed_oracle(A0, A1, B, Q, R, tau, N):
     Qz = np.zeros((big, big)); Qz[0:n, 0:n] = Q
     Pc = scipy.linalg.solve_continuous_are(M, Nmat, Qz, R)
     Kc = np.linalg.inv(R) @ Nmat.T @ Pc
-    return dict(kind="delayed", Pc=Pc, Kc=Kc, theta=theta, M=M, Nmat=Nmat, n=n, m=m, N=N,
+    return dict(kind="delayed", Pc=Pc, Kc=Kc, theta=theta, M=M, Nmat=Nmat, D=D, n=n, m=m, N=N,
                 A0=A0, A1=A1, B=B, Q=Q, R=R, tau=float(tau))
 
 
