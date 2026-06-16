@@ -1,0 +1,32 @@
+# Scalar linear DDE (H1 POSITIVE / H2 NEGATIVE control): dx/dt = -1.5 x(t-1) + u.
+# History matters (purely delayed dynamics, near the Hopf threshold a=pi/2) => H1 HOLDS; the
+# optimal value is EXACTLY quadratic in the history window => H2 FAILS (raw-history is the exact
+# basis). Matches the oracle-referenced harness cell 'linear_dde' in run/study/h1h2_evaluation.py.
+environment_params:
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
+  A:
+    _target_: numpy.array
+    object: [[0.0]]
+    dtype: float64
+  B:
+    _target_: numpy.array
+    object: [[1.0]]
+    dtype: float64
+  A1:
+    _target_: numpy.array
+    object: [[-1.5]]
+    dtype: float64
+  delay:
+    _target_: numpy.array
+    object: [1.0]
+    dtype: float64
+  Q:
+    _target_: numpy.array
+    object: [[1.0]]
+    dtype: float64
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+    dtype: float64
+  step_size: 0.2
+  resolution: 4

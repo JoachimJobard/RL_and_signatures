@@ -1,0 +1,16 @@
+# Platoon (H1 POSITIVE / H2 NEGATIVE control), matching the oracle-referenced harness cell
+# 'platoon' (PlatoonEnv n_vehicles=5, alpha=3, beta=1, delay=0.2, step_size=0.05, resolution=4 --
+# PlatoonEnv defaults for v_star/v_max/h_st/h_go/Q/R). History matters (delayed-LQR beats
+# markovian-LQR) => H1 HOLDS; the linear-delay oracle value is quadratic => H2 FAILS.
+#
+# NOTE: distinct from conf/env/platoon_5car.yaml (alpha=1, beta=0.5, delay=0.5) -- this config
+# keeps the RL plant identical to the oracle harness so the two halves of the design matrix are
+# directly comparable on the same plant.
+environment_params:
+  _target_: src.envs.platoon.PlatoonEnv
+  n_vehicles: 5
+  alpha: 3.0
+  beta: 1.0
+  delay: 0.2
+  step_size: 0.05
+  resolution: 4
