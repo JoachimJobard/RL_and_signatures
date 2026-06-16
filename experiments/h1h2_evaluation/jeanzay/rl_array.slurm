@@ -65,10 +65,13 @@ echo "Task [$SLURM_ARRAY_TASK_ID/$((N_TASKS-1))]: cell=$CELL rep=$REP seed=$SEED
 echo
 sleep "$(( SLURM_ARRAY_TASK_ID * 3 ))"   # stagger starts
 
-# Critic solver = PLAIN LSTD (the TD analog of the oracle half's plain least-squares fit to V*):
-# least-squares solve of the continuous-TD fixed point E[phi*delta]=0, minimal Tikhonov, NO truncation
-# (lstd_rank=0), growing batch (lstd_forget=1.0 = a single batch fit). Uniform across all reps.
-LSTD_ARGS="agent.algorithm.lstd=true agent.algorithm.lstd_reg=1e-3 agent.algorithm.lstd_rank=0 agent.algorithm.lstd_forget=1.0"
+# Critic solver = SEMI-GRADIENT TD (the default, lstd=false). LSTD/LSPI -- the least-squares TD
+# mirror of the oracle half's lstsq -- is UNSTABLE for online value-gradient control here: online
+# LSTD diverges (deadly triad, even on the trivial markovian cell) and batch LSPI oscillates on the
+# delayed/oscillatory cells (see run/study/mwe_lspi_*). Semi-gradient TD's slow incremental updates
+# are the only stable online option (markovian 56%, linear_dde 81%, MG 86% cost reduction).
+# The two halves therefore use different estimators by necessity: supervised lstsq to the FIXED V*
+# (oracle half) vs incremental TD to the BOOTSTRAPPED value (RL half).
 
 # shellcheck disable=SC2086  # intentional word-splitting of the override strings
 python main_unified.py \
@@ -76,7 +79,6 @@ python main_unified.py \
     agent.signature.window_size="$WIN" \
     agent.training.n_episodes="$N_EPISODES" agent.training.max_time="$MAXT" \
     eval.x0_test="$X0" eval.T_sim="$TSIM" \
-    $LSTD_ARGS \
     seed="$SEED" experiment_group="$EXPERIMENT_GROUP" \
     run_tag="${CELL}_${REP}" debug="$DEBUG" wandb.mode=offline
 STATUS=$?
