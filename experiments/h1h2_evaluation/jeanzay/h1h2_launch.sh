@@ -9,8 +9,8 @@
 # JAX on CPU, the critic fits are numpy least-squares. No GPU is requested.
 #
 # Usage (on a Jean Zay login node, after `git pull` + `uv sync`):
-#   ACCOUNT=<projid>@cpu  bash bash_scripts/cluster/jeanzay/python/h1h2_launch.sh
-#   ACCOUNT=<projid>@cpu  bash .../h1h2_launch.sh --smoke     # 2 fast cells, 1 seed
+#   ACCOUNT=<projid>@cpu  bash experiments/h1h2_evaluation/jeanzay/h1h2_launch.sh
+#   ACCOUNT=<projid>@cpu  bash experiments/h1h2_evaluation/jeanzay/h1h2_launch.sh --smoke
 #
 # Partition / QoS routing (see ~/.claude/CLAUDE.md):
 #   - compute array : cpu_p1 + qos_cpu-t3   (billed CPU; <=20 h, here 2 h/task)
@@ -44,7 +44,7 @@ SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
 
 EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPDIR=$EXPDIR,CELLS_STR=$CELLS_STR,SEEDS_STR=$SEEDS_STR"
-WORKER_DIR="$PATH_CONTENT_ROOT/bash_scripts/cluster/jeanzay/python"
+WORKER_DIR="$PATH_CONTENT_ROOT/experiments/h1h2_evaluation/jeanzay"
 
 echo "cells = ${CELLS_STR} | seeds = ${SEEDS_STR} | tasks = $N_TASKS"
 echo "EXPDIR = $EXPDIR"
