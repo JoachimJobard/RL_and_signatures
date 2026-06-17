@@ -28,10 +28,10 @@ SMOKE=""
 [[ "${1:-}" == "--smoke" ]] && SMOKE="1"
 
 if [[ -n "$SMOKE" ]]; then
-    CELLS=(markovian linear_dde); SEEDS=(0)
+    CELLS=(hopfield_linear hopfield_duffing); SEEDS=(0)   # smoke exercises the new cells (analytic + BVP)
     QOS="qos_cpu-dev"; TIME="00:30:00"; PREFIX="_debug_"
 else
-    CELLS=(markovian linear_dde platoon mg_limit_cycle mg_chaotic); SEEDS=(0 1 2 3 4)
+    CELLS=(markovian linear_dde hopfield_linear hopfield_nonlinear hopfield_duffing platoon mg_limit_cycle mg_chaotic); SEEDS=(0 1 2 3 4)
     QOS="qos_cpu-t3"; TIME="02:00:00"; PREFIX=""
 fi
 CELLS_STR="${CELLS[*]}"; SEEDS_STR="${SEEDS[*]}"
