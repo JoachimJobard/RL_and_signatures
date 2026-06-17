@@ -35,11 +35,11 @@ from mwe_lspi_test import (make_feat, reference_control, rollout,           # no
 # per-cell LSPI config: tau (discount gentleness lever -- smaller for delicate plants), damping,
 # exploration. Validated: mg tau=2, linear_dde signature tau=1, markovian full-ish; platoon gentler.
 CFG = {
-    "markovian":      dict(tau=1.0, damp=0.3, explore=0.2),
-    "linear_dde":     dict(tau=1.0, damp=0.1, explore=0.3),
-    "platoon":        dict(tau=0.5, damp=0.1, explore=0.3),
-    "mg_limit_cycle": dict(tau=2.0, damp=0.1, explore=0.3),
-    "mg_chaotic":     dict(tau=2.0, damp=0.1, explore=0.3),
+    "markovian":      dict(tau=1.0, damp=0.3, explore=0.2, rank=0),
+    "linear_dde":     dict(tau=1.0, damp=0.1, explore=0.3, rank=0),
+    "platoon":        dict(tau=0.5, damp=0.1, explore=0.5, rank=20),   # high-dim: centred + truncated LSTD
+    "mg_limit_cycle": dict(tau=2.0, damp=0.1, explore=0.3, rank=0),
+    "mg_chaotic":     dict(tau=2.0, damp=0.1, explore=0.3, rank=0),
 }
 N_ITER = 12
 
@@ -91,7 +91,8 @@ def evaluate_rep(cell, rep_cfg, seed, cfg, depW, u_star_dep):
                                     t_collect=t_collect, sigma=cfg["explore"])
         if len(P) == 0:
             break
-        theta = (1.0 - cfg["damp"]) * theta + cfg["damp"] * lstd_solve(P, PN, RW, D, dt, cfg["tau"])
+        theta = (1.0 - cfg["damp"]) * theta + cfg["damp"] * lstd_solve(
+            P, PN, RW, D, dt, cfg["tau"], rank=cfg.get("rank", 0))
         policy = greedy(feat, theta, half_RinvBT)
         I = rollout(cell, feat, policy, cell["x0c"], tf)
         if not np.isfinite(I):
@@ -111,6 +112,7 @@ def main():
     ap.add_argument("--rep", default="all", choices=["all", *REPS])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tau", type=float, default=None, help="override the per-cell discount tau")
+    ap.add_argument("--rank", type=int, default=None, help="override the per-cell truncated-SVD rank (0 = none)")
     ap.add_argument("--out-dir", default=None)
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
@@ -119,6 +121,8 @@ def main():
     cfg = dict(CFG[args.cell])
     if args.tau is not None:
         cfg["tau"] = args.tau
+    if args.rank is not None:
+        cfg["rank"] = args.rank
     B = cell["oracle"]["B"]
     u_star = reference_control(cell)
     depW = deployment_windows(cell, u_star)

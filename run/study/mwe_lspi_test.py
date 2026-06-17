@@ -99,9 +99,22 @@ def collect_dataset(cell, feat, control_fn, seed, t_collect, sigma=0.0):
     return np.array(P), np.array(PN), np.array(RW)
 
 
-def lstd_solve(P, PN, RW, D, dt, tau):
-    psi = (PN - P) / dt - P / tau
-    M = P.T @ psi; b = P.T @ RW
+def lstd_solve(P, PN, RW, D, dt, tau, rank=0):
+    """CENTRED LSTD (gauge fix: subtract the running feature mean -- removes the constant/time
+    direction that dominates the high-dim Gram) with optional TRUNCATED-SVD: solve the fixed point
+    in the top-`rank` principal subspace of the centred features, dropping the near-null directions
+    that make the value-gradient under-determined (the platoon ker-G pathology)."""
+    mu = P.mean(0)
+    Pc = P - mu
+    psi = (PN - P) / dt - Pc / tau
+    M = Pc.T @ psi; b = Pc.T @ RW
+    if 0 < rank < D:
+        C = Pc.T @ Pc
+        _, evecs = np.linalg.eigh((C + C.T) / 2.0)
+        U = evecs[:, -rank:]                                   # top-`rank` principal directions
+        Mk, bk = U.T @ M @ U, U.T @ b
+        reg = REG * max(float(np.abs(np.diag(Mk)).max()), 1e-12)
+        return U @ (-np.linalg.solve(Mk + reg * np.eye(rank), bk))
     return -np.linalg.solve(M + REG * np.eye(D), b)
 
 
