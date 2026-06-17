@@ -216,7 +216,8 @@ def on_sheet_windows(cell, rng):
     if cell.get("family") == "hopfield":
         from src.solvers.delayed_hopfield_pontryagin import build_hopfield_pontryagin_dataset
         hp = cell["hopfield"]
-        ics = [0.5 * rng.standard_normal(cell["n"]) for _ in range(N_IC_MG)]   # cloud of initial states
+        n_ic = int(os.environ.get("H1H2_N_IC", str(N_IC_MG)))                  # on-sheet IC count (data-scaling knob)
+        ics = [0.5 * rng.standard_normal(cell["n"]) for _ in range(n_ic)]      # cloud of initial states
         Ws, Vs, _ = build_hopfield_pontryagin_dataset(cell["oracle"], hp["W"], hp["eps"], hp["kappa"],
                                                       cell["dt"], cell["window_length"], ics,
                                                       T=12.0, stride=SUBSAMPLE,
@@ -317,7 +318,13 @@ def evaluate_rep(cell, rep_cfg, Wtr, Vtr, dep_W, u_star_dep, half_RinvBT):
                               n_state=cell["n"], **kw)
     feat = jax.jit(rep.feature_fn)
     Phi = np.stack([np.asarray(feat(jnp.asarray(W))) for W in Wtr])
-    theta = np.linalg.lstsq(Phi, Vtr, rcond=None)[0]
+    ridge = float(os.environ.get("H1H2_RIDGE", "0.0"))     # tiny Tikhonov on the oracle fit (0 = plain lstsq)
+    if ridge > 0.0:
+        G = Phi.T @ Phi
+        lam = ridge * (np.trace(G) / G.shape[0])           # relative ridge (scale-aware)
+        theta = np.linalg.solve(G + lam * np.eye(G.shape[1]), Phi.T @ Vtr)
+    else:
+        theta = np.linalg.lstsq(Phi, Vtr, rcond=None)[0]
     r2 = 1.0 - np.sum((Vtr - Phi @ theta) ** 2) / (np.sum((Vtr - Vtr.mean()) ** 2) + 1e-18)
     th = jnp.asarray(theta)
     Vgrad = jax.jit(jax.grad(lambda p: jnp.dot(th, feat(p))))
