@@ -239,18 +239,69 @@ def on_sheet_windows(cell, rng):
     return Ws, Vs
 
 
+# --- parallel off-sheet BVP labelling (module-level workers, picklable for spawn) ---
+# Each off-sheet window needs one Pontryagin BVP (~2.5 s, single-threaded scipy). For the BVP
+# cells (hopfield / MG) this dominates the wall-clock (n_off solves), so we fan it out across the
+# task's cores. The solvers are pure numpy/scipy (no JAX), so a 'spawn' pool is safe even though
+# JAX is already initialised in the parent (fork would risk an XLA-thread deadlock; spawn does not).
+def _off_label_hopfield(args):
+    Wp, oracle, hp, dt, n = args
+    from src.solvers.continuous_oracle import z_from_window
+    from src.solvers.delayed_hopfield_pontryagin import solve_pontryagin_hopfield, value_along_hopfield
+    z0 = z_from_window(Wp, dt, oracle["theta"], n)
+    sol, _ = solve_pontryagin_hopfield(z0, oracle, hp["W"], hp["eps"], hp["kappa"], T=12.0,
+                                       nonlinearity=hp["nonlinearity"], damping=hp["damping"])
+    if not sol.success:
+        return None
+    _, _, _, Vcost = value_along_hopfield(sol, oracle)
+    return -float(Vcost[0])
+
+
+def _off_label_mg(args):
+    Wp, oracle, mg, dt = args
+    from src.solvers.continuous_oracle import z_from_window
+    from src.solvers.mackey_glass_pontryagin import solve_pontryagin, value_along
+    D, Pc, Kc, Nmat, M = oracle["D"], oracle["Pc"], oracle["Kc"], oracle["Nmat"], oracle["M"]
+    theta = oracle["theta"]; R = float(oracle["R"][0, 0]); m = D.shape[0]
+    A_cl = M - Nmat @ Kc; xs = mg["xs"]
+    z0 = z_from_window(Wp, dt, theta, 1)
+    sol, _ = solve_pontryagin(z0, D, Pc, A_cl, xs, mg["mu"], mg["p"], mg["n_exp"], R, T=20.0)
+    if not sol.success:
+        return None
+    _, _, _, Vcost = value_along(sol, m, xs, Pc, R)
+    return -float(Vcost[0])
+
+
+def _parallel_labels(worker, tasks):
+    """Map ``worker`` over ``tasks`` across BVP_NPROC / SLURM_CPUS_PER_TASK cores via a spawn pool."""
+    import multiprocessing as mp
+    nproc = int(os.environ.get("BVP_NPROC", os.environ.get("SLURM_CPUS_PER_TASK", "0"))) or min(8, mp.cpu_count())
+    if nproc <= 1 or len(tasks) < 4:
+        return [worker(t) for t in tasks]
+    with mp.get_context("spawn").Pool(nproc) as pool:
+        return pool.map(worker, tasks)
+
+
 def generate_data(cell, seed, off_sheet, n_off=N_OFF):
     """UNIFORM sampler across EVERY environment. on-sheet = optimal-trajectory windows; if off_sheet,
     add n_off windows perturbed by EPS and RE-LABELLED through the cell's oracle (analytic / BVP). The
-    only per-cell parts are the env integrator and the oracle label -- the sampling logic is identical."""
+    only per-cell parts are the env integrator and the oracle label -- the sampling logic is identical.
+    For BVP cells the off-sheet relabelling is parallelised across cores (the dominant cost)."""
     rng = np.random.default_rng(seed)
     on_W, on_V = on_sheet_windows(cell, rng)
     W, V = list(on_W), list(on_V)
     if off_sheet:
-        lab = oracle_label(cell)
-        for i in rng.integers(0, len(on_W), n_off):
-            Wp = np.asarray(on_W[i]) + EPS * rng.standard_normal(np.asarray(on_W[i]).shape)
-            v = lab(Wp)
+        perturbed = [np.asarray(on_W[i]) + EPS * rng.standard_normal(np.asarray(on_W[i]).shape)
+                     for i in rng.integers(0, len(on_W), n_off)]
+        if cell.get("family") == "hopfield":
+            tasks = [(Wp, cell["oracle"], cell["hopfield"], cell["dt"], cell["n"]) for Wp in perturbed]
+            labels = _parallel_labels(_off_label_hopfield, tasks)
+        elif cell.get("nonlinear"):                                 # MG (BVP)
+            tasks = [(Wp, cell["oracle"], cell["mg"], cell["dt"]) for Wp in perturbed]
+            labels = _parallel_labels(_off_label_mg, tasks)
+        else:                                                       # linear cells: analytic label, fast
+            lab = oracle_label(cell); labels = [lab(Wp) for Wp in perturbed]
+        for Wp, v in zip(perturbed, labels):
             if v is not None:
                 W.append(Wp); V.append(v)
     return np.array(W), np.array(V)
