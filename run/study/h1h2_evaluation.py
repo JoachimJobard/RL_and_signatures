@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -84,6 +85,51 @@ def make_cell(name):
             z = np.zeros(env.N); z[1::2] = 0.4 * rng.standard_normal(env.N // 2); return z
         return dict(name=name, env=env, oracle=oracle, n=env.N, dt=dt, window_length=5, tf=15.0,
                     clip=3.0, x0=x0s, x0c=x0c)
+    if name == "hopfield_linear":
+        # LINEAR-in-delay arm (eps=0): x' = -x + W x(t-tau) + Bu. Delayed-LQR is exact;
+        # the optimal gradient is linear in the history window, so raw-history is optimal
+        # and H2 is predicted to FAIL (provable negative). Gate: kernel ratio 0.30, H1 gap
+        # +55% at tau=0.5 (run/study/hopfield_delay_impact.py) -- a genuine H1 cell.
+        from src.envs.delayed_hopfield_network import DelayedHopfieldNetwork, rotational_coupling
+        W = rotational_coupling(rho=2.0, theta=np.pi / 2.0); tau = 0.5; dt = 0.1
+        env = DelayedHopfieldNetwork(W=W, delay=tau, eps=0.0, step_size=dt, resolution=4)
+        A0, A1, B = np.array(env.A), np.array(env.A1), np.array(env.B)
+        Q, R = np.array(env.Q), np.array(env.R)
+        oracle = build_delayed_oracle(A0, A1, B, Q, R, tau, N=12)
+        win = int(round(tau / dt)) + 1                              # >= tau/dt+1 so raw-history spans the augmented state
+        return dict(name=name, env=env, oracle=oracle, n=2, dt=dt, window_length=win, tf=15.0,
+                    clip=10.0, x0=lambda rng: rng.standard_normal(2) * 0.4,
+                    x0c=np.array([0.5, 0.0]))
+    if name in ("hopfield_nonlinear", "hopfield_duffing"):
+        # NONLINEAR-in-delay arm: x' = -x - d x^3 + W phi(x(t-tau)) + Bu. SAME linearisation
+        # (A=-I, A1=W) as hopfield_linear (phi'(0)=1, the -d x^3 derivative at 0 is 0), so the H1
+        # structure is identical; the value is a NONLINEAR functional of the history => H2 may HOLD.
+        #   hopfield_nonlinear : SATURATING tanh (Hopfield), damping=0. Strong nonlinearity (large
+        #       kappa) saturates the delayed-state sensitivity (phi'->0), eroding H1 -- a tradeoff.
+        #   hopfield_duffing   : NON-SATURATING cubic phi=x+kappa x^3 (phi'=1+3 kappa x^2 GROWS, so
+        #       history sensitivity is preserved => H1 held) + instantaneous -d x^3 confinement that
+        #       bounds the otherwise-explosive plant. A phi^4/Duffing variant (not literal Hopfield).
+        # kappa/nonlinearity/damping overridable via HOPFIELD_KAPPA / HOPFIELD_NONLIN / HOPFIELD_DAMPING
+        # (path-A kappa sweep on hopfield_nonlinear); Pontryagin oracle gates verified.
+        from src.envs.delayed_hopfield_network import DelayedHopfieldNetwork, rotational_coupling
+        W = rotational_coupling(rho=2.0, theta=np.pi / 2.0); tau = 0.5; dt = 0.1; eps, Ncheb = 1.0, 8
+        if name == "hopfield_duffing":
+            kappa = float(os.environ.get("HOPFIELD_KAPPA", "0.5"))
+            nonlin = os.environ.get("HOPFIELD_NONLIN", "cubic")
+            damping = float(os.environ.get("HOPFIELD_DAMPING", "2.0"))   # d>~rho*kappa bounds the plant
+        else:
+            kappa = float(os.environ.get("HOPFIELD_KAPPA", "1.0"))
+            nonlin = os.environ.get("HOPFIELD_NONLIN", "tanh")
+            damping = float(os.environ.get("HOPFIELD_DAMPING", "0.0"))
+        env = DelayedHopfieldNetwork(W=W, delay=tau, eps=eps, kappa=kappa, nonlinearity=nonlin,
+                                     damping=damping, step_size=dt, resolution=4)
+        A0, A1, B = np.array(env.A), np.array(env.A1), np.array(env.B)
+        Q, R = np.array(env.Q), np.array(env.R)
+        oracle = build_delayed_oracle(A0, A1, B, Q, R, tau, Ncheb)
+        win = int(round(tau / dt)) + 1
+        return dict(name=name, env=env, oracle=oracle, n=2, dt=dt, window_length=win, tf=15.0,
+                    clip=10.0, x0c=np.array([0.5, 0.0]), nonlinear=True, family="hopfield", xstar=0.0,
+                    hopfield=dict(W=W, eps=eps, kappa=kappa, nonlinearity=nonlin, damping=damping))
     if name in ("mg_limit_cycle", "mg_chaotic"):
         from src.envs.mackey_glass_1D import MackeyGlass1DEnv
         from src.solvers.mackey_glass_pontryagin import mg_gp
@@ -127,6 +173,18 @@ def oracle_label(cell):
     analytic for the linear/linearised cells and a per-window Pontryagin BVP for Mackey-Glass. The MG
     label returns None if the BVP fails to converge for that perturbed window."""
     oc, dt, n = cell["oracle"], cell["dt"], cell["n"]
+    if cell.get("family") == "hopfield":
+        from src.solvers.delayed_hopfield_pontryagin import solve_pontryagin_hopfield, value_along_hopfield
+        hp = cell["hopfield"]
+        def lab(W):
+            z0 = z_from_window(W, dt, oc["theta"], n)            # window -> augmented collocation IC
+            sol, _ = solve_pontryagin_hopfield(z0, oc, hp["W"], hp["eps"], hp["kappa"], T=12.0,
+                                               nonlinearity=hp["nonlinearity"], damping=hp["damping"])
+            if not sol.success:
+                return None
+            _, _, _, Vcost = value_along_hopfield(sol, oc)
+            return -float(Vcost[0])                              # reward convention
+        return lab
     if cell.get("nonlinear"):
         from src.solvers.mackey_glass_pontryagin import solve_pontryagin, value_along
         mg = cell["mg"]
@@ -150,6 +208,15 @@ def on_sheet_windows(cell, rng):
     """On-sheet data: windows along the optimal/oracle trajectory from a set of initial conditions.
     Linear cells roll the env under u*; MG cells integrate the Pontryagin optimum. Returns (Ws, Vs)."""
     lab = oracle_label(cell)
+    if cell.get("family") == "hopfield":
+        from src.solvers.delayed_hopfield_pontryagin import build_hopfield_pontryagin_dataset
+        hp = cell["hopfield"]
+        ics = [0.5 * rng.standard_normal(cell["n"]) for _ in range(N_IC_MG)]   # cloud of initial states
+        Ws, Vs, _ = build_hopfield_pontryagin_dataset(cell["oracle"], hp["W"], hp["eps"], hp["kappa"],
+                                                      cell["dt"], cell["window_length"], ics,
+                                                      T=12.0, stride=SUBSAMPLE,
+                                                      nonlinearity=hp["nonlinearity"], damping=hp["damping"])
+        return list(Ws), list(Vs.tolist())
     if cell.get("nonlinear"):
         from src.solvers.mackey_glass_pontryagin import build_pontryagin_dataset
         mg = cell["mg"]; m = mg["m"]
@@ -190,6 +257,24 @@ def deploy_mg(cell):
     Ws, _, Us = build_pontryagin_dataset(cell["oracle"], mg["mu"], mg["p"], mg["n_exp"], mg["xs"],
                                          cell["dt"], cell["window_length"], ic, T=20.0, stride=1)
     return np.array(Ws), Us
+
+
+def deploy_hopfield(cell):
+    """Nonlinear optimal trajectory + control from x0c (the cos reference) for the Hopfield cell."""
+    from src.solvers.delayed_hopfield_pontryagin import build_hopfield_pontryagin_dataset
+    hp = cell["hopfield"]
+    Ws, _, Us = build_hopfield_pontryagin_dataset(cell["oracle"], hp["W"], hp["eps"], hp["kappa"],
+                                                  cell["dt"], cell["window_length"], [cell["x0c"]],
+                                                  T=12.0, stride=1, nonlinearity=hp["nonlinearity"],
+                                                  damping=hp["damping"])
+    return np.array(Ws), Us
+
+
+def hopfield_linear_feedback(cell):
+    """Deployable linear-oracle feedback u = -Kc z (origin equilibrium) -- the I_or reference."""
+    oc, dt, n = cell["oracle"], cell["dt"], cell["n"]
+    Kc, theta = oc["Kc"], oc["theta"]
+    return lambda W: -Kc @ z_from_window(W, dt, theta, n)
 
 
 # ============================== rollout / closed loop ==============================
@@ -241,7 +326,8 @@ def evaluate_rep(cell, rep_cfg, Wtr, Vtr, dep_W, u_star_dep, half_RinvBT):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cell", required=True,
-                    choices=["markovian", "linear_dde", "platoon", "mg_limit_cycle", "mg_chaotic"])
+                    choices=["markovian", "linear_dde", "hopfield_linear", "hopfield_nonlinear",
+                             "hopfield_duffing", "platoon", "mg_limit_cycle", "mg_chaotic"])
     ap.add_argument("--rep", default="all", choices=["all", *REPS.keys()])
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--data-mode", default="on_off_sheet", choices=["on_sheet", "on_off_sheet"],
@@ -261,7 +347,10 @@ def main():
     print(f"oracle gate: cos={gcos:.4f}  |u|/|u*|={gmag:.4f}  (must be 1.000)")
 
     # deployment (cos reference) is cell-specific; the DATA SAMPLING is uniform (generate_data).
-    if cell.get("nonlinear"):
+    if cell.get("family") == "hopfield":
+        dep_W, u_star_dep = deploy_hopfield(cell)
+        _, I_or = rollout(cell, hopfield_linear_feedback(cell), cell["x0c"])
+    elif cell.get("nonlinear"):
         dep_W, u_star_dep = deploy_mg(cell)
         _, I_or = rollout(cell, mg_linear_feedback(cell), cell["x0c"])
     else:

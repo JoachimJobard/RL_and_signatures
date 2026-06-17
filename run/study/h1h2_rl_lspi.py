@@ -37,6 +37,15 @@ from mwe_lspi_test import (make_feat, reference_control, rollout,           # no
 CFG = {
     "markovian":      dict(tau=1.0, damp=0.3, explore=0.2, rank=0),
     "linear_dde":     dict(tau=1.0, damp=0.1, explore=0.3, rank=0),
+    # n_roll=50 (not the default 20): dim-90 raw_history needs n/D~25 for a well-conditioned LSTD;
+    # at n_roll=20 it diverges. The fix is DATA, not truncation/damping (sweep 2026-06-17).
+    # reg=1e-4 (not the default 1e-3): for dim-90 raw_history the ABSOLUTE ridge is non-monotonic --
+    # a tiny ridge (<=1e-4) keeps the LSTD solve in the stable basin, the default 1e-3 sits ON a
+    # policy-stability boundary where the solve is thread-fragile (diverges), 1e-1 is stable again
+    # (ridge sweep 2026-06-17). Tiny ridge = thread-robust convergence, no truncation.
+    "hopfield_linear":    dict(tau=1.0, damp=0.1, explore=0.3, rank=0, n_roll=50, reg=1e-4),
+    "hopfield_nonlinear": dict(tau=1.0, damp=0.1, explore=0.3, rank=0, n_roll=50, reg=1e-4),
+    "hopfield_duffing":   dict(tau=1.0, damp=0.1, explore=0.3, rank=0, n_roll=50, reg=1e-4),
     "platoon":        dict(tau=0.5, damp=0.1, explore=0.5, rank=20),   # high-dim: centred + truncated LSTD
     "mg_limit_cycle": dict(tau=2.0, damp=0.1, explore=0.3, rank=0),
     "mg_chaotic":     dict(tau=2.0, damp=0.1, explore=0.3, rank=0),
@@ -88,11 +97,12 @@ def evaluate_rep(cell, rep_cfg, seed, cfg, depW, u_star_dep):
     best = dict(dim=int(D), r2=0.0, cos=0.0, I=float("inf"))
     for it in range(N_ITER):
         P, PN, RW = collect_dataset(cell, feat, policy, seed=seed * 1000 + it,
-                                    t_collect=t_collect, sigma=cfg["explore"])
+                                    t_collect=t_collect, sigma=cfg["explore"],
+                                    n_roll=cfg.get("n_roll", 20))
         if len(P) == 0:
             break
         theta = (1.0 - cfg["damp"]) * theta + cfg["damp"] * lstd_solve(
-            P, PN, RW, D, dt, cfg["tau"], rank=cfg.get("rank", 0))
+            P, PN, RW, D, dt, cfg["tau"], rank=cfg.get("rank", 0), reg=cfg.get("reg", 1e-3))
         policy = greedy(feat, theta, half_RinvBT)
         I = rollout(cell, feat, policy, cell["x0c"], tf)
         if not np.isfinite(I):

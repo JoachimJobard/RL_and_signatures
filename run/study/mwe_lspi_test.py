@@ -24,7 +24,8 @@ import numpy as np
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))         # for the sibling harness module
-from h1h2_evaluation import make_cell, label_fns, mg_linear_feedback, REPS   # noqa: E402
+from h1h2_evaluation import (make_cell, label_fns, mg_linear_feedback,        # noqa: E402
+                             hopfield_linear_feedback, REPS)
 
 REG = 1e-3
 N_ROLL = 20
@@ -41,12 +42,16 @@ def make_feat(cell, rep_cfg):
 
 
 def ic_sampler(cell, rng):
+    if cell.get("family") == "hopfield":
+        return rng.standard_normal(cell["n"]) * 0.4         # cloud of initial states (origin equilibrium)
     if cell.get("nonlinear"):
         return np.array([rng.uniform(0.6, 1.35)])          # MG constant-history level
     return cell["x0"](rng)
 
 
 def reference_control(cell):
+    if cell.get("family") == "hopfield":
+        return hopfield_linear_feedback(cell)              # linear-oracle feedback reference (xstar=0)
     if cell.get("nonlinear"):
         return mg_linear_feedback(cell)
     _, us = label_fns(cell)
@@ -83,23 +88,24 @@ def rollout(cell, feat, control_fn, x0, tf, collect=False):
     return (P, PN, RW, I) if collect else I
 
 
-def collect_dataset(cell, feat, control_fn, seed, t_collect, sigma=0.0):
+def collect_dataset(cell, feat, control_fn, seed, t_collect, sigma=0.0, n_roll=N_ROLL):
     """Collect transitions under control_fn. sigma>0 adds exploration noise to the control during
     collection (the RL analog of off-sheet perturbation: it spreads the data OFF the greedy manifold
-    so the value-gradient is constrained -- without it the signature gradient is under-determined)."""
+    so the value-gradient is constrained -- without it the signature gradient is under-determined).
+    n_roll sets the number of diverse-IC rollouts (the dataset size, n ~ n_roll * t_collect/dt)."""
     rng = np.random.default_rng(seed)
     m = cell["oracle"]["B"].shape[1]
     ctrl = control_fn
     if sigma > 0:
         ctrl = lambda W: np.asarray(control_fn(W)).reshape(-1) + sigma * rng.standard_normal(m)
     P, PN, RW = [], [], []
-    for _ in range(N_ROLL):
+    for _ in range(n_roll):
         p, pn, rw, _ = rollout(cell, feat, ctrl, ic_sampler(cell, rng), t_collect, collect=True)
         P += p; PN += pn; RW += rw
     return np.array(P), np.array(PN), np.array(RW)
 
 
-def lstd_solve(P, PN, RW, D, dt, tau, rank=0):
+def lstd_solve(P, PN, RW, D, dt, tau, rank=0, reg=REG):
     """CENTRED LSTD (gauge fix: subtract the running feature mean -- removes the constant/time
     direction that dominates the high-dim Gram) with optional TRUNCATED-SVD: solve the fixed point
     in the top-`rank` principal subspace of the centred features, dropping the near-null directions
@@ -113,9 +119,9 @@ def lstd_solve(P, PN, RW, D, dt, tau, rank=0):
         _, evecs = np.linalg.eigh((C + C.T) / 2.0)
         U = evecs[:, -rank:]                                   # top-`rank` principal directions
         Mk, bk = U.T @ M @ U, U.T @ b
-        reg = REG * max(float(np.abs(np.diag(Mk)).max()), 1e-12)
-        return U @ (-np.linalg.solve(Mk + reg * np.eye(rank), bk))
-    return -np.linalg.solve(M + REG * np.eye(D), b)
+        reg_eff = reg * max(float(np.abs(np.diag(Mk)).max()), 1e-12)
+        return U @ (-np.linalg.solve(Mk + reg_eff * np.eye(rank), bk))
+    return -np.linalg.solve(M + reg * np.eye(D), b)
 
 
 def greedy(feat, theta, half_RinvBT):
@@ -133,7 +139,11 @@ def main():
     ap.add_argument("--explore", type=float, default=0.0, help="exploration noise sigma during data collection")
     ap.add_argument("--damp", type=float, default=1.0,
                     help="critic damping alpha: theta <- (1-alpha) theta + alpha theta_lstd (1=full LSPI)")
+    ap.add_argument("--rank", type=int, default=0, help="truncated-SVD rank for the LSTD solve (0 = none)")
     ap.add_argument("--n-iter", type=int, default=N_ITER)
+    ap.add_argument("--n-roll", type=int, default=N_ROLL,
+                    help="diverse-IC rollouts per LSTD fit (more = larger, better-conditioned dataset)")
+    ap.add_argument("--reg", type=float, default=REG, help="LSTD ridge (Tikhonov) parameter")
     ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
@@ -175,10 +185,11 @@ def main():
     theta = np.zeros(D)                                          # zero critic -> zero (no-control) policy
     policy = lambda W: np.zeros(B.shape[1])
     for it in range(args.n_iter):
-        P, PN, RW = collect_dataset(cell, feat, policy, seed=it, t_collect=t_collect, sigma=args.explore)
+        P, PN, RW = collect_dataset(cell, feat, policy, seed=it, t_collect=t_collect,
+                                    sigma=args.explore, n_roll=args.n_roll)
         if len(P) == 0:
             print(f"{it:>5}  (no transitions — policy diverged data collection)"); break
-        theta_lstd = lstd_solve(P, PN, RW, D, dt, args.tau)
+        theta_lstd = lstd_solve(P, PN, RW, D, dt, args.tau, rank=args.rank, reg=args.reg)
         theta = (1.0 - args.damp) * theta + args.damp * theta_lstd      # damped (soft) policy-iteration step
         policy = greedy(feat, theta, half_RinvBT)
         I = rollout(cell, feat, policy, cell["x0c"], tf)
