@@ -112,7 +112,12 @@ def make_cell(name):
         # kappa/nonlinearity/damping overridable via HOPFIELD_KAPPA / HOPFIELD_NONLIN / HOPFIELD_DAMPING
         # (path-A kappa sweep on hopfield_nonlinear); Pontryagin oracle gates verified.
         from src.envs.delayed_hopfield_network import DelayedHopfieldNetwork, rotational_coupling
-        W = rotational_coupling(rho=2.0, theta=np.pi / 2.0); tau = 0.5; dt = 0.1; eps, Ncheb = 1.0, 8
+        W = rotational_coupling(rho=2.0, theta=np.pi / 2.0); dt = 0.1; eps = 1.0
+        # HOPFIELD_TAU sweeps the DELAY (=> window length round(tau/dt)+1): the operative knob for H2.
+        # raw_history degree-2 dim ~ (window*n)^2/2 EXPLODES with tau while the signature dim is
+        # window-independent, so longer delay -> raw_history ill-conditioned -> signature should win.
+        tau = float(os.environ.get("HOPFIELD_TAU", "0.5"))
+        Ncheb = int(os.environ.get("HOPFIELD_NCHEB", str(max(8, round(3 * tau)))))   # scale collocation w/ tau (MG rule)
         if name == "hopfield_duffing":
             kappa = float(os.environ.get("HOPFIELD_KAPPA", "0.5"))
             nonlin = os.environ.get("HOPFIELD_NONLIN", "cubic")
