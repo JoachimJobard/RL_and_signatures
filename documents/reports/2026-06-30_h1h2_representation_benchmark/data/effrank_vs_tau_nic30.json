@@ -1,0 +1,66 @@
+{
+  "seed": 0,
+  "n_ic": "30",
+  "rows": [
+    {
+      "tau": 1.0,
+      "window_length": 11,
+      "n_state": 2,
+      "n_windows": 3630,
+      "raw_history_dim": 275,
+      "raw_history_effrank": 3.3175774229983332,
+      "signature_dim": 30,
+      "signature_effrank": 2.5459400871115787
+    },
+    {
+      "tau": 2.0,
+      "window_length": 21,
+      "n_state": 2,
+      "n_windows": 3630,
+      "raw_history_dim": 945,
+      "raw_history_effrank": 3.3063232645575638,
+      "signature_dim": 30,
+      "signature_effrank": 2.6002118230658566
+    },
+    {
+      "tau": 3.0,
+      "window_length": 31,
+      "n_state": 2,
+      "n_windows": 3630,
+      "raw_history_dim": 2015,
+      "raw_history_effrank": 3.3429734041564214,
+      "signature_dim": 30,
+      "signature_effrank": 2.603931858656831
+    },
+    {
+      "tau": 4.0,
+      "window_length": 41,
+      "n_state": 2,
+      "n_windows": 3630,
+      "raw_history_dim": 3485,
+      "raw_history_effrank": 3.391139720216736,
+      "signature_dim": 30,
+      "signature_effrank": 2.594396395921071
+    },
+    {
+      "tau": 5.0,
+      "window_length": 51,
+      "n_state": 2,
+      "n_windows": 3630,
+      "raw_history_dim": 5355,
+      "raw_history_effrank": 3.44427867281998,
+      "signature_dim": 30,
+      "signature_effrank": 2.5792433517306237
+    },
+    {
+      "tau": 6.0,
+      "window_length": 61,
+      "n_state": 2,
+      "n_windows": 3630,
+      "raw_history_dim": 7625,
+      "raw_history_effrank": 3.500246189510258,
+      "signature_dim": 30,
+      "signature_effrank": 2.558911428108897
+    }
+  ]
+}

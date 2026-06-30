@@ -1,0 +1,10 @@
+# LaTeX build artefacts (keep .tex, .pdf, figures/, data/)
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
