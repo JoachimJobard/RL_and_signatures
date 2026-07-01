@@ -655,7 +655,7 @@ cell & off/dim & $\gamma_H$ & $I_H$ & $I_S$\\
 \multirow{3}{*}{chaotic}
  & 1 & 0.305 & 0.193 & $\mathbf{0.0179}$\\
  & 2 & 0.869 & $\mathbf{0.0143}$ & 0.0184\\
- & 4 & \multicolumn{3}{c}{\footnotesize(in progress)}\\
+ & 4 & 0.898 & $\mathbf{0.0140}$ & 0.0180\\
 \bottomrule
 \end{tabular}
 \end{minipage}
@@ -679,8 +679,11 @@ $H_2$-holds verdict on this cell (Table~\ref{tab:h1}, $\dagger$) is thus an off-
 artefact: at off/dim${}=4$ it reverses. The chaotic cell (window $69$, $\dim\phi_H=2484$, the
 hardest plant) overturns \emph{sooner}: under-conditioned at off/dim 1 ($I_H=0.193$ versus the
 signature's $0.0179$), the history window already \emph{beats} the signature at off/dim 2
-($I_H=0.0143$ versus $0.0184$, $\gamma_H=0.87$). Its off/dim${}=4$ point, requiring
-$\sim10^{4}$ Pontryagin solves, was still computing at the time of writing and is left blank.
+($I_H=0.0143$ versus $0.0184$, $\gamma_H=0.87$) and \emph{plateaus} there
+($I_H=0.0140$, $\gamma_H=0.90$ at off/dim${}=4$; each such point requires $\sim10^{4}$ Pontryagin
+solves). The reversal thus holds on both Mackey--Glass cells and both Hopfield delays: the
+signature's long-delay advantage is under-sampling of the history window, removed by off-sheet
+data balanced to its dimension, with no cell measured as an exception.
 \end{finding}
 
 \begin{observation}[Verdict on $H_2$]\label{obs:h2}
@@ -1072,9 +1075,9 @@ trick\_ablation\_convergence, budget\_sweep\_high\_gap\_b*\}}.
 
 \paragraph{Provenance caveats.} The Hopfield/Mackey--Glass sweeps and the effective-rank
 measurement are single-seed (the operative quantity there is the data/conditioning axis, not seed
-variance); the canonical $H_1/H_2$ table is five-seed. The mg\_chaotic off/dim${}\in\{2,4\}$
-points (Table~\ref{tab:generality}), each requiring $5$--$10\times10^{3}$ Pontryagin solves, were
-still computing at the time of writing and are marked as such rather than filled. The trajectory
+variance); the canonical $H_1/H_2$ table is five-seed. The Mackey--Glass off-sheet curve is now
+complete for both cells (the last mg\_chaotic point, off/dim${}=4$, at $\sim10^{4}$ Pontryagin
+solves, finished after the first draft and is included). The trajectory
 figures are local regenerations whose well-conditioned costs
 match the cluster \texttt{summary.json} to four decimals; the ill-conditioned signature on the
 platoon reproduces only to ${\sim}10\%$ (local $0.140$ versus cluster $0.164$), itself a symptom
