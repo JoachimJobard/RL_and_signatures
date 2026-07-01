@@ -843,6 +843,33 @@ of Proposition~\ref{prop:veronese}. Solid = nominal dimension; dashed = measured
 dotted = the signature's fixed dimension.}\label{fig:effrank}
 \end{figure}
 
+\begin{observation}[The off-sheet budget scales with the feature dimension: the sample-efficiency law]\label{obs:budget}
+Gradient identifiability requires $\ker G_n=\{0\}$ (Proposition~\ref{prop:kerG}). The on-sheet
+Gram has rank equal to the effective rank $r^\star=\effrank C\approx 3.4$
+(Finding~\ref{find:effrank}, the Veronese bound of Proposition~\ref{prop:veronese}), so its
+co-rank is $\dim\phi-r^\star$. Off-sheet windows supply the missing rows, each raising
+$\rank G_n$ by at most one; reaching full rank therefore needs
+\[
+  n_{\mathrm{off}}\ \gtrsim\ \dim\phi-r^\star\ =\ \dim\phi\,\bigl(1+o(1)\bigr)
+  \qquad (\dim\phi\to\infty).
+\]
+The off-sheet perturbations are of small amplitude, hence non-generic, so each contributes less
+than a full unit of rank and the measured threshold is $n_{\mathrm{off}}\gtrsim c\,\dim\phi$ with
+$c\approx 2$ (the off/dim${}\approx 2$ transition of Table~\ref{tab:controls}), not $c=1$.
+Since the signature dimension is fixed while the degree-two history dimension grows as
+$\dim\phi_H=O(\tau^{2})$ (window length $L=O(\tau)$, $\dim\phi_H=O((Ln)^{2})$),
+\[
+  n_{\mathrm{off}}^{\,\mathrm{sig}}=O(1),\qquad
+  n_{\mathrm{off}}^{\,\mathrm{raw}}=O(\tau^{2})\qquad (\tau\to\infty).
+\]
+This is the quantitative content of the sample-efficiency advantage (Observation~\ref{obs:h2}):
+the signature is not more expressive; the off-sheet data it requires for identifiability is
+independent of the delay, whereas the history window's grows quadratically. The statement is
+falsifiable --- it predicts, for any $\tau$, the off-sheet count at which the history fit
+recovers --- and is corroborated by the off/dim${}\gtrsim 2$ transitions measured on both the
+Hopfield and the Mackey--Glass cells.
+\end{observation}
+
 \begin{finding}[On-sheet data identifies only the low-dimensional critic; off-sheet data is a shared precondition]\label{find:onsheet-shared}
 The effective rank of the on-sheet (controlled-trajectory) data is $\approx3.4$
 (Finding~\ref{find:effrank}), so any representation whose feature dimension exceeds $\approx3.4$ is
