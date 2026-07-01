@@ -843,6 +843,61 @@ of Proposition~\ref{prop:veronese}. Solid = nominal dimension; dashed = measured
 dotted = the signature's fixed dimension.}\label{fig:effrank}
 \end{figure}
 
+\begin{finding}[On-sheet data identifies only the low-dimensional critic; off-sheet data is a shared precondition]\label{find:onsheet-shared}
+The effective rank of the on-sheet (controlled-trajectory) data is $\approx3.4$
+(Finding~\ref{find:effrank}), so any representation whose feature dimension exceeds $\approx3.4$ is
+under-determined by on-sheet data alone: the value fits ($R^{2}\to1$) while the gradient transverse
+to the trajectory is unconstrained (Proposition~\ref{prop:kerG}). This is measured directly on the
+Hopfield cell with on-sheet data only, over five seeds (Table~\ref{tab:onsheet}), extending the
+canonical on-sheet-only comparison of Finding~\ref{find:onsheet} to the nonlinear-delayed primary
+testbed and tying it to the rank. Only the dimension-$5$ markovian critic --- whose dimension is
+close to the attractor rank --- is identifiable and stabilises the plant ($I=0.13$ at $\tau=0.5$
+and $0.64$ at $\tau=2$, against the oracle $0.09$ and $0.21$); both high-dimensional
+representations diverge ($I\sim3$--$4\times10^{2}$, all five seeds), exceeding even the no-control
+cost ($I^{0}=9.85$ and $33.5$). The decisive case is $\tau=0.5$, where raw-history is
+\emph{over-sampled in count} ($n/\dim=40$) yet still diverges: the obstruction is the
+rank-$\approx3.4$ degeneracy of the data, not the sample size. Off-sheet (off-manifold) data is
+therefore a precondition \emph{shared by both} high-dimensional representations, and this shared
+precondition --- not any property of the signature --- is the reason on-sheet-only fits fail.
+\end{finding}
+
+\begin{table}[ht]\centering\small
+\caption{Hopfield on-sheet-only (no off-sheet data): closed-loop $I$, mean${}\pm{}$half the $95\%$
+confidence interval over five seeds (\texttt{data/h1h2\_hopfield\_onsheet\_5seed}). Only the
+dimension-$5$ markovian critic (dimension near the on-sheet effective rank $\approx3.4$) is
+identifiable; both high-dimensional representations diverge --- the signature marginally worse than
+raw-history --- above even the no-control cost $I^{0}$. At $\tau=0.5$ raw-history has $n/\dim=40$,
+so the divergence is the rank degeneracy, not a sample shortage.}\label{tab:onsheet}
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{cl ccc}
+\toprule
+$\tau$ ($I^{0}\!\to\! I^{\star}$) & rep & $\dim\phi$ & $n/\dim$ & $I$ (mean $\pm$ ci)\\
+\midrule
+\multirow{3}{*}{$0.5$ ($9.85\!\to\!0.09$)}
+ & markovian   & 5  & 726  & $\mathbf{0.131\pm0.012}$\\
+ & raw-history & 90 & 40.3 & $318\pm8$\\
+ & signature   & 30 & 121  & $393\pm10$\\
+\midrule
+\multirow{3}{*}{$2.0$ ($33.5\!\to\!0.21$)}
+ & markovian   & 5   & 726 & $\mathbf{0.642\pm0.18}$\\
+ & raw-history & 945 & 3.8 & $371\pm27$\\
+ & signature   & 30  & 121 & $415\pm11$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{observation}[The shared precondition sets up the efficiency distinction, not an expressivity gap]\label{obs:precond}
+Finding~\ref{find:onsheet-shared} is the precondition common to both high-dimensional maps; they
+differ only in \emph{how much} off-sheet data restores them. Given off-sheet data, the scaling
+sweeps (Table~\ref{tab:controls}, Table~\ref{tab:generality}) show the signature needs less: its
+fixed dimension ($\sim30$) is over-determined already at the smallest off-sheet budget, whereas
+raw-history's $O(\tau^{2})$ dimension requires off/dim${}\gtrsim2$ against its own growing count.
+Once that adequate, balanced off-sheet data is supplied, raw-history converges and matches or beats
+the signature on every cell (Findings~\ref{find:controls} and~\ref{find:mg}). The signature's
+advantage is therefore sample efficiency and conditioning, not expressivity: both high-dimensional
+representations require off-sheet data; the signature simply requires less of it.
+\end{observation}
+
 \subsection{Synthesis}
 
 \begin{observation}[The signature trades a delay blow-up for a dimension blow-up]\label{obs:synthesis}
@@ -1071,6 +1126,8 @@ trick\_ablation\_convergence, budget\_sweep\_high\_gap\_b*\}}.
 \item Duffing: \texttt{h1h2\_duffing\_kappa\_sweep\_20260617\_155613}; Mackey--Glass off-sheet:
 \texttt{h1h2\_mg\_offsheet\_20260630\_164840} (Table~\ref{tab:generality}).
 \item Effective rank: \texttt{data/h1h2\_effective\_rank\_vs\_delay/} (Table~\ref{tab:effrank}).
+Hopfield on-sheet-only (5 seeds): \texttt{data/h1h2\_hopfield\_onsheet\_5seed/}
+(Table~\ref{tab:onsheet}), produced by \texttt{h1h2\_evaluation.py -\/-data-mode on\_sheet}.
 \end{itemize}
 
 \paragraph{Provenance caveats.} The Hopfield/Mackey--Glass sweeps and the effective-rank
