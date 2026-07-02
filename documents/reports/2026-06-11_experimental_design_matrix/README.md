@@ -25,7 +25,44 @@ against the delayed-LQR oracle on the *linear* cells; raw closed-loop cost $J$ o
 *nonlinear* cells (no closed-form oracle). 5 seeds, common random numbers, 800-episode
 budget unless stated.
 
+**Reporting the failures explicitly.** Each cell table below carries three quantities,
+not one. The **all-seeds** column is the unconditional mean $\pm$ 95% CI over every seed
+(kept for continuity; a single diverging seed makes it `NaN`, since it is a plain mean).
+This unconditional mean conflates *how often* the controller reaches the set-point with
+*how good it is when it does*, so two further columns separate them: the **success rate**
+(fraction of seeds whose control task is achieved — $\rho<0.5$, i.e. within 50% of the
+oracle, on linear cells; $J<1$ on nonlinear cells; a diverging seed counts as a failure)
+and the **cost conditional on success** ($\rho$ or $J$ averaged $\pm$ 95% CI over the
+achieving seeds only, "—" when none succeed). Thresholds are heuristic and adjustable
+(`run/study/aggregate_representation_study.py --rho-max --j-max`); the conditional columns
+are recomputed from the saved per-seed values without retraining.
+
+These columns are a more faithful *measurement* of the same, pre-registered H1/H2 **cost**
+hypotheses — they expose failures the unconditional mean masks — and do not introduce a new
+hypothesis. Any reading of them as a *reliability* property of the signature (lower
+across-seed variance, higher achievement rate) is an **observation**, not a predicted
+outcome: it is reported as such throughout and is not folded into H1/H2. The pre-registered
+quantity is the across-seed variance (the seed axis); the binarised success rate carries an
+adjustable threshold and is descriptive. Confirming the reliability reading as a claim would
+require a pre-registered replication on fresh seeds (§7).
+
 ---
+
+> **⚠️ Status (2026-07-02) — H2 as a *representational* claim is NOT supported; this supersedes the "H2 supported" verdict below.**
+> The signature's lower cost on the nonlinear MG cells does reproduce at 5 seeds, but the
+> current evidence attributes it to **sample efficiency / conditioning, not a richer
+> representation.** Two facts: (i) even at 5 seeds raw-history is under-conditioned at the
+> canonical off-sheet budget (gradient cosine 0.15–0.41 vs the signature's 0.84–0.94); (ii) a
+> **single-seed** off-sheet-scaling control
+> (`data/h1h2_report_runs/sweeps/h1h2_mg_offsheet_20260630_164840/`) shows raw-history
+> converges (cosine → 0.9) and **matches or beats the signature** given 2–4× more off-manifold
+> data (mg_limit_cycle: raw 0.011 vs sig 0.013; mg_chaotic: raw 0.014 vs sig 0.018). So read
+> every "H2 supported / signature wins" statement below as a **fixed-data-budget cost
+> comparison**, not as evidence that the signature is a better representation — and the
+> §4 "reliability" observation likewise reduces to the same conditioning effect, not a
+> separate signature virtue. **Only missing piece:** a 5-seed off-sheet-scaling replication to
+> promote this from "not supported" to CI-backed refutation; the mechanism already points that
+> way.
 
 ## 1. Headline outcomes
 
@@ -77,23 +114,23 @@ Metric $\rho$ = normalised sub-optimality vs the delayed-LQR oracle; mean ± 95%
 
 **`delayed_oscillator_high_gap_study`** (strong H1 cell, 54.5% oracle gap):
 
-| Representation | Capacity | $\dim\Phi$ | $\rho$ |
-|---|---|---:|---:|
-| markovian | deg 2 | 5 | 0.380 ± 0.024 |
-| raw_history | deg 1 | 12 | 0.661 ± 0.001 |
-| raw_history | deg 2 | 90 | 0.413 ± 0.036 |
-| signature | depth 2 | 30 | 0.294 ± 0.036 |
-| signature | depth 3 | 155 | **0.157 ± 0.044** |
+| Representation | Capacity | $\dim\Phi$ | $\rho$ (all seeds) | Success | $\rho\mid$success |
+|---|---|---:|---:|:--:|---:|
+| markovian | deg 2 | 5 | 0.380 ± 0.024 | 5/5 | 0.380 ± 0.024 |
+| raw_history | deg 1 | 12 | 0.661 ± 0.001 | 0/5 | — |
+| raw_history | deg 2 | 90 | 0.413 ± 0.036 | 5/5 | 0.413 ± 0.036 |
+| signature | depth 2 | 30 | 0.294 ± 0.036 | 5/5 | 0.294 ± 0.036 |
+| signature | depth 3 | 155 | **0.157 ± 0.044** | 5/5 | **0.157 ± 0.044** |
 
 **`delayed_velocity_study_v2`** (weaker H1 cell, ~18% gap):
 
-| Representation | Capacity | $\dim\Phi$ | $\rho$ |
-|---|---|---:|---:|
-| markovian | deg 2 | 5 | 0.572 ± 0.040 |
-| raw_history | deg 1 | 14 | 1.278 ± 0.007 |
-| raw_history | deg 2 | 119 | 0.500 ± 0.058 |
-| signature | depth 2 | 30 | **0.332 ± 0.059** |
-| signature | depth 3 | 155 | 0.330 ± 0.080 |
+| Representation | Capacity | $\dim\Phi$ | $\rho$ (all seeds) | Success | $\rho\mid$success |
+|---|---|---:|---:|:--:|---:|
+| markovian | deg 2 | 5 | 0.572 ± 0.040 | 0/5 | — |
+| raw_history | deg 1 | 14 | 1.278 ± 0.007 | 0/5 | — |
+| raw_history | deg 2 | 119 | 0.500 ± 0.058 | 2/5 | 0.437 ± 0.051 |
+| signature | depth 2 | 30 | **0.332 ± 0.059** | 5/5 | **0.332 ± 0.059** |
+| signature | depth 3 | 155 | 0.330 ± 0.080 | 5/5 | 0.330 ± 0.080 |
 
 The high-gap environment was **found by a bounded-plant parameter search** (maximise the
 markovian–oracle gap subject to open-loop boundedness): it sits at a $54.5\%$ gap while
@@ -121,42 +158,57 @@ Lower is better. `NaN` = the variant diverged on at least one seed.
 
 **`mackey_glass_limit_cycle_study`** ($\tau=6$ limit cycle, primary H2 cell):
 
-| Representation | Capacity | $\dim\Phi$ | $J$ |
-|---|---|---:|---:|
-| markovian | deg 2 | 2 | 30.30 ± 13.48 |
-| raw_history | deg 1 | 29 | 0.281 ± 0.002 |
-| raw_history | deg 2 | 464 | 15.31 ± 17.95 |
-| raw_history | deg 3 | 4959 | NaN (diverges) |
-| signature | depth 2 | 12 | 0.068 ± 0.012 |
-| signature | depth 3 | 39 | 0.057 ± 0.007 |
-| signature | depth 4 | 120 | **0.049 ± 0.014** |
+| Representation | Capacity | $\dim\Phi$ | $J$ (all seeds) | Success | $J\mid$success |
+|---|---|---:|---:|:--:|---:|
+| markovian | deg 2 | 2 | 30.30 ± 13.48 | 0/5 | — |
+| raw_history | deg 1 | 29 | 0.281 ± 0.002 | 5/5 | 0.281 ± 0.002 |
+| raw_history | deg 2 | 464 | 15.31 ± 17.95 | 3/5 | 0.356 ± 0.194 |
+| raw_history | deg 3 | 4959 | NaN (diverges) | 0/5 | — |
+| signature | depth 2 | 12 | 0.068 ± 0.012 | 5/5 | 0.068 ± 0.012 |
+| signature | depth 3 | 39 | 0.057 ± 0.007 | 5/5 | 0.057 ± 0.007 |
+| signature | depth 4 | 120 | **0.049 ± 0.014** | 5/5 | **0.049 ± 0.014** |
 
 **`mackey_glass_chaotic_study`** ($\tau=17$ chaotic, robustness stress cell):
 
-| Representation | Capacity | $\dim\Phi$ | $J$ |
-|---|---|---:|---:|
-| markovian | deg 2 | 2 | 43.78 ± 12.01 |
-| raw_history | deg 1 | 71 | 1.112 ± 0.007 |
-| raw_history | deg 2 | 2627 | 0.297 ± 0.124 |
-| signature | depth 2 | 12 | **0.088 ± 0.026** |
-| signature | depth 3 | 39 | 0.106 ± 0.024 |
-| signature | depth 4 | 120 | 0.114 ± 0.028 |
+| Representation | Capacity | $\dim\Phi$ | $J$ (all seeds) | Success | $J\mid$success |
+|---|---|---:|---:|:--:|---:|
+| markovian | deg 2 | 2 | 43.78 ± 12.01 | 0/5 | — |
+| raw_history | deg 1 | 71 | 1.112 ± 0.007 | 0/5 | — |
+| raw_history | deg 2 | 2627 | 0.297 ± 0.124 | 5/5 | 0.297 ± 0.124 |
+| signature | depth 2 | 12 | **0.088 ± 0.026** | 5/5 | **0.088 ± 0.026** |
+| signature | depth 3 | 39 | 0.106 ± 0.024 | 5/5 | 0.106 ± 0.024 |
+| signature | depth 4 | 120 | 0.114 ± 0.028 | 5/5 | 0.114 ± 0.028 |
 
-- **Representational win (limit cycle).** The signature attains $J\approx0.049$–$0.068$
-  *stably across depths*; the markovian variant is an order of magnitude worse
-  ($30.30$, high variance — no history) and the raw-history variant **degrades with
-  capacity**: a usable $0.281$ at degree 1, then $15.31$ (unstable across seeds) at degree
-  2, then divergence to `NaN` at degree 3. Even at *lower* feature dimension (depth-2
-  signature $\dim 12$ at $J=0.068$ vs degree-1 raw history $\dim 29$ at $J=0.281$) the
-  signature wins by $\sim4\times$: the H2 representational outcome — signature succeeds,
-  and *stably*, where raw-history cannot, at matched (indeed lower) $\dim\Phi$.
+- **Representational win (limit cycle) — the H2 cost outcome.** At matched (indeed lower)
+  feature dimension the signature attains the lowest cost: $J\approx0.049$–$0.068$ across
+  depths, against degree-1 raw history at $J=0.281$ — the depth-2 signature ($\dim 12$)
+  already beats degree-1 raw history ($\dim 29$) by $\sim4\times$ — while the markovian
+  variant is an order of magnitude worse ($30.30$, no history). This is the pre-registered
+  H2 statement (a **cost** comparison at matched hypothesis class and dimension), and it is
+  supported.
+- **An across-seed reliability gradient — exploratory observation, not part of H2.** The
+  seed-resolved results additionally show a reliability pattern that the unconditional mean
+  hides; it is reported here as an *observation*, not as a predicted outcome. The signature
+  reaches the set-point on all five seeds at every depth (95% CI $\pm0.007$–$0.014$); the
+  raw-history variant's achievement erodes with capacity — 5/5 at degree 1, then 3/5 at
+  degree 2 (the unconditional $15.31\pm17.95$ is bimodal: 3 seeds at $J=0.356$, 2 near
+  $38$; not a central tendency), then 0/5 at degree 3 (divergence, `NaN`); the markovian
+  variant reaches the target on 0/5 seeds. *Epistemic status.* The underlying quantity —
+  the across-seed variance — is a pre-registered measurement (the seed axis, §7), hence
+  reported as measured; the binarised success rate additionally carries a heuristic
+  threshold ($J<1$) and is descriptive only. This reliability pattern is **not** folded
+  into the H2 claim and is **not** asserted as confirmed: a pre-registered replication on a
+  *fresh* seed set is required first (§7, open threads).
 - **Robust to chaos (stress cell).** At $\tau=17$ (above the chaotic onset
-  $\tau\approx16$) the depth-2 signature attains $J=0.088$ vs raw-history degree-2 $0.297$
-  and markovian $43.78$, at **219× fewer features** ($\dim 12$ vs $2627$) — because the
-  signature dimension is independent of window length (channels × depth), whereas the
-  raw-history monomial dimension explodes with the ~70-tap window the $\tau=17$ delay
-  requires (degree $\geq3$ infeasible). The matched-dimension comparison therefore
-  *favours the much larger raw basis*, and the signature still wins by $\sim3.4\times$.
+  $\tau\approx16$) the depth-2 signature attains $J=0.088$ (**5/5**) vs raw-history
+  degree-2 $0.297$ (**5/5**) and markovian $43.78$ (**0/5**), at **219× fewer features**
+  ($\dim 12$ vs $2627$) — because the signature dimension is independent of window length
+  (channels × depth), whereas the raw-history monomial dimension explodes with the ~70-tap
+  window the $\tau=17$ delay requires (degree $\geq3$ infeasible). The matched-dimension
+  comparison therefore *favours the much larger raw basis*, and the signature still wins by
+  $\sim3.4\times$. (Threshold sensitivity: raw-history degree 1 sits at $J=1.112$, just
+  above the $J<1$ success bar, so it scores **0/5** here; it is a borderline case, not a
+  clean collapse like markovian.)
 
 ## 5. Diagnostics underpinning the claims
 
@@ -291,6 +343,17 @@ is committed to keep the bundle light. Ask if a specific variant×seed should be
   optimum.
 - The design items in methodology §10 (choice of the primary nonlinear-delayed env;
   augmented-LQR vs exact $Z,B_2,P_1$ oracle construction).
+- **Confirm the across-seed reliability observation on fresh seeds (pre-registered).** The
+  reliability gradient in §4 (signature 5/5 with tight dispersion; raw-history's achievement
+  eroding with capacity) was found on the study's own five seeds and is reported as an
+  observation, not a confirmed claim. To promote it to a claim without HARKing, state it as
+  a separate hypothesis *before* the run — H3: "at matched dimension the signature attains
+  the task on a higher fraction of seeds, and with lower across-seed cost variance, than
+  raw-history, and this does not erode with capacity" — fix the test statistic (a variance
+  ratio / bootstrap CI on the variance, threshold-free) and a falsification condition in a
+  dated commit, then evaluate on a **disjoint** seed set (the current seeds are the
+  discovery set; no reuse). The unconditional-cost H1/H2 need not be re-run for this; only a
+  fresh seed axis is added. Report the outcome whatever it is.
 
 ## 8. Cluster operations
 
@@ -309,18 +372,21 @@ because its artefacts are available locally. It is a **pipeline/control validati
 one of the four main grid cells, and its H1 separation is weak (the markovian variant is
 near-best on this cell — exactly the weakness that motivated the high-gap env in §3).
 
-| Representation | Capacity | $\dim\Phi$ | $\rho$ (mean) | 95% CI |
-|---|---|---:|---:|---:|
-| markovian   | deg 2 | 5   | 0.127 | ±0.016 |
-| raw_history | deg 1 | 42  | 0.711 | ±0.002 |
-| raw_history | deg 2 | 945 | 0.322 | ±0.190 |
-| signature   | depth 2 | 30 | 0.284 | ±0.074 |
-| signature   | depth 3 | 155 | 3.86 | ±1.92 |
+| Representation | Capacity | $\dim\Phi$ | $\rho$ (all seeds) | 95% CI | Success | $\rho\mid$success |
+|---|---|---:|---:|---:|:--:|---:|
+| markovian   | deg 2 | 5   | 0.127 | ±0.016 | 5/5 | 0.127 ± 0.016 |
+| raw_history | deg 1 | 42  | 0.711 | ±0.002 | 0/5 | — |
+| raw_history | deg 2 | 945 | 0.322 | ±0.190 | 3/5 | 0.167 ± 0.040 |
+| signature   | depth 2 | 30 | 0.284 | ±0.074 | 5/5 | 0.284 ± 0.074 |
+| signature   | depth 3 | 155 | 3.86 | ±1.92 | 1/5 | 0.139 ± 0.000 |
 
 ![Representation comparison on the delay_jax linear cell](linear_cell_study_comparison.png)
 
 Consistent with the H2-null prediction on a linear plant: at matched capacity the
 signature does not beat raw history (depth-2 $0.284$ vs deg-2 $0.322$, overlapping CIs),
-and the over-parameterised depth-3 signature degrades sharply ($\rho=3.86$).
+and the over-parameterised depth-3 signature degrades sharply — its unconditional
+$\rho=3.86$ is really a **1/5 success rate** (four seeds diverge; the single achieving
+seed sits at $\rho=0.139$), the clearest example of the unconditional mean hiding an
+achievement collapse.
 *Figure cosmetic:* the committed PNG predates the `check_layout` detector and has a
 legend/annotation overlap; regenerate via the aggregator replot path before formal use.

@@ -82,12 +82,26 @@ class CellAggregate:
     feature_dim: int
     metric_is_suboptimality: bool
     n_seeds: int
-    mean: float
+    mean: float          # UNCONDITIONAL cost/rho over ALL seeds (np.mean -> NaN if any seed diverged)
     std: float
     sem: float
     ci95: float
     values: list[float]
     delay: float = 0.0   # env delay tau (selects the delay-dependent DP optimum)
+    # --- task-achievement accounting (added; the unconditional stats above are kept) ---
+    # A seed "achieves the task" if its metric is finite AND below the success threshold
+    # (rho < rho_max for suboptimality cells, J < j_max for raw-cost cells). This
+    # disentangles *how often* the controller succeeds (success_rate) from *how good it is
+    # when it does* (mean_cond), which the unconditional mean conflates. Defaults so old
+    # aggregation_data.json (without these keys) still loads via CellAggregate(**d).
+    success_threshold: float = float("nan")  # rho_max or j_max used for the classification
+    n_achieved: int = 0                      # seeds with finite metric below threshold
+    n_diverged: int = 0                      # seeds with non-finite metric (NaN/inf)
+    success_rate: float = float("nan")       # n_achieved / n_seeds
+    mean_cond: float = float("nan")          # cost/rho conditional on success (achieved seeds only)
+    std_cond: float = 0.0
+    sem_cond: float = 0.0
+    ci95_cond: float = float("nan")
 
 
 def _load_yaml(path: Path) -> dict:
@@ -181,7 +195,47 @@ def normalised_suboptimality(j_agent: float, j_oracle: float) -> float:
     return (j_agent - j_oracle) / abs(j_oracle)
 
 
-def aggregate(records: list[RunRecord], oracle_by_env: dict[str, float] | None) -> list[CellAggregate]:
+# Default per-seed "task achieved" thresholds. Kept identical to the gallery script
+# run/study/gallery_successful_controlled_runs.py -- change both together.
+DEFAULT_RHO_MAX = 0.5   # suboptimality cells: rho < 0.5 (within 50% of the delayed-LQR oracle)
+DEFAULT_J_MAX = 1.0     # raw-cost cells: J < 1.0 (separates set-point tracking from collapse)
+
+
+def success_fields(values: list[float], metric_is_suboptimality: bool,
+                   rho_max: float, j_max: float) -> dict[str, float | int]:
+    """Task-achievement statistics for one cell, from its per-seed ``values``.
+
+    A seed achieves the task iff its metric is finite and below the threshold
+    (``rho_max`` for suboptimality cells, ``j_max`` for raw-cost cells). Returns the
+    success count/rate, the divergence count, and the cost/rho **conditional on
+    success** (mean/std/sem/ci95 over achieved seeds only). Computed purely from
+    ``values``, so it needs no ``eval.pkl`` -- it can re-augment an existing
+    aggregation_data.json. The unconditional statistics are computed elsewhere and
+    are not touched here."""
+    arr = np.asarray(values, dtype=float)
+    n = arr.size
+    finite = np.isfinite(arr)
+    thresh = float(rho_max if metric_is_suboptimality else j_max)
+    achieved = finite & (arr < thresh)
+    n_achieved = int(achieved.sum())
+    n_diverged = int((~finite).sum())
+    cond = arr[achieved]
+    std_cond = float(np.std(cond, ddof=1)) if cond.size > 1 else 0.0
+    sem_cond = float(std_cond / np.sqrt(cond.size)) if cond.size else 0.0
+    return {
+        "success_threshold": thresh,
+        "n_achieved": n_achieved,
+        "n_diverged": n_diverged,
+        "success_rate": float(n_achieved / n) if n else float("nan"),
+        "mean_cond": float(np.mean(cond)) if cond.size else float("nan"),
+        "std_cond": std_cond,
+        "sem_cond": sem_cond,
+        "ci95_cond": float(1.96 * sem_cond) if cond.size else float("nan"),
+    }
+
+
+def aggregate(records: list[RunRecord], oracle_by_env: dict[str, float] | None,
+              rho_max: float = DEFAULT_RHO_MAX, j_max: float = DEFAULT_J_MAX) -> list[CellAggregate]:
     """Group records by (env, representation, capacity) and aggregate the metric
     across seeds. The metric is normalised sub-optimality where an oracle cost is
     provided for the env, else the raw cost."""
@@ -208,6 +262,7 @@ def aggregate(records: list[RunRecord], oracle_by_env: dict[str, float] | None) 
             n_seeds=int(n), mean=float(np.mean(arr)) if n else float("nan"),
             std=std, sem=sem, ci95=float(1.96 * sem), values=[float(v) for v in arr],
             delay=float(recs[0].delay),
+            **success_fields([float(v) for v in arr], use_oracle, rho_max, j_max),
         ))
     return cells
 
@@ -333,6 +388,15 @@ def main() -> None:
                         help="rebuild comparison.png from the existing "
                              "aggregation_data.json, without re-discovering runs or "
                              "recomputing the oracle (pure plotting; runs anywhere).")
+    parser.add_argument("--recompute-success", action="store_true",
+                        help="recompute the task-achievement fields (success rate, "
+                             "conditional cost, divergence count) from the existing "
+                             "aggregation_data.json values and rewrite the json/yaml/"
+                             "figure -- no eval.pkl needed (runs anywhere).")
+    parser.add_argument("--rho-max", type=float, default=DEFAULT_RHO_MAX,
+                        help=f"suboptimality success threshold (default {DEFAULT_RHO_MAX})")
+    parser.add_argument("--j-max", type=float, default=DEFAULT_J_MAX,
+                        help=f"raw-cost success threshold (default {DEFAULT_J_MAX})")
     args = parser.parse_args()
     group_dir = args.group_dir
     if not group_dir.is_dir():
@@ -348,6 +412,33 @@ def main() -> None:
               f"({len(cells)} cells) in {group_dir}")
         return
 
+    if args.recompute_success:
+        agg_json = group_dir / "aggregation_data.json"
+        if not agg_json.exists():
+            raise SystemExit(f"--recompute-success needs {agg_json} (run a full aggregation first).")
+        cells = load_cells(group_dir)
+        for c in cells:
+            for k, v in success_fields(c.values, c.metric_is_suboptimality,
+                                       args.rho_max, args.j_max).items():
+                setattr(c, k, v)
+        # Preserve n_runs from the existing summary.yaml if present; else recount seeds.
+        import yaml
+        summ = group_dir / "summary.yaml"
+        n_runs = sum(c.n_seeds for c in cells)
+        if summ.exists():
+            prev = yaml.safe_load(summ.read_text()) or {}
+            n_runs = int(prev.get("n_runs", n_runs))
+        agg_json.write_text(json.dumps([asdict(c) for c in cells], indent=2))
+        summ.write_text(yaml.safe_dump(
+            {"n_runs": n_runs, "cells": [asdict(c) for c in cells]}, sort_keys=False))
+        save_comparison_figure(cells, group_dir)
+        n_ok = sum(c.n_achieved for c in cells)
+        n_tot = sum(c.n_seeds for c in cells)
+        print(f"[aggregate] re-augmented {len(cells)} cells (rho<{args.rho_max}, J<{args.j_max}); "
+              f"{n_ok}/{n_tot} seeds achieved. Rewrote aggregation_data.json, summary.yaml, "
+              f"comparison.png in {group_dir}")
+        return
+
     print(f"[aggregate] discovering runs under {group_dir} ...")
     records = discover_runs(group_dir)
     print(f"[aggregate] {len(records)} run(s) found.")
@@ -357,7 +448,8 @@ def main() -> None:
     oracle_by_env = compute_oracle_costs(group_dir)
     if oracle_by_env:
         print(f"[aggregate] oracle ceiling computed for: {sorted(oracle_by_env)}")
-    cells = aggregate(records, {k.split('|')[0]: v for k, v in oracle_by_env.items()})
+    cells = aggregate(records, {k.split('|')[0]: v for k, v in oracle_by_env.items()},
+                      rho_max=args.rho_max, j_max=args.j_max)
 
     # Persist: machine-readable aggregation (for replot) + human summary + figure.
     (group_dir / "aggregation_data.json").write_text(
