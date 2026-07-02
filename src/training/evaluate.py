@@ -514,6 +514,130 @@ def plot_multiple_trajectories_from_data(multi_data: dict, *, title: str | None 
     return fig
 
 
+def _qualitative_colors(n: int) -> list[str]:
+    """Return ``n`` distinct qualitative colours for a *categorical* axis.
+
+    Used to distinguish representations (markovian / raw-history / signature),
+    which form a categorical set, not a scalar sweep — so a qualitative palette
+    (``tab10``) is correct here, whereas a sweep over a hyperparameter would use
+    :func:`sequential_colors`. Falls back to cycling ``tab20`` past 10 entries.
+    """
+    from matplotlib.colors import to_hex
+    cmap = matplotlib.colormaps["tab10" if n <= 10 else "tab20"]
+    m = 10 if n <= 10 else 20
+    return [to_hex(cmap(i % m)) for i in range(n)]
+
+
+def plot_representation_comparison_from_data(
+    variants: list[tuple[str, dict]],
+    *,
+    title: str | None = None,
+    state_index: int = 0,
+) -> matplotlib.figure.Figure:
+    """Overlay the closed-loop trajectories of several representations on shared axes.
+
+    Each entry of ``variants`` is ``(label, eval_data)`` where ``eval_data`` is the
+    dict produced by :func:`collect_evaluation_data` (saved as ``eval.pkl``). This
+    is the cross-representation comparison figure — distinct from the per-variant
+    :func:`plot_agent_vs_no_control_from_data` — answering "how does the controlled
+    trajectory differ across representations on the same plant".
+
+    Panels (2x2): controlled state component ``state_index`` (or its norm for a
+    multi-dimensional state), control ``u_0(t)``, error from target
+    ``||x - x_ref||_2``, and cumulative cost ``int_0^t c\\,ds``.
+
+    Stroke convention (repo-wide): the controlled trajectories are *trained* outputs
+    and therefore solid (``STROKE_TRAINED``), each representation in a distinct
+    qualitative colour; the shared uncontrolled baseline is a reference and is dashed
+    (``STROKE_REFERENCE``); the target / set-point is auxiliary and is dotted
+    (``STROKE_AUXILIARY``). The representation axis is categorical, so colour is
+    qualitative (``tab10``), not a sequential sweep.
+    """
+    if not variants:
+        raise ValueError("plot_representation_comparison_from_data: no variants given")
+
+    labels = [lab for lab, _ in variants]
+    colors = _qualitative_colors(len(variants))
+
+    # Env-level fields are shared across variants (same plant); read from the first.
+    ref0 = variants[0][1]
+    has_target = bool(ref0["has_target"])
+    x_ref = np.asarray(ref0["x_ref"])
+    n_dim = np.asarray(ref0["states_agent"]).shape[1]
+    multi_dim = n_dim > 1
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
+
+    # (0,0) Controlled state: component `state_index` for 1D, else the L2 norm.
+    ax = axes[0, 0]
+    for (lab, d), c in zip(variants, colors):
+        t = np.asarray(d["times"])
+        s = np.asarray(d["states_agent"])
+        y = np.linalg.norm(s, axis=1) if multi_dim else s[:, state_index]
+        ax.plot(t, y, STROKE_TRAINED, color=c, label=lab)
+    # Shared uncontrolled baseline (reference, dashed) drawn once.
+    s_nc = np.asarray(ref0["states_no_ctrl"])
+    t_nc = np.asarray(ref0["times"])
+    y_nc = np.linalg.norm(s_nc, axis=1) if multi_dim else s_nc[:, state_index]
+    ax.plot(t_nc, y_nc, STROKE_REFERENCE, color="0.4", alpha=0.8, label="no control")
+    if has_target and not multi_dim and state_index < len(x_ref):
+        ax.axhline(float(x_ref[state_index]), color="red", ls=STROKE_AUXILIARY,
+                   alpha=0.7, label="target")
+    ax.set_title(r"Controlled state $\|x(t)\|_2$" if multi_dim
+                 else rf"Controlled state $x_{state_index}(t)$")
+    ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$\|x(t)\|_2$" if multi_dim else rf"$x_{state_index}(t)$")
+    ax.grid(True, alpha=0.3)
+
+    # (0,1) Control signal u_0(t).
+    ax = axes[0, 1]
+    for (lab, d), c in zip(variants, colors):
+        a = np.asarray(d["actions"])
+        t = np.asarray(d["times"])[:len(a)]
+        ax.plot(t, a[:, 0], STROKE_TRAINED, color=c, label=lab)
+    ax.set_title(r"Control action $u_0(t)$")
+    ax.set_xlabel(r"$t$"); ax.set_ylabel(r"$u_0(t)$")
+    ax.grid(True, alpha=0.3)
+
+    # (1,0) Error from target (or state norm if no target).
+    ax = axes[1, 0]
+    for (lab, d), c in zip(variants, colors):
+        ax.plot(np.asarray(d["times"]), np.asarray(d["error_agent"]),
+                STROKE_TRAINED, color=c, label=lab)
+    ax.plot(t_nc, np.asarray(ref0["error_no_ctrl"]), STROKE_REFERENCE,
+            color="0.4", alpha=0.8, label="no control")
+    ax.set_title("Error from target" if has_target else "State norm")
+    ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$\|x-x_{\mathrm{ref}}\|_2$" if has_target else r"$\|x\|_2$")
+    ax.grid(True, alpha=0.3)
+
+    # (1,1) Cumulative cost (log scale: spans orders of magnitude across reps).
+    ax = axes[1, 1]
+    for (lab, d), c in zip(variants, colors):
+        cc = np.asarray(d["cum_cost_agent"])
+        t = np.asarray(d["times"])[:len(cc)]
+        ax.plot(t, cc, STROKE_TRAINED, color=c, label=lab)
+    cc_nc = np.asarray(ref0["cum_cost_no_ctrl"])
+    ax.plot(t_nc[:len(cc_nc)], cc_nc, STROKE_REFERENCE, color="0.4", alpha=0.8,
+            label="no control")
+    ax.set_title("Cumulative cost")
+    ax.set_xlabel(r"$t$"); ax.set_ylabel(r"$\int_0^t c\,ds$")
+    ax.set_yscale("log")
+    ax.grid(True, alpha=0.3, which="both")
+
+    fig.suptitle(title if title is not None else
+                 "Controlled trajectories by representation", fontsize=13)
+    prepare_figure(
+        fig, fname="figure_representation_comparison", axes=list(axes.ravel()),
+        reserve_bottom=0.20, legend_fontsize=8,
+        formula=(r"Controlled trajectory per representation: solid (colour = "
+                 r"representation); shared uncontrolled baseline: dashed; target: "
+                 r"dotted. Cost $c=(x-x_{\mathrm{ref}})^\top Q (x-x_{\mathrm{ref}}) "
+                 r"+ u^\top R u$."),
+    )
+    return fig
+
+
 def evaluate_multiple_trajectories(
     agent: EvaluableAgent,
     x0_list: list[np.ndarray],
