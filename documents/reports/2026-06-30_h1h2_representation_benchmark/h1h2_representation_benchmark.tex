@@ -574,6 +574,56 @@ mechanism (Section~\ref{sec:mechanism}), so that refuting the latter would not c
 controls below are all on \texttt{hopfield\_nonlinear} (the example whose delay $\tau$ is a free
 parameter) and the Mackey--Glass examples (a different plant family, to test generality).}
 
+\subsection{Formalising \texorpdfstring{$H_2$}{H2}}\label{sec:h2-formal}
+
+The comparison $I[\text{signature}]<I[\text{raw-history}]$ is, as stated, ill-posed: it depends on
+the data budget and the sampling law, which do not appear in it. Making them explicit separates two
+distinct questions. Fix a feature map $\phi:\mathcal X\to\R^{\dim\phi}$ on the space of history
+sequences $\mathcal X=(\R^{n})^{L}$, and let
+\[
+\mathcal H_\phi=\big\{\,\underline x\mapsto\inner{\theta}{\phi(\underline x)}:\theta\in\R^{\dim\phi}\,\big\}
+\]
+be the induced linear value class. A critic $V$ is deployed through Doya's law \eqref{eq:doyalaw},
+$u_{V}=\half R^{-1}B^{\top}\partial_{x}V$, and $I(V)$ denotes the resulting closed-loop cost. Because
+the control is the \emph{gradient} of $V$, the operative metric is $I(V)$ --- not any
+value-approximation error --- which is why a perfect value fit ($R^{2}=1$) is uninformative on its
+own (Proposition~\ref{prop:kerG}). An estimator $\mathcal D\mapsto\hat\theta_\phi(\mathcal D)$ on a
+dataset of size $n$ (Definition~\ref{def:estimator}) gives the fitted critic $\hat V_\phi^{\mathcal D}$.
+The two representations are $\phi_H$ (degree-two raw-history, $\dim\phi_H=O(\tau^{2})$) and $\phi_S$
+(depth-two signature, $\dim\phi_S$ fixed in $\tau$). The hypothesis then admits two well-posed forms.
+
+\emph{Population (representational)} --- does the signature structure enlarge the attainable control:
+\begin{equation}\label{eq:h2pop}
+H_2^{\mathrm{pop}}:\qquad \inf_{V\in\mathcal H_{\phi_S}}I(V)\;<\;\inf_{V\in\mathcal H_{\phi_H}}I(V).
+\end{equation}
+
+\emph{Finite-sample (statistical)}, indexed by the budget $n$ and the sampling law $\mathcal P$
+(on/off-sheet, Definition~\ref{def:datamode}):
+\begin{equation}\label{eq:h2n}
+H_2^{(n)}:\qquad
+\E_{\mathcal D\sim\mathcal P^{\otimes n}}\!\big[I(\hat V_{\phi_S}^{\mathcal D})\big]\;<\;
+\E_{\mathcal D\sim\mathcal P^{\otimes n}}\!\big[I(\hat V_{\phi_H}^{\mathcal D})\big],
+\end{equation}
+well-defined only when $\mathcal P$ carries off-manifold support --- otherwise $\ker G_n\ne\{0\}$
+and both sides diverge (Proposition~\ref{prop:kerG}, Finding~\ref{find:onsheet}). For each class the
+excess cost decomposes as a bias/variance pair,
+\begin{equation}\label{eq:h2decomp}
+\E\big[I(\hat V_\phi)\big]-I^{\ast}=
+\underbrace{\Big(\inf_{V\in\mathcal H_\phi}I(V)-I^{\ast}\Big)}_{\text{approximation}}
++\underbrace{\Big(\E\big[I(\hat V_\phi)\big]-\inf_{V\in\mathcal H_\phi}I(V)\Big)}_{\text{estimation (conditioning)}}.
+\end{equation}
+
+The remainder of this section establishes, by measurement, that the \emph{approximation} terms of
+$\phi_H$ and $\phi_S$ are comparable (both classes contain a near-optimal controller; degree-two
+raw-history spans $V^{\ast}$ on the linear examples, $R^{2}\to1$), so $H_2^{\mathrm{pop}}$ does
+\emph{not} hold; whereas the \emph{estimation} terms differ and scale as $\dim\phi/n$, so
+$H_2^{(n)}$ holds only in the under-sampled regime $n\lesssim c\,\dim\phi_H$ and reverses for
+$n\gtrsim2\,\dim\phi_H$ (the off/dim${}\gtrsim2$ transition, Table~\ref{tab:controls},
+Observation~\ref{obs:budget}). The naive inequality, when it holds, therefore measures the
+estimation term at fixed budget --- sample efficiency ($\dim\phi_S$ fixed versus
+$\dim\phi_H=O(\tau^{2})$) --- not expressivity; to ``collapse'' it under the controls is precisely
+to raise $n$ past that threshold.
+
 \subsection{The apparent advantage}
 
 \begin{table}[ht]\centering\small
