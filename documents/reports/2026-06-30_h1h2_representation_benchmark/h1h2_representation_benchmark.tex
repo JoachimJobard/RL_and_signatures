@@ -854,9 +854,52 @@ by the data.
 Proposition~\ref{prop:kerG} is the exact form of Finding~\ref{find:onsheet}: on-sheet-only data
 leaves $\ker G_{n}$ large, the value fits perfectly, and the off-manifold gradient --- hence the
 control --- is free, so $I$ diverges. Off-sheet relabelling (Definition~\ref{def:datamode})
-shrinks $\ker G_{n}$ and restores identifiability. The companion note also proves
-(Lyapunov scale invariance) that isotropic exploration cannot raise the effective rank of a
-regulated plant, so the degeneracy is structural, not a small-sample accident.
+shrinks $\ker G_{n}$ and restores identifiability. The natural objection is that exploration should
+do the same; the next two statements show why, on a regulated plant, it does not --- and isolate the
+one thing off-sheet design does that no exploration can.
+
+\begin{proposition}[Exploration amplitude-invariance; companion note]\label{prop:lyapunov}
+For a Hurwitz closed loop with generator $A$, the stationary state covariance under exploration of
+noise covariance $\Sigma\succeq0$ is the solution $P(\Sigma)$ of $AP+PA^{\top}+\Sigma=0$. For a fixed
+noise shape $\Sigma_{0}$, the effective rank $\effrank P(\sigma^{2}\Sigma_{0})$ and the condition
+number $\cond P(\sigma^{2}\Sigma_{0})$ are independent of the exploration amplitude $\sigma$.
+\end{proposition}
+
+\begin{proof}[Proof (the note)]
+The map $\Sigma\mapsto P(\Sigma)=\int_{0}^{\infty}e^{tA}\,\Sigma\,e^{tA^{\top}}\,\mathrm dt$ is linear,
+so $P(\sigma^{2}\Sigma_{0})=\sigma^{2}P(\Sigma_{0})$; $\effrank$ and $\cond$ are homogeneous of degree
+zero in the eigenvalues and are therefore invariant under the positive scaling $P\mapsto\sigma^{2}P$.
+\end{proof}
+
+\begin{observation}[Off-sheet design versus exploration]\label{obs:explore}
+Off-sheet perturbation and exploration pursue the same end --- populating the directions transverse
+to the optimal trajectory, on which the value gradient is otherwise unconstrained
+(Proposition~\ref{prop:kerG}) --- yet they are not interchangeable, and the distinction is
+structural.
+\begin{enumerate}
+\item \emph{Amplitude does not condition.} By Proposition~\ref{prop:lyapunov} the stationary
+distribution reached by isotropic exploration ($\Sigma_{0}=\mathrm{Id}$) has an effective rank set by
+the closed-loop spectrum, not by the amplitude $\sigma$; with the Veronese bound
+(Proposition~\ref{prop:veronese}) the induced feature Gram inherits the same bounded effective rank
+as the on-sheet attractor. Increasing isotropic exploration therefore cannot lift $\ker G_{n}$ ---
+the refuted remedy ``add more noise''.
+\item \emph{Shape can; exploration is not futile.} The invariance is in the \emph{amplitude} at a
+fixed noise shape; an anisotropic exploration $\Sigma_{0}\neq\mathrm{Id}$, chosen to excite the weak
+directions, yields a different $P(\Sigma_{0})$ and \emph{can} change the effective rank. What fails is
+the naive isotropic-amplitude form, not directed exploration.
+\item \emph{Off-sheet decouples the query law from the flow.} The support of any exploration-driven
+occupancy measure lies in the reachable set $\mathcal R$ of the closed loop: every state it labels is
+one the dynamics can produce. Off-sheet relabelling instead evaluates $V^{\ast}$ at query points
+$\underline x'=\underline x+\varepsilon\,\Xi$ (Definition~\ref{def:datamode}) that need not lie in
+$\mathcal R$ --- the oracle solves the control problem from $\underline x'$ as an initial condition,
+whatever its reachability. Off-sheet is thus state-space sampling that the stabilising loop does not
+contract, and it can populate directions transverse to $\mathcal R$ that no exploration supported on
+$\mathcal R$ can reach.
+\end{enumerate}
+The operative lever is off-manifold \emph{design}; its one component that no exploration can
+replicate --- querying the value \emph{off} the reachable set --- is structural and requires an
+oracle or a model, not a larger exploration amplitude.
+\end{observation}
 
 \subsection{The measured part}
 
