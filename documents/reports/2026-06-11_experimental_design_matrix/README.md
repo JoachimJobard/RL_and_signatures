@@ -1,5 +1,20 @@
 # Signature-RL: H1/H2 progress report (2026-06-11)
 
+> **⚠️ SUPERSEDED — historical snapshot. Do NOT cite this file for current decisions or
+> observations.** This 2026-06-11 progress report predates the off-sheet analysis and the
+> Hopfield-replaces-Dadebo decision. The **single authoritative document is the paper draft**
+> [`../2026-06-30_h1h2_representation_benchmark/h1h2_representation_benchmark.tex`](../2026-06-30_h1h2_representation_benchmark/h1h2_representation_benchmark.tex):
+> it owns the definitions, the $\rho_{\text{off}}=n_{\text{off}}/\dim\phi$ treatment, and the
+> mechanism section.
+>
+> **⚠️ Recent notation change (2026-07-02).** The symbols were aligned to the thesis:
+> **$I\to J$** for the closed-loop cost and **$\gamma\to\eta$** for the gradient cosine (commit
+> `598c3a5`). The `.tex` uses the new $J,\eta$; **this markdown still uses the old $I,\gamma$** and
+> is not being back-ported. So when the two differ, it is the notation drift, not a result change.
+>
+> This file is kept only as a dated record of the earlier value-gradient benchmark; **anything here
+> that conflicts with the `.tex` is stale and the `.tex` wins.**
+
 **Repo:** `github.com/JoachimJobard/RL_and_signatures` · **Branch:** `scientific-workflow-refactor`
 **Canonical data:** Jean Zay, `$WORK/git_repositories/RL_and_signatures/data/main_unified/<experiment-group>/`
 **Design contract:** [`documents/methodology/experimental_design.md`](../../methodology/experimental_design.md)
@@ -63,20 +78,6 @@ require a pre-registered replication on fresh seeds (§7).
 > separate signature virtue. **Only missing piece:** a 5-seed off-sheet-scaling replication to
 > promote this from "not supported" to CI-backed refutation; the mechanism already points that
 > way.
-
-> **The governing quantity — off-sheet ratio $\rho_{\text{off}} = n_{\text{off}}/d$ (belongs in the paper).**
-> Whether raw-history's *gradient* is identifiable — hence whether its Doya control converges — is set
-> not by the absolute off-sheet count but by its ratio to the feature dimension $d=\dim\Phi$. Fitting
-> $\theta\in\mathbb{R}^d$ to $V^\star$ needs the feature Gram $G=\Phi^\top\Phi$ full-rank; when
-> $n_{\text{off}}<d$ ($\rho_{\text{off}}<1$), $\operatorname{rank}G\le n_{\text{off}}<d$ so $\ker G\neq\{0\}$:
-> the *value* can still interpolate ($R^2=1$) but $\partial_x\hat V=(\partial_x\phi)^\top\theta$ is
-> **unidentified** in $\ker G$, and the control $u\propto\partial_x\hat V$ diverges. On-sheet data lies on
-> the low-rank ($\approx 4$-D) controlled attractor and cannot fill $G$; only off-sheet windows do — hence
-> the ratio is $n_{\text{off}}/d$. Threshold: $\rho_{\text{off}}\ge1$ for identifiability, $\gtrsim$ a few for
-> conditioning. **Signature:** $d$ fixed ($\sim$10–40, independent of $\tau$) $\Rightarrow \rho_{\text{off}}\gg1$
-> for free. **Raw-history:** $d=O(\tau^2)$ $\Rightarrow n_{\text{off}}$ must scale as $O(\tau^2)$. *This is
-> the sample-efficiency gap, made exact*, and it is the concrete $(n,P)$ dependence that the naive $H_2$
-> inequality hides (cf. the $H_2^{\text{pop}}$ / $H_2^{(n)}$ decomposition).
 
 ## 1. Headline outcomes
 
