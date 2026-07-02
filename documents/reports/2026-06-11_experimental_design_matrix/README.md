@@ -64,6 +64,20 @@ require a pre-registered replication on fresh seeds (§7).
 > promote this from "not supported" to CI-backed refutation; the mechanism already points that
 > way.
 
+> **The governing quantity — off-sheet ratio $\rho_{\text{off}} = n_{\text{off}}/d$ (belongs in the paper).**
+> Whether raw-history's *gradient* is identifiable — hence whether its Doya control converges — is set
+> not by the absolute off-sheet count but by its ratio to the feature dimension $d=\dim\Phi$. Fitting
+> $\theta\in\mathbb{R}^d$ to $V^\star$ needs the feature Gram $G=\Phi^\top\Phi$ full-rank; when
+> $n_{\text{off}}<d$ ($\rho_{\text{off}}<1$), $\operatorname{rank}G\le n_{\text{off}}<d$ so $\ker G\neq\{0\}$:
+> the *value* can still interpolate ($R^2=1$) but $\partial_x\hat V=(\partial_x\phi)^\top\theta$ is
+> **unidentified** in $\ker G$, and the control $u\propto\partial_x\hat V$ diverges. On-sheet data lies on
+> the low-rank ($\approx 4$-D) controlled attractor and cannot fill $G$; only off-sheet windows do — hence
+> the ratio is $n_{\text{off}}/d$. Threshold: $\rho_{\text{off}}\ge1$ for identifiability, $\gtrsim$ a few for
+> conditioning. **Signature:** $d$ fixed ($\sim$10–40, independent of $\tau$) $\Rightarrow \rho_{\text{off}}\gg1$
+> for free. **Raw-history:** $d=O(\tau^2)$ $\Rightarrow n_{\text{off}}$ must scale as $O(\tau^2)$. *This is
+> the sample-efficiency gap, made exact*, and it is the concrete $(n,P)$ dependence that the naive $H_2$
+> inequality hides (cf. the $H_2^{\text{pop}}$ / $H_2^{(n)}$ decomposition).
+
 ## 1. Headline outcomes
 
 | Hypothesis | Decisive cell | Result | Verdict |

@@ -1,0 +1,18 @@
+# mg_chaotic re-run, off-sheet DIM-RELATIVE (raw_dim=2484 at tau=17).
+# rho_off = n_off/d in {1,2,4} -> n_off in {2500,5000,10000}. See pre-reg amendment 2026-07-02.
+# subdir<TAB>args ; worker adds --out-dir $RUN_ROOT/<subdir>.
+mg_chaotic_offdim1	--cell mg_chaotic --rep all --seed 0 --n-off 2500
+mg_chaotic_offdim1	--cell mg_chaotic --rep all --seed 1 --n-off 2500
+mg_chaotic_offdim1	--cell mg_chaotic --rep all --seed 2 --n-off 2500
+mg_chaotic_offdim1	--cell mg_chaotic --rep all --seed 3 --n-off 2500
+mg_chaotic_offdim1	--cell mg_chaotic --rep all --seed 4 --n-off 2500
+mg_chaotic_offdim2	--cell mg_chaotic --rep all --seed 0 --n-off 5000
+mg_chaotic_offdim2	--cell mg_chaotic --rep all --seed 1 --n-off 5000
+mg_chaotic_offdim2	--cell mg_chaotic --rep all --seed 2 --n-off 5000
+mg_chaotic_offdim2	--cell mg_chaotic --rep all --seed 3 --n-off 5000
+mg_chaotic_offdim2	--cell mg_chaotic --rep all --seed 4 --n-off 5000
+mg_chaotic_offdim4	--cell mg_chaotic --rep all --seed 0 --n-off 10000
+mg_chaotic_offdim4	--cell mg_chaotic --rep all --seed 1 --n-off 10000
+mg_chaotic_offdim4	--cell mg_chaotic --rep all --seed 2 --n-off 10000
+mg_chaotic_offdim4	--cell mg_chaotic --rep all --seed 3 --n-off 10000
+mg_chaotic_offdim4	--cell mg_chaotic --rep all --seed 4 --n-off 10000

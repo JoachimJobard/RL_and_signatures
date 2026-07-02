@@ -99,3 +99,22 @@ verdict rule, and the falsification condition are all fixed by this document. On
 reported numbers are filled in afterwards. If the pipeline reveals a bug (e.g. a null_check
 cell violates its predicted outcome), the fix is documented and the campaign re-run; the
 verdict is not read off a known-buggy run.
+
+## Amendment (2026-07-02, after the first campaign — job 1250130)
+
+**The governing quantity is the off-sheet ratio $\rho_{\text{off}} = n_{\text{off}}/d$, not the
+absolute $n_{\text{off}}$.** The first campaign used absolute $n_{\text{off}} \in \{500,1000,2000\}$.
+This **under-provisioned `mg_chaotic`**: its raw-history feature dimension is $d=2484$ ($\tau=17$),
+so even $n_{\text{off}}=2000$ gives $\rho_{\text{off}}=2000/2484=0.81<1$ — the feature Gram
+$G=\Phi^\top\Phi$ is rank-deficient ($\ker G\neq\{0\}$), the gradient $\partial_x\hat V$ is
+unidentified, and raw-history **diverges at all three ratios** ($I=552$–$51860$, $\cos\approx0$).
+The other three primary cells were adequately provisioned ($\rho_{\text{off}}=5.7$ for
+`mg_limit_cycle` $d=350$; $22$ for `hopfield` $d=90$) and gave a **clean CI-backed H3 confirmation**
+(raw converges and beats the signature, 5/5 seeds).
+
+**Correction (verdict rule P1/P2/P3 unchanged):** `mg_chaotic` is re-run at **dim-relative** ratios
+$\rho_{\text{off}}\in\{1,2,4\}$, i.e. $n_{\text{off}}\in\{2500,5000,10000\}\approx\{1,2,4\}\times d$,
+5 seeds (task file `bash_scripts/cluster/jeanzay/python/h1h2_offsheet_mg_chaotic_dimrel_tasks.tsv`).
+This is a documented correction of an under-provisioning design flaw, **not** a post-hoc change of
+the analysis to obtain a desired result — indeed the failure of the pre-registered P3
+(monotone convergence) on `mg_chaotic` is what surfaced the flaw.
