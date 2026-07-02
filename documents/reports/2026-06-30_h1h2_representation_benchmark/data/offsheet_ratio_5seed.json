@@ -8,10 +8,11 @@
     "dim_relative_run": {
       "job": 1252563,
       "scratch": "$SCRATCH/h1h2_offsheet_mg_chaotic_dimrel_20260702_2030"
-    }
+    },
+    "cluster_backup": "$WORK/h1h2_backups/offsheet_5seed_20260702.tgz"
   },
   "n_seeds": 5,
-  "status": "PARTIAL: dim_relative offdim4 (rho_off=4) still running",
+  "status": "complete",
   "rows": [
     {
       "cell": "markovian",
@@ -810,6 +811,53 @@
       "raw_eta_median": 0.861,
       "sig_J_median": 0.0181,
       "sig_eta_median": 0.832,
+      "n_diverged_raw": 0
+    },
+    {
+      "cell": "mg_chaotic",
+      "ratio_mode": "dim_relative",
+      "n_off": 10000,
+      "raw_history_dim": 2484,
+      "rho_off": 4.026,
+      "seeds": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "raw_J": [
+        0.014397362408089975,
+        0.014040423661754176,
+        0.013414678734079644,
+        0.013256847827506135,
+        0.0132336123042478
+      ],
+      "raw_eta": [
+        0.869,
+        0.892,
+        0.901,
+        0.909,
+        0.917
+      ],
+      "sig_J": [
+        0.018145395060400915,
+        0.018266481647970068,
+        0.018116991553142725,
+        0.018028669287105004,
+        0.017822632262323168
+      ],
+      "sig_eta": [
+        0.83,
+        0.827,
+        0.831,
+        0.834,
+        0.84
+      ],
+      "raw_J_median": 0.0134,
+      "raw_eta_median": 0.901,
+      "sig_J_median": 0.0181,
+      "sig_eta_median": 0.831,
       "n_diverged_raw": 0
     },
     {
