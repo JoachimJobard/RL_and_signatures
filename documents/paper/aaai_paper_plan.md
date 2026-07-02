@@ -119,6 +119,15 @@ null).
 4. **Figure 3 — the off-sheet scaling (empirical).** off/dim $\in\{1,2,4\}$ cost curves for Hopfield
    $\tau{=}3$ and both Mackey–Glass cells: signature flat, raw-history crosses below at
    off/dim $\gtrsim2$. Verifies the co-rank bound (Prop 4) and its measured constant $c\approx2$.
+   4b. **Table — no-off-data (a headline sub-result, must be in the paper).** On-sheet-only vs
+   on${+}$off closed-loop cost per cell: *with no off-sheet data at all* the signature attains its
+   full cost on both Mackey–Glass cells ($J=0.015$–$0.019$) and linear\_dde — exactly where
+   raw-history **diverges** ($J=118$–$785$) — yet the signature itself **diverges** on the platoon
+   (and Hopfield). Message: the signature is markedly more sample-efficient (over-parameterisation
+   ratio ~12 fixed vs raw-history's 83–2180) but **not exempt** from the off-manifold identifiability
+   obstruction ($\dim\phi_S>$ on-manifold rank ⇒ $\ker G\neq\{0\}$; stabilising off-manifold gradient
+   is the cell-dependent accident of Prop 2). Directly measured; in the report as
+   `find:sig-nooff` / `tab:sig-nooff`.
 5. **Figure 4 — the high-state-dimension reversal (CANDIDATE FOR CUT).** Platoon controlled
    trajectory: signature sustains an undamped oscillation (cond $\sim10^{14}$, $\gamma{=}0.32$);
    raw-history tracks. *If the platoon is dropped, this figure goes with it and the $O(d^L)$ reversal

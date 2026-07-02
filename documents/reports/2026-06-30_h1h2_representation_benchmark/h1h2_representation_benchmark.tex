@@ -75,27 +75,27 @@ capacity (polynomial degree, signature depth) across many examples and five seed
 representational question by solving the fit exactly. (The originally-intended nonlinear-delayed
 example, a continuous-stirred-tank reactor, is measured to be structurally near-Markovian and is
 demoted; a delay-coupled Hopfield network replaces it.) Two hypotheses are tested by
-the closed-loop cost $J$: $H_1$, that a representation of the \emph{history} window improves
+the closed-loop cost $I$: $H_1$, that a representation of the \emph{history} window improves
 on a representation of the current state alone; and $H_2$, that the \emph{path-signature}
 structure improves on a plain polynomial of the history window. The first hypothesis
 \holds\ wherever the delay genuinely couples the dynamics --- the linear delay equation, the
 delayed Hopfield network, the five-vehicle platoon, and the Mackey--Glass oscillator --- and
 \failsv\ exactly on the Markovian negative control, where all three representations coincide
-at $J=3.115$ (measured, five seeds). The second hypothesis does \emph{not} hold. Early
+at $I=3.115$ (measured, five seeds). The second hypothesis does \emph{not} hold. Early
 single-seed evidence that the signature beats the history window on long-delay examples is shown
 to be an artefact of \emph{under-sampling}: the degree-two history feature dimension grows as
 $O(\tau^{2})$ with the delay $\tau$ (window $6\mapsto61$, dimension $90\mapsto7625$), so on a
 long-delay example at fixed sample size the history fit is under-sampled. Under three controls ---
 quadrupled data, Tikhonov conditioning, and off-sheet rebalancing --- the history
 representation recovers and \emph{matches or beats} the signature on every example measured
-(Hopfield at $\tau=3$: $J=0.289$ versus $0.323$; Mackey--Glass limit cycle at off/dim${}=4$:
-$J=0.0108$ versus $0.0126$). The mechanism is the effective-rank phenomenon of the companion
+(Hopfield at $\tau=3$: $I=0.289$ versus $0.323$; Mackey--Glass limit cycle at off/dim${}=4$:
+$I=0.0108$ versus $0.0126$). The mechanism is the effective-rank phenomenon of the companion
 note, proven as a Veronese bound and measured here: the controlled-trajectory feature Gram has
 an effective rank that rises only from $3.3$ to $3.5$ across $\tau\in\{1,\dots,6\}$ while the
 nominal dimension increases by a factor of $28$. The signature's sole genuine advantage is therefore
 \emph{sample efficiency} --- a fixed feature dimension --- not representational power; and that
 advantage reverses at high state-space dimension, where the signature's own $O(d^{L})$ channel
-growth makes it the ill-conditioned representation (platoon: $J=0.227$ versus the history
+growth makes it the ill-conditioned representation (platoon: $I=0.227$ versus the history
 window's $0.029$). Every number is read off a saved run; the reproduction appendix lists the
 script and run directory behind each.
 \end{abstract}
@@ -120,10 +120,10 @@ with control $u(t)\in\R^{m}$ and a quadratic running cost
 $\ell(x,u)=x^{\top}Qx+u^{\top}Ru$, $Q\succeq0$, $R\succ0$, regulating to the origin (a shifted
 equilibrium). The closed-loop performance of a feedback law is the accumulated cost
 \begin{equation}\label{eq:cost}
-J=\int_{0}^{T}\ell\big(x(t),u(t)\big)\,\mathrm dt
+I=\int_{0}^{T}\ell\big(x(t),u(t)\big)\,\mathrm dt
 \end{equation}
 from a fixed deployment initial condition, integrated by the environment's own Runge--Kutta
-solver. $J$ is the operative quantity: every verdict in this report is a comparison of $J$.
+solver. $I$ is the operative quantity: every verdict in this report is a comparison of $I$.
 \end{definition}
 
 \begin{definition}[Value-gradient feedback]\label{def:doya}
@@ -148,12 +148,12 @@ The reference controller is the continuous-time optimal control of \eqref{eq:pla
 example.
 \begin{itemize}
 \item \emph{Linear / linearised examples (delayed-LQR).} The history segment $[-\tau,0]$ is
-discretised at the $\nu+1$ Chebyshev collocation nodes $-\tau=s_{\nu}<\dots<s_{0}=0$, and
-the augmented state $z=\big(x(t+s_{0}),\dots,x(t+s_{\nu})\big)\in\R^{n(\nu+1)}$ stacks the
+discretised at the $\nu+1$ Chebyshev collocation nodes $-\tau=\theta_{\nu}<\dots<\theta_{0}=0$, and
+the augmented state $z=\big(x(t+\theta_{0}),\dots,x(t+\theta_{\nu})\big)\in\R^{n(\nu+1)}$ stacks the
 state at those nodes. The delay equation \eqref{eq:plant} becomes the ordinary differential equation
 $\dot z=Mz+\mathcal N u$, in which $M\in\R^{n(\nu+1)\times n(\nu+1)}$ collocates the transport
-identity $\partial_{t}x=\partial_{s}x$ at the interior nodes and the linearised dynamics
-$\dot x=A_{0}\,x(t)+A_{1}\,x(t-\tau)$ at the boundary node $s_{0}=0$, and
+identity $\partial_{t}x=\partial_{\theta}x$ at the interior nodes and the linearised dynamics
+$\dot x=A_{0}\,x(t)+A_{1}\,x(t-\tau)$ at the boundary node $\theta_{0}=0$, and
 $\mathcal N=(B^{\top},0,\dots,0)^{\top}\in\R^{n(\nu+1)\times m}$ injects the control at that node. The
 algebraic Riccati equation $M^{\top}P_{c}+P_{c}M-P_{c}\mathcal N R^{-1}\mathcal N^{\top}P_{c}+Q_{z}=0$,
 with $Q_{z}$ equal to $Q$ on the boundary block and $0$ elsewhere, yields the value
@@ -178,7 +178,7 @@ failed it would be excluded.
 The oracle is a deliberately strong, non-deployable adversary: it has the exact dynamics and
 solves a boundary-value problem per window. It plays two roles --- it \emph{labels} the
 training data with $(V^{\ast},u^{\ast})$, and it supplies the deployable linear-feedback
-reference cost $J^{\ast}$ against which the learned $J$ is read.
+reference cost $I^{\ast}$ against which the learned $I$ is read.
 
 \subsection{The two hypotheses}
 
@@ -186,10 +186,10 @@ With the three representations of Definition~\ref{def:reps} ranked markovian $\t
 $\to$ signature, the two questions under test are the adjacent pairwise comparisons of the
 closed-loop cost:
 \begin{itemize}
-\item $H_1$ (\emph{does history help?}): $J[\text{raw-history}]<J[\text{markovian}]$;
-\item $H_2$ (\emph{does the signature structure help?}): $J[\text{signature}]<J[\text{raw-history}]$.
+\item $H_1$ (\emph{does history help?}): $I[\text{raw-history}]<I[\text{markovian}]$;
+\item $H_2$ (\emph{does the signature structure help?}): $I[\text{signature}]<I[\text{raw-history}]$.
 \end{itemize}
-Each is recorded as holding on an example only if the contender lowers $J$ by more than a relative
+Each is recorded as holding on an example only if the contender lowers $I$ by more than a relative
 margin of $3\%$; a near-tie is the negative result. The single-example verdict is indicative; the
 falsifiable statement is the seed-resolved comparison of Section~\ref{sec:h1}.
 
@@ -235,11 +235,11 @@ These are the states a deployed controller actually visits; there are $n_{\mathr
 displaced,
 \[
 \underline x'=\underline x+\varepsilon\,\Xi,\qquad \Xi=(\Xi_{i})_{0\le i\le L-1}\ \text{with i.i.d.}\
-\Xi_{i}\sim\mathcal N(0,\mathrm{Id}),\quad \varepsilon=0.25
+\Xi_{i}\sim\mathcal N(0,\mathrm{I}_{n}),\quad \varepsilon=0.25
 \]
 (the state is of order unity in every example). The perturbed sequence is \emph{re-labelled through
 the oracle}: it is mapped to the augmented state $z(\underline x')$ by interpolating its samples onto
-the collocation nodes $s_{0},\dots,s_{\nu}$, and $V^{\ast}(\underline x')$ is read from the
+the collocation nodes $\theta_{0},\dots,\theta_{\nu}$, and $V^{\ast}(\underline x')$ is read from the
 oracle at $z(\underline x')$ --- in closed form ($-z^{\top}P_{c}z$) for the linear examples, by one
 Pontryagin boundary-value problem for the nonlinear examples. There are $n_{\mathrm{off}}$ such
 sequences.
@@ -260,7 +260,7 @@ estimators of $\theta$ are used.
 \begin{itemize}
 \item \emph{Oracle half} (the primary evidence). The regularised normal-equation solution
 \[
-\hat\theta=\Big(G+\lambda\,\tfrac{\tr G}{\dim\phi}\,\mathrm{Id}\Big)^{-1}\Phi^{\top}y,
+\hat\theta=\Big(G+\lambda\,\tfrac{\tr G}{\dim\phi}\,\mathrm I\Big)^{-1}\Phi^{\top}y,
 \]
 with scale-aware penalty $\lambda\ge0$ (the parameter \texttt{H1H2\_RIDGE}); at $\lambda=0$ this is
 the minimum-norm least-squares solution $\hat\theta=\Phi^{+}y$. Because the labels are the
@@ -282,19 +282,16 @@ Each fit is scored on three axes, one symbol each, on the deployment trajectory:
 \begin{itemize}
 \item value-fit $R^{2}\in(-\infty,1]$ --- \emph{expressivity}: the coefficient of
 determination of $V_{\theta}$ against $V^{\ast}$ on the training sequences;
-\item gradient cosine
-$\eta:=\dfrac{\inner{u_{\theta}}{u^{\ast}}}{\norm{u_{\theta}}\,\norm{u^{\ast}}}\in[-1,1]$, the
-cosine of the angle between the deployed control $u_{\theta}$ and the optimal control $u^{\ast}$
-stacked along the deployment trajectory ---
+\item gradient cosine $\gamma:=\cos\!\big(u_{\theta},u^{\ast}\big)\in[-1,1]$ ---
 \emph{extraction}: the alignment of the deployed value-gradient control with the optimal
 control along the deployment trajectory;
-\item closed-loop cost $J$ (Equation~\eqref{eq:cost}) --- \emph{control}: the operative
-quantity of comparison, read against the no-control cost $J^{0}$ and the oracle-feedback cost
-$J^{\ast}$.
+\item closed-loop cost $I$ (Equation~\eqref{eq:cost}) --- \emph{control}: the operative
+quantity of comparison, read against the no-control cost $I^{0}$ and the oracle-feedback cost
+$I^{\ast}$.
 \end{itemize}
 The three are ordered by stringency: $R^{2}\to1$ is necessary but far from sufficient for
-$\eta\to1$, which is in turn necessary but not sufficient for $J\to J^{\ast}$. The gap between
-$R^{2}=1$ and a large $J$ is the value/gradient separation of Section~\ref{sec:mechanism}.
+$\gamma\to1$, which is in turn necessary but not sufficient for $I\to I^{\ast}$. The gap between
+$R^{2}=1$ and a large $I$ is the value/gradient separation of Section~\ref{sec:mechanism}.
 
 \section{Catalogue of the controlled-protocol examples}\label{sec:catalogue}
 
@@ -324,7 +321,7 @@ with a scaled rotation $W$ (eigenvalues $2e^{\pm i\pi/2}$), $\tau=0.5$, $\vareps
 (linear in the delay). $H_1$ holds, $H_2$ a provable negative. Oracle: delayed-LQR (exact).
 \item \textbf{hopfield\_nonlinear}. The same network with the saturating activation
 $\varphi(\xi)=\tanh(\kappa\xi)/\kappa$ on the delayed coupling, $\varphi'(0)=1$ so the
-linearisation $A=-J,\,A_1=W$ is unchanged: $H_1$ is held fixed while the value becomes a
+linearisation $A=-I,\,A_1=W$ is unchanged: $H_1$ is held fixed while the value becomes a
 nonlinear functional of the history. The delay $\tau$ is the operative parameter for $H_2$ (it sets
 the window length). Oracle: Pontryagin.
 \item \textbf{hopfield\_duffing}. The non-saturating hardening variant
@@ -474,14 +471,14 @@ are the test. The learning-half confirmation is in Appendix~\ref{app:rl}.}
 
 \begin{finding}[The Markovian example falsifies a spurious $H_1$]\label{find:negcontrol}
 On the Markovian double integrator the three representations are \emph{measured to coincide},
-$J=3.1151\pm0.0000$ for markovian, raw-history and signature alike (five seeds; the off-sheet
+$I=3.1151\pm0.0000$ for markovian, raw-history and signature alike (five seeds; the off-sheet
 labels pin the history coefficients of $\phi_H$ to zero because $V^{\ast}$ carries no history
 dependence). $H_1$ therefore \failsv\ here, as it must: history that is irrelevant is correctly
 \emph{not} rewarded. The benchmark is thus not biased toward $H_1$.
 \end{finding}
 
 \begin{remark}[Off-sheet data is what makes the negative control exact]\label{rem:negctrl-onsheet}
-On on-sheet-only data the same example gives raw-history $J=3.1939\pm0.0385$ (a $2.5\%$
+On on-sheet-only data the same example gives raw-history $I=3.1939\pm0.0385$ (a $2.5\%$
 degradation, gradient cosine $0.988$): without off-manifold labels the redundant history
 coefficients are not fully pinned. The exactness of Finding~\ref{find:negcontrol} is a
 consequence of the off-sheet design of Definition~\ref{def:datamode}, foreshadowing
@@ -491,15 +488,15 @@ Section~\ref{sec:mechanism}.
 \subsection{The delay examples}
 
 \begin{table}[ht]\centering\small
-\caption{Canonical $H_1/H_2$ table: closed-loop cost $J$, value-fit $R^{2}$ and gradient cosine
-$\eta$, mean${}\pm{}$half-range over five seeds (oracle half, on${}+{}$off-sheet, plain least
-squares). $J^{0}$ is the no-control cost, $J^{\ast}$ the oracle-feedback cost. Lower $J$ is
+\caption{Canonical $H_1/H_2$ table: closed-loop cost $I$, value-fit $R^{2}$ and gradient cosine
+$\gamma$, mean${}\pm{}$half-range over five seeds (oracle half, on${}+{}$off-sheet, plain least
+squares). $I^{0}$ is the no-control cost, $I^{\ast}$ the oracle-feedback cost. Lower $I$ is
 better. Bold marks the lower of raw-history vs markovian ($H_1$) and signature vs raw-history
 ($H_2$).}\label{tab:h1}
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{llccc c}
 \toprule
-example ($J^{0}\!\to\! J^{\ast}$) & rep & $R^{2}$ & $\eta$ & $J$ & verdict\\
+example ($I^{0}\!\to\! I^{\ast}$) & rep & $R^{2}$ & $\gamma$ & $I$ & verdict\\
 \midrule
 \multirow{3}{*}{linear\_dde ($3.89\!\to\!0.14$)}
  & markovian   & $0.72\pm0.11$ & $0.633\pm0.017$ & $0.3645\pm0.0056$ & \\
@@ -529,7 +526,7 @@ example ($J^{0}\!\to\! J^{\ast}$) & rep & $R^{2}$ & $\eta$ & $J$ & verdict\\
 \end{tabular}\\[2pt]
 {\footnotesize $^{\dagger}$The signature's lower cost on the long-delay Mackey--Glass examples is the
 under-sampling artefact overturned in Section~\ref{sec:h2}. $^{\ddagger}$On mg\_chaotic
-raw-history \emph{diverges} ($J\sim10^{3}$, all five seeds) for the same reason --- its
+raw-history \emph{diverges} ($I\sim10^{3}$, all five seeds) for the same reason --- its
 dimension $2484$ is under-sampled at this sample size --- so it falls below even the markovian
 critic; this is not evidence against history.}
 \end{table}
@@ -539,13 +536,13 @@ On every example where the delay genuinely enters the dynamics, the history wind
 closed-loop cost relative to the state-only critic, by a margin far exceeding the seed
 half-range (Table~\ref{tab:h1}): linear\_dde $0.152$ versus $0.365$ ($-58\%$), platoon $0.029$
 versus $0.084$ ($-66\%$), mg\_limit\_cycle $0.036$ versus $5.60$ (two orders of magnitude). The
-markovian critic's deficit is visible already in the gradient cosine --- $\eta=0.05$ on
+markovian critic's deficit is visible already in the gradient cosine --- $\gamma=0.05$ on
 mg\_limit\_cycle, $0.43$ on platoon --- the optimal control is simply not a function of the
 current state. $H_1$ is a robust, measured, seed-stable positive.
 \end{finding}
 
 \begin{remark}[$H_1$ is about the dynamics, not the representation]\label{rem:h1mech}
-On mg\_chaotic the history critic \emph{diverges} ($J\sim10^{3}$), so the raw $H_1$ comparison
+On mg\_chaotic the history critic \emph{diverges} ($I\sim10^{3}$), so the raw $H_1$ comparison
 inverts (Table~\ref{tab:h1}, $\ddagger$). This is not a failure of history but a conditioning
 failure of the particular history \emph{representation} at $\tau=17$ (window $69$, dimension
 $2484$): the markovian critic, with no history to misfit, is merely the less-broken of two
@@ -559,8 +556,8 @@ under-sampled here --- exactly the phenomenon Section~\ref{sec:h2} controls for.
 \begin{finding}[On-sheet-only data does not identify the gradient]\label{find:onsheet}
 Repeating the canonical run on \emph{on-sheet-only} data
 (\texttt{20260616\_161649\_on\_sheet\_array}) leaves the low-dimensional examples intact but makes
-the high-dimensional fits diverge: raw-history rises to $J=117.6$ (mg\_limit\_cycle), $784.5$
-(mg\_chaotic), and the markovian and signature critics to $J=235.9\pm90.1$ and $88.7\pm75.6$ on
+the high-dimensional fits diverge: raw-history rises to $I=117.6$ (mg\_limit\_cycle), $784.5$
+(mg\_chaotic), and the markovian and signature critics to $I=235.9\pm90.1$ and $88.7\pm75.6$ on
 the platoon, against their on${}+{}$off-sheet values of order $10^{-2}$. The value fit can be
 near-perfect on-trajectory ($R^{2}>0.99$) while the deployed control is unbounded, because the
 data do not constrain the gradient \emph{transverse} to the trajectory. Off-sheet relabelling
@@ -579,7 +576,7 @@ parameter) and the Mackey--Glass examples (a different plant family, to test gen
 
 \subsection{Formalising \texorpdfstring{$H_2$}{H2}}\label{sec:h2-formal}
 
-The comparison $J[\text{signature}]<J[\text{raw-history}]$ is, as stated, ill-posed: it depends on
+The comparison $I[\text{signature}]<I[\text{raw-history}]$ is, as stated, ill-posed: it depends on
 the data budget and the sampling law, which do not appear in it. Making them explicit separates two
 distinct questions. Fix a feature map $\phi:\mathcal X\to\R^{\dim\phi}$ on the space of history
 sequences $\mathcal X=(\R^{n})^{L}$, and let
@@ -587,8 +584,8 @@ sequences $\mathcal X=(\R^{n})^{L}$, and let
 \mathcal H_\phi=\big\{\,\underline x\mapsto\inner{\theta}{\phi(\underline x)}:\theta\in\R^{\dim\phi}\,\big\}
 \]
 be the induced linear value class. A critic $V$ is deployed through Doya's law \eqref{eq:doyalaw},
-$u_{V}=\half R^{-1}B^{\top}\partial_{x}V$, and $J(V)$ denotes the resulting closed-loop cost. Because
-the control is the \emph{gradient} of $V$, the operative metric is $J(V)$ --- not any
+$u_{V}=\half R^{-1}B^{\top}\partial_{x}V$, and $I(V)$ denotes the resulting closed-loop cost. Because
+the control is the \emph{gradient} of $V$, the operative metric is $I(V)$ --- not any
 value-approximation error --- which is why a perfect value fit ($R^{2}=1$) is uninformative on its
 own (Proposition~\ref{prop:kerG}). An estimator $\mathcal D\mapsto\hat\theta_\phi(\mathcal D)$ on a
 dataset of size $n$ (Definition~\ref{def:estimator}) gives the fitted critic $\hat V_\phi^{\mathcal D}$.
@@ -597,23 +594,23 @@ The two representations are $\phi_H$ (degree-two raw-history, $\dim\phi_H=O(\tau
 
 \emph{Population (representational)} --- does the signature structure enlarge the attainable control:
 \begin{equation}\label{eq:h2pop}
-H_2^{\mathrm{pop}}:\qquad \inf_{V\in\mathcal H_{\phi_S}}J(V)\;<\;\inf_{V\in\mathcal H_{\phi_H}}J(V).
+H_2^{\mathrm{pop}}:\qquad \inf_{V\in\mathcal H_{\phi_S}}I(V)\;<\;\inf_{V\in\mathcal H_{\phi_H}}I(V).
 \end{equation}
 
 \emph{Finite-sample (statistical)}, indexed by the budget $n$ and the sampling law $\mathcal P$
 (on/off-sheet, Definition~\ref{def:datamode}):
 \begin{equation}\label{eq:h2n}
 H_2^{(n)}:\qquad
-\E_{\mathcal D\sim\mathcal P^{\otimes n}}\!\big[J(\hat V_{\phi_S}^{\mathcal D})\big]\;<\;
-\E_{\mathcal D\sim\mathcal P^{\otimes n}}\!\big[J(\hat V_{\phi_H}^{\mathcal D})\big],
+\E_{\mathcal D\sim\mathcal P^{\otimes n}}\!\big[I(\hat V_{\phi_S}^{\mathcal D})\big]\;<\;
+\E_{\mathcal D\sim\mathcal P^{\otimes n}}\!\big[I(\hat V_{\phi_H}^{\mathcal D})\big],
 \end{equation}
 well-defined only when $\mathcal P$ carries off-manifold support --- otherwise $\ker G_n\ne\{0\}$
 and both sides diverge (Proposition~\ref{prop:kerG}, Finding~\ref{find:onsheet}). For each class the
 excess cost decomposes as a bias/variance pair,
 \begin{equation}\label{eq:h2decomp}
-\E\big[J(\hat V_\phi)\big]-J^{\ast}=
-\underbrace{\Big(\inf_{V\in\mathcal H_\phi}J(V)-J^{\ast}\Big)}_{\text{approximation}}
-+\underbrace{\Big(\E\big[J(\hat V_\phi)\big]-\inf_{V\in\mathcal H_\phi}J(V)\Big)}_{\text{estimation (conditioning)}}.
+\E\big[I(\hat V_\phi)\big]-I^{\ast}=
+\underbrace{\Big(\inf_{V\in\mathcal H_\phi}I(V)-I^{\ast}\Big)}_{\text{approximation}}
++\underbrace{\Big(\E\big[I(\hat V_\phi)\big]-\inf_{V\in\mathcal H_\phi}I(V)\Big)}_{\text{estimation (conditioning)}}.
 \end{equation}
 
 The remainder of this section establishes, by measurement, that the \emph{approximation} terms of
@@ -633,13 +630,13 @@ to raise $n$ past that threshold.
 \caption{Hopfield $\tau$-sweep at fixed sample size $n_{\text{train}}=4130$ (single seed,
 \texttt{h1h2\_tau\_sweep}). As $\tau$ grows the window $L$ and hence $\dim\phi_H$ grow as
 $O(\tau^{2})$, so $n_{\text{train}}/\dim\phi_H$ falls; below ${\sim}5$ the history fit loses the
-gradient ($\eta$ collapses) and $J$ \emph{diverges}, leaving the fixed-dimension signature as
+gradient ($\gamma$ collapses) and $I$ \emph{diverges}, leaving the fixed-dimension signature as
 the apparent winner.}\label{tab:tausweep}
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{cccc cc cc}
 \toprule
 $\tau$ & $L$ & $\dim\phi_H$ & $\tfrac{n}{\dim\phi_H}$
- & $\eta_{H}$ & $J_{H}$ (raw-hist) & $\eta_{S}$ & $J_{S}$ (signature)\\
+ & $\gamma_{H}$ & $I_{H}$ (raw-hist) & $\gamma_{S}$ & $I_{S}$ (signature)\\
 \midrule
 0.5 & 6  & 90   & 45.9 & 1.000 & $\mathbf{0.090}$ & 0.960 & 0.098\\
 1.0 & 11 & 275  & 15.0 & 0.997 & $\mathbf{0.130}$ & 0.921 & 0.152\\
@@ -651,10 +648,10 @@ $\tau$ & $L$ & $\dim\phi_H$ & $\tfrac{n}{\dim\phi_H}$
 
 \begin{finding}[The signature has the lower cost only where the history fit is under-sampled]\label{find:apparent}
 In the $\tau$-sweep at fixed sample size (Table~\ref{tab:tausweep}) the history window has the
-\emph{lower} cost at short delay ($\tau=0.5,1$: $J_H=0.090,0.130$ versus $J_S=0.098,0.152$), and
+\emph{lower} cost at short delay ($\tau=0.5,1$: $I_H=0.090,0.130$ versus $I_S=0.098,0.152$), and
 the signature only overtakes it at $\tau=2,3$. But the overtaking coincides exactly with
 $n_{\text{train}}/\dim\phi_H$ falling through ${\sim}5$ to ${\sim}2$: at $\tau=2,3$ the history
-\emph{diverges} ($J_H=544,383$; $\eta_H=0.17,0.12$), it is not out-performed. The apparent
+\emph{diverges} ($I_H=544,383$; $\gamma_H=0.17,0.12$), it is not out-performed. The apparent
 $H_2$ advantage is a statement about sample size, not representation --- a hypothesis to be
 controlled, not a result.
 \end{finding}
@@ -669,7 +666,7 @@ at fixed on-sheet count.}\label{tab:controls}
 \setlength{\tabcolsep}{5pt}
 \begin{tabular}{llcc cc}
 \toprule
-control & setting & $n/\dim\phi_H$ & $\eta_H$ & $J_H$ & $J_S$\\
+control & setting & $n/\dim\phi_H$ & $\gamma_H$ & $I_H$ & $I_S$\\
 \midrule
 \multicolumn{6}{l}{\emph{(a) more data --- Hopfield $\tau=2$, $\dim\phi_H=945$ (\texttt{h1h2\_tau2\_control})}}\\
  baseline (under-sampled) & $n_{\mathrm{ic}}30,\ n_{\mathrm{off}}500$  & 4.4  & 0.166 & $544.6$ & $0.264$\\
@@ -690,21 +687,21 @@ control & setting & $n/\dim\phi_H$ & $\eta_H$ & $J_H$ & $J_S$\\
 
 \begin{finding}[Every control overturns the apparent advantage]\label{find:controls}
 Table~\ref{tab:controls} reports three independent controls.
-(a) Quadrupling the data at $\tau=2$ restores the history window from $J=544.6$ to $0.240$ and
+(a) Quadrupling the data at $\tau=2$ restores the history window from $I=544.6$ to $0.240$ and
 its gradient cosine from $0.17$ to $0.98$, level with the signature's $0.229$.
-(b) At fixed under-sampled data, Tikhonov conditioning alone restores it ($J:544.6\to0.238$ at
-$\lambda=10^{-2}$) --- and \emph{degrades} the signature ($J:0.264\to6.887$), since the same
+(b) At fixed under-sampled data, Tikhonov conditioning alone restores it ($I:544.6\to0.238$ at
+$\lambda=10^{-2}$) --- and \emph{degrades} the signature ($I:0.264\to6.887$), since the same
 ridge over-damps the signature's few informative directions. The cure is conditioning, not
 capacity.
 (c) At $\tau=3$, scaling the off-sheet count until off/dim${}\ge2$ makes the history window
-converge and \emph{beat} the signature: $J_H=0.289$ versus $J_S=0.323$, with $\eta_H=1.000$.
+converge and \emph{beat} the signature: $I_H=0.289$ versus $I_S=0.323$, with $\gamma_H=1.000$.
 Under any of the three controls the $H_2$ ordering of Table~\ref{tab:tausweep} reverses.
 \end{finding}
 
 \begin{finding}[On/off-sheet \emph{balance}, not raw count, is the lever]\label{find:balance}
 The controls isolate a sharper sub-finding. At $\tau=3$, adding on-sheet data makes things
 \emph{worse}: with $n_{\mathrm{off}}=2000$ fixed, raising the on-sheet count from
-$n_{\mathrm{ic}}=30$ to $240$ moves the history window from $J=0.579$ (converging) to $J=1495$
+$n_{\mathrm{ic}}=30$ to $240$ moves the history window from $I=0.579$ (converging) to $I=1495$
 (diverged), at $n/\dim\phi_H=15.4$ --- a \emph{larger} sample
 (\texttt{h1h2\_tau3\_control}). The on-sheet windows are low-rank (Section~\ref{sec:mechanism})
 and, in excess, they \emph{dominate} the least-squares normal equations and suppress the off-sheet
@@ -719,13 +716,13 @@ $n_{\mathrm{ic}}=30$.
 \caption{Left: Duffing $\kappa$-sweep (\texttt{h1h2\_duffing\_kappa\_sweep}), a non-saturating
 hardening nonlinearity at short delay (window $6$, $\dim\phi_H=90$, well sampled at
 $n/\dim\phi_H=45.9$). Right: Mackey--Glass off-sheet scaling
-(\texttt{h1h2\_mg\_offsheet}, single seed), off/dim${}\in\{1,2,4\}$. Lower $J$ in bold.}
+(\texttt{h1h2\_mg\_offsheet}, single seed), off/dim${}\in\{1,2,4\}$. Lower $I$ in bold.}
 \label{tab:generality}
 \setlength{\tabcolsep}{4pt}
 \begin{minipage}[t]{0.49\textwidth}\centering
 \begin{tabular}{lccc}
 \toprule
-$\kappa$ & $J_M$ & $J_H$ & $J_S$\\
+$\kappa$ & $I_M$ & $I_H$ & $I_S$\\
 \midrule
 0.5 & 0.170 & $\mathbf{0.104}$ & 0.120\\
 1.0 & 0.223 & $\mathbf{0.121}$ & 0.133\\
@@ -738,7 +735,7 @@ $\kappa$ & $J_M$ & $J_H$ & $J_S$\\
 \begin{minipage}[t]{0.49\textwidth}\centering
 \begin{tabular}{llccc}
 \toprule
-example & off/dim & $\eta_H$ & $J_H$ & $J_S$\\
+example & off/dim & $\gamma_H$ & $I_H$ & $I_S$\\
 \midrule
 \multirow{3}{*}{limit cycle}
  & 1 & 0.168 & 0.240 & $\mathbf{0.0128}$\\
@@ -757,8 +754,8 @@ example & off/dim & $\eta_H$ & $J_H$ & $J_S$\\
 \begin{finding}[$H_2$ fails on a well-sampled nonlinear example]\label{find:duffing}
 On the Duffing example, where the delay is short ($\dim\phi_H=90$) so the history window is
 \emph{well} sampled at every $\kappa$, the history window has the lower cost at every
-nonlinearity strength (Table~\ref{tab:generality}, left: $J_H<J_S$ throughout, $\eta_H\ge0.97$
-versus $\eta_S\le0.91$). A genuinely nonlinear value functional is therefore \emph{not}
+nonlinearity strength (Table~\ref{tab:generality}, left: $I_H<I_S$ throughout, $\gamma_H\ge0.97$
+versus $\gamma_S\le0.91$). A genuinely nonlinear value functional is therefore \emph{not}
 sufficient for $H_2$: when the history fit is not under-sampled, the degree-two polynomial of the
 window already captures the nonlinearity the signature was meant to supply.
 \end{finding}
@@ -766,14 +763,14 @@ window already captures the nonlinearity the signature was meant to supply.
 \begin{finding}[The under-sampling explanation generalises to Mackey--Glass]\label{find:mg}
 On the Mackey--Glass limit cycle, scaling the off-sheet data reproduces the Hopfield pattern in
 a different plant family (Table~\ref{tab:generality}, right): the history window moves from
-$J=0.240$ (off/dim 1, $\eta_H=0.17$, under-conditioned) through $0.017$ (off/dim 2) to
+$I=0.240$ (off/dim 1, $\gamma_H=0.17$, under-conditioned) through $0.017$ (off/dim 2) to
 $\mathbf{0.0108}$ (off/dim 4), \emph{beating} the signature's $0.0126$. The canonical
 $H_2$-holds verdict on this example (Table~\ref{tab:h1}, $\dagger$) is thus an off-sheet-budget
 artefact: at off/dim${}=4$ it reverses. The chaotic example (window $69$, $\dim\phi_H=2484$, the
-hardest plant) overturns \emph{sooner}: under-conditioned at off/dim 1 ($J_H=0.193$ versus the
+hardest plant) overturns \emph{sooner}: under-conditioned at off/dim 1 ($I_H=0.193$ versus the
 signature's $0.0179$), the history window already \emph{beats} the signature at off/dim 2
-($J_H=0.0143$ versus $0.0184$, $\eta_H=0.87$) and \emph{plateaus} there
-($J_H=0.0140$, $\eta_H=0.90$ at off/dim${}=4$; each such point requires $\sim10^{4}$ Pontryagin
+($I_H=0.0143$ versus $0.0184$, $\gamma_H=0.87$) and \emph{plateaus} there
+($I_H=0.0140$, $\gamma_H=0.90$ at off/dim${}=4$; each such point requires $\sim10^{4}$ Pontryagin
 solves). The reversal thus holds on both Mackey--Glass examples and both Hopfield delays: the
 signature's long-delay advantage is under-sampling of the history window, removed by off-sheet
 data balanced to its dimension, with no example measured as an exception.
@@ -795,31 +792,19 @@ advantage, quantified next.
 measured. The proven part (a Veronese effective-rank bound, and the value/gradient gap) is the
 companion note
 \texttt{latex\_documents/notes/2026\_06\_17\_signature\_density\_vs\_conditioning}; its operative
-statements are reproduced and cited here, not re-proved (the density theorem is a classical result,
-attributed there to Arribas and to Hambly--Lyons), with the measured part kept in a separate
+statements are reproduced here, with the measured part kept in a separate
 \textnormal{Empirical finding}.}
 
 \subsection{The proven part}
 
-\begin{theorem}[Density of linear functionals of the signature; Arribas 2018]\label{thm:density}
-Let $\mathcal X$ be a set of continuous bounded-variation paths $[0,T]\to\R^{1+d}$, time-augmented
-(each carrying a monotone time coordinate), compact for the $1$-variation topology, and containing
-no two distinct tree-like-equivalent paths. Then for every $F\in C(\mathcal X;\R)$ and every
-$\varepsilon>0$ there exist a truncation level $L\in\N$ and a linear functional $\ell$ of the
-depth-$L$ signature such that
-\[
-\sup_{X\in\mathcal X}\big|F(X)-\inner{\ell}{\sig_{\le L}(X)}\big|<\varepsilon .
-\]
-\end{theorem}
-
-\begin{remark}[Existence, not recovery]\label{rem:density}
-Theorem~\ref{thm:density} is an existence statement in
-$\big(C(\mathcal X),\norm{\cdot}_{\infty}\big)$: it asserts that an $\varepsilon$-approximant $\ell$
-\emph{exists}, but bounds neither its norm, nor the stability of recovering it from a finite sample,
-nor any derivative of $F$. The obstructions of this section --- the effective-rank degeneracy
-(Proposition~\ref{prop:veronese}) and the value/gradient gap (Proposition~\ref{prop:kerG}) --- all
+\begin{theorem}[Density is existence, not recovery; attribution]\label{thm:density}
+Linear functionals of the signature of augmented bounded-variation paths are dense, for the
+uniform norm, in the continuous functionals of the path (Stone--Weierstrass via the shuffle
+identity and Hambly--Lyons injectivity). This guarantees the \emph{existence} of a good
+linear-in-signature critic; it bounds neither the norm of the approximant, nor the stability of
+its recovery from a finite sample, nor any derivative of it. The three obstructions below all
 live in that gap.
-\end{remark}
+\end{theorem}
 
 \begin{proposition}[Veronese effective-rank bound]\label{prop:veronese}
 Let the law of the history sequence be supported on a family
@@ -832,9 +817,16 @@ dimension of the Veronese embedding,
 \rank\Cov\big(\sig_{\le L}(\underline x)\big)\ \le\ \binom{k+L}{L},
 \]
 \emph{independently of the ambient feature dimension} $N(d,L)=\sum_{m\le L}d^{m}$. The identical
-bound, with $L=2$, governs the degree-two raw-history covariance. (Companion note,
-Proposition~3.2 and Corollary~3.3.)
+bound, with $L=2$, governs the degree-two raw-history covariance.
 \end{proposition}
+
+\begin{proof}[Proof (the note, Proposition~3.2--Corollary~3.3)]
+Each feature coordinate is a polynomial of degree $\le L$ in $z$; the space of such polynomials
+has dimension $\binom{k+L}{L}$. Writing the feature vector as $C\,b(z)$ for a fixed basis $b$ of
+that space and a constant matrix $C$, the covariance is $C\,\Cov(b(z))\,C^{\top}$, of rank at
+most $\binom{k+L}{L}$. Summing the per-level homogeneous parts and the hockey-stick identity give
+the stated form.
+\end{proof}
 
 \begin{lemma}[Differentiation is unbounded]\label{lem:diff}
 There is a sequence $g_{n}\in C^{1}$ with $\norm{g_{n}}_{\infty}\to0$ and
@@ -849,12 +841,19 @@ by Proposition~\ref{prop:veronese}, since the effective rank is $\ll N$). Then $
 an equally good minimiser for every $h\in\ker G_{n}$, with identical fitted values on the
 sample; if some such $h$ has non-zero gradient at a deployment point off the data manifold, the
 deployed control gradient there is \emph{not determined by the data}. A perfect value fit
-($R^{2}=1$) is compatible with an arbitrary control. (Companion note, Proposition~6.2.)
+($R^{2}=1$) is compatible with an arbitrary control.
 \end{proposition}
+
+\begin{proof}[Proof (the note, Proposition~6.2)]
+For $h\in\ker G_{n}$, $\sum_i\inner{h}{\Phi_i}^{2}=h^{\top}(nG_{n})h=0$, so $\hat\ell$ and
+$\hat\ell+h$ have identical sample fits and risk; their deployed gradients differ by
+$\partial_{x}\inner{h}{\sig}$ at the deployment point, non-zero by hypothesis and unconstrained
+by the data.
+\end{proof}
 
 Proposition~\ref{prop:kerG} is the exact form of Finding~\ref{find:onsheet}: on-sheet-only data
 leaves $\ker G_{n}$ large, the value fits perfectly, and the off-manifold gradient --- hence the
-control --- is free, so $J$ diverges. Off-sheet relabelling (Definition~\ref{def:datamode})
+control --- is free, so $I$ diverges. Off-sheet relabelling (Definition~\ref{def:datamode})
 shrinks $\ker G_{n}$ and restores identifiability. The natural objection is that exploration should
 do the same; the next two statements show why, on a regulated plant, it does not --- and isolate the
 one thing off-sheet design does that no exploration can.
@@ -864,9 +863,13 @@ For a Hurwitz closed loop with generator $A$, the stationary state covariance un
 noise covariance $\Sigma\succeq0$ is the solution $P(\Sigma)$ of $AP+PA^{\top}+\Sigma=0$. For a fixed
 noise shape $\Sigma_{0}$, the effective rank $\effrank P(\sigma^{2}\Sigma_{0})$ and the condition
 number $\cond P(\sigma^{2}\Sigma_{0})$ are independent of the exploration amplitude $\sigma$.
-(Companion note, Proposition~4.1; the map $\Sigma\mapsto P(\Sigma)$ is linear, so
-$P(\sigma^{2}\Sigma_{0})=\sigma^{2}P(\Sigma_{0})$, and $\effrank,\cond$ are degree-zero homogeneous.)
 \end{proposition}
+
+\begin{proof}[Proof (the note)]
+The map $\Sigma\mapsto P(\Sigma)=\int_{0}^{\infty}e^{tA}\,\Sigma\,e^{tA^{\top}}\,\mathrm dt$ is linear,
+so $P(\sigma^{2}\Sigma_{0})=\sigma^{2}P(\Sigma_{0})$; $\effrank$ and $\cond$ are homogeneous of degree
+zero in the eigenvalues and are therefore invariant under the positive scaling $P\mapsto\sigma^{2}P$.
+\end{proof}
 
 \begin{observation}[Off-sheet design versus exploration]\label{obs:explore}
 Off-sheet perturbation and exploration pursue the same end --- populating the directions transverse
@@ -1009,10 +1012,10 @@ to the trajectory is unconstrained (Proposition~\ref{prop:kerG}). This is measur
 Hopfield example with on-sheet data only, over five seeds (Table~\ref{tab:onsheet}), extending the
 canonical on-sheet-only comparison of Finding~\ref{find:onsheet} to the primary nonlinear-delayed
 example and tying it to the rank. Only the dimension-$5$ markovian critic --- whose dimension is
-close to the attractor rank --- is identifiable and stabilises the plant ($J=0.13$ at $\tau=0.5$
+close to the attractor rank --- is identifiable and stabilises the plant ($I=0.13$ at $\tau=0.5$
 and $0.64$ at $\tau=2$, against the oracle $0.09$ and $0.21$); both high-dimensional
-representations diverge ($J\sim3$--$4\times10^{2}$, all five seeds), exceeding even the no-control
-cost ($J^{0}=9.85$ and $33.5$). The decisive case is $\tau=0.5$, where raw-history is
+representations diverge ($I\sim3$--$4\times10^{2}$, all five seeds), exceeding even the no-control
+cost ($I^{0}=9.85$ and $33.5$). The decisive case is $\tau=0.5$, where raw-history is
 \emph{over-sampled in count} ($n/\dim=40$) yet still diverges: the obstruction is the
 rank-$\approx3.4$ degeneracy of the data, not the sample size. Off-sheet (off-manifold) data is
 therefore a precondition \emph{shared by both} high-dimensional representations, and this shared
@@ -1020,16 +1023,16 @@ precondition --- not any property of the signature --- is the reason on-sheet-on
 \end{finding}
 
 \begin{table}[ht]\centering\small
-\caption{Hopfield on-sheet-only (no off-sheet data): closed-loop $J$, mean${}\pm{}$half the $95\%$
+\caption{Hopfield on-sheet-only (no off-sheet data): closed-loop $I$, mean${}\pm{}$half the $95\%$
 confidence interval over five seeds (\texttt{data/h1h2\_hopfield\_onsheet\_5seed}). Only the
 dimension-$5$ markovian critic (dimension near the on-sheet effective rank $\approx3.4$) is
 identifiable; both high-dimensional representations diverge --- the signature marginally worse than
-raw-history --- above even the no-control cost $J^{0}$. At $\tau=0.5$ raw-history has $n/\dim=40$,
+raw-history --- above even the no-control cost $I^{0}$. At $\tau=0.5$ raw-history has $n/\dim=40$,
 so the divergence is the rank degeneracy, not a sample shortage.}\label{tab:onsheet}
 \setlength{\tabcolsep}{6pt}
 \begin{tabular}{cl ccc}
 \toprule
-$\tau$ ($J^{0}\!\to\! J^{\ast}$) & rep & $\dim\phi$ & $n/\dim$ & $J$ (mean $\pm$ ci)\\
+$\tau$ ($I^{0}\!\to\! I^{\ast}$) & rep & $\dim\phi$ & $n/\dim$ & $I$ (mean $\pm$ ci)\\
 \midrule
 \multirow{3}{*}{$0.5$ ($9.85\!\to\!0.09$)}
  & markovian   & 5  & 726  & $\mathbf{0.131\pm0.012}$\\
@@ -1067,7 +1070,7 @@ of coordinates. The raw-history dimension grows with the \emph{delay} as $O((L n
 power; each is an over-parameterisation that the off-sheet data must condition. Hence the
 measured pattern: the signature's fixed delay-dimension helps on long-delay, low-state-dimension
 examples \emph{when data are scarce} (its sample-efficiency advantage), and its channel growth hurts
-on the high-state-dimension platoon (where $\eta_S=0.32$ and $J_S=0.227$ exceed even the
+on the high-state-dimension platoon (where $\gamma_S=0.32$ and $I_S=0.227$ exceed even the
 markovian critic). Given off-sheet data balanced to the representation's dimension
 (off/dim${}\gtrsim2$), the degree-two history window matches or beats the signature on every example
 measured. The signature's genuine advantage is sample efficiency, not representational power.
@@ -1121,7 +1124,7 @@ oscillation.}\label{fig:traj-linear}
 \caption{\texttt{platoon}. The decisive $H_2$ failure: the history window (orange, dimension
 $1325$) tracks the oracle and settles; the signature (purple, dimension $462$) \emph{sustains an
 undamped oscillation} it never regulates, its control signal (bottom) saturating --- the
-ill-conditioned gradient ($\eta_S=0.32$, condition number ${\sim}10^{14}$) producing a wrong
+ill-conditioned gradient ($\gamma_S=0.32$, condition number ${\sim}10^{14}$) producing a wrong
 feedback despite a near-perfect value fit ($R^2=0.999$).}\label{fig:traj-platoon}
 \end{figure}
 
@@ -1139,10 +1142,10 @@ arm.}\label{fig:traj-extra}
 \includegraphics[width=0.49\textwidth]{figures/traj_hopfield_tau2_rescued.png}
 \caption{\texttt{hopfield\_nonlinear} at $\tau=2$: the $H_2$ illusion and its cure. Left, the
 under-sampled fit ($n/\dim\phi_H=4.4$): the history window (orange, dimension $945$) diverges into a
-saturating bang-bang control ($J=545$) while the signature (purple) and oracle (dashed) track,
+saturating bang-bang control ($I=545$) while the signature (purple) and oracle (dashed) track,
 so the signature appears preferable. Right, the same data with Tikhonov conditioning
-($\lambda=10^{-2}$): the history window is restored to $J=0.238$ and tracks the oracle, while the
-identical ridge over-damps the signature ($J=6.89$). The cure is conditioning, not capacity
+($\lambda=10^{-2}$): the history window is restored to $I=0.238$ and tracks the oracle, while the
+identical ridge over-damps the signature ($I=6.89$). The cure is conditioning, not capacity
 (Finding~\ref{find:controls}).}\label{fig:traj-bvp}
 \end{figure}
 
@@ -1151,8 +1154,8 @@ identical ridge over-damps the signature ($J=6.89$). The cure is conditioning, n
 \caption{\texttt{mg\_limit\_cycle} (canonical off-sheet budget, $N_{\mathrm{off}}=500$). A clean
 $H_1$ picture: the markovian critic (green) cannot represent the value
 ($R^{2}=0.14$) and drives the state to a \emph{wrong} equilibrium near $x_0=0.62$ (cost
-$J=5.23$), while the history window (orange) and signature (purple) both regulate to
-$x^{\ast}=1$. At this off-sheet budget the signature leads ($J=0.013$ versus the history
+$I=5.23$), while the history window (orange) and signature (purple) both regulate to
+$x^{\ast}=1$. At this off-sheet budget the signature leads ($I=0.013$ versus the history
 window's $0.029$); Finding~\ref{find:mg} shows that scaling the off-sheet data to off/dim${}=4$
 reverses the ordering.}\label{fig:traj-mg}
 \end{figure}
@@ -1165,13 +1168,13 @@ temporal-difference estimator rather than a supervised one. These runs are singl
 falsifiable. The reg${}=10^{-4}$ conditioning fix of the parallel code is in effect.}
 
 \begin{table}[ht]\centering\small
-\caption{Learning half (damped LSPI), closed-loop $J$, single seed
+\caption{Learning half (damped LSPI), closed-loop $I$, single seed
 (\texttt{h1h2\_rl\_lspi}). $H_1$ holds on the delay examples and fails on the Markovian negative
 control, mirroring Table~\ref{tab:h1}.}\label{tab:rl}
 \setlength{\tabcolsep}{6pt}
 \begin{tabular}{lccc c}
 \toprule
-example & $J_M$ & $J_H$ & $J_S$ & $H_1$\\
+example & $I_M$ & $I_H$ & $I_S$ & $H_1$\\
 \midrule
 markovian (neg.\ control) & 3.782 & 3.687 & 3.849 & \failsv\\
 linear\_dde               & 0.423 & 0.181 & 0.128 & \holds\\
@@ -1182,7 +1185,7 @@ hopfield\_duffing         & 0.147 & 0.118 & 0.115 & \holds\\
 \end{table}
 
 \begin{observation}[The learning half agrees on $H_1$; $H_2$ is inconclusive single-seed]\label{obs:rl}
-Table~\ref{tab:rl} reproduces the $H_1$ verdict: history lowers $J$ on every delay example and not
+Table~\ref{tab:rl} reproduces the $H_1$ verdict: history lowers $I$ on every delay example and not
 on the Markovian control. On $H_2$ the single-seed learning runs are mixed (signature marginally
 below history on linear\_dde and hopfield\_duffing, marginally above on hopfield\_linear) and at
 the $3\%$ margin are within run-to-run variation; no falsifiable $H_2$ claim is made from the
