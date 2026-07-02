@@ -4,11 +4,22 @@
 benchmark report (`documents/reports/2026-06-30_h1h2_representation_benchmark/`) and the
 companion note (`../../latex_documents/notes/2026_06_17_signature_density_vs_conditioning/`).*
 
-**Governing principle — no HARKing.** The hypotheses $H_1/H_2$ are stated as *pre-registered*
-(see the pre-registration commit / registry). The paper reports the *apparent* $H_2$ result
-honestly and then the controls that overturn it; every claim carries its epistemic status
-(proven / measured / conjectured). The one non-proven quantitative element (the constant
-$c\approx2$ in the sample-efficiency law) is flagged as empirical, never dressed as a theorem.
+**Governing principle — no HARKing.** The pre-registration contains **only** the operational
+hypotheses $H_1/H_2$ as closed-loop-cost comparisons ($I[\text{raw}]<I[\text{markovian}]$;
+$I[\text{sig}]<I[\text{raw}]$). The paper reports the *apparent* $H_2$ result honestly and then the
+controls that overturn it; every claim carries its epistemic status (proven / measured /
+conjectured).
+
+Two boundaries this imposes:
+- **The $H_2^{\mathrm{pop}}$ vs $H_2^{(n)}$ split is post hoc**, formed after observing the collapse.
+  It is a standard approximation/estimation (bias/variance) decomposition used to *explain* the
+  pre-registered $H_2$ — presented as a **post-hoc interpretation and a conceptual contribution**,
+  never as a hypothesis we set out to test. Retro-fitting it into the pre-registration would be
+  HARKing and is forbidden.
+- **A mathematical statement needs a proof; a "law" is not a theorem.** The identifiability co-rank
+  bound is a Proposition (proven); the realised threshold $n_{\mathrm{off}}\approx c\,\dim\phi$,
+  $c\approx2$, is an *empirical scaling*, flagged as measured and never placed in a theorem
+  environment or called a "law/theorem".
 
 ---
 
@@ -21,7 +32,7 @@ is a finite-sample conditioning effect, which we formalise, prove the mechanism 
 under controls.
 
 **Framing.** A negative result with a *proven mechanism* and a *positive re-characterisation*.
-Lead with the positive law (*density $\neq$ realisability for control*; *sample efficiency, not
+Lead with the positive message (*density $\neq$ realisability for control*; *sample efficiency, not
 expressivity*); the refutation of $H_2$ is a corollary. Do **not** frame as "signatures are bad".
 
 **Venue.** AAAI main technical track (target). Better-fit alternatives to keep in mind: L4DC,
@@ -29,10 +40,10 @@ NeurIPS (main or Datasets & Benchmarks). If AAAI, foreground theory + methodolog
 read as a purely empirical negative.
 
 **Reviewer risks and pre-emptions.**
-- *"Negative result."* → Lead with the sample-efficiency law and the $H_2^{\mathrm{pop}}/H_2^{(n)}$
-  separation; the refutation is downstream.
+- *"Negative result."* → Lead with the off-sheet-budget scaling (Prop 4) and the
+  $H_2^{\mathrm{pop}}/H_2^{(n)}$ separation; the refutation is downstream.
 - *"Signatures need channel reduction (Morrill et al. 2021)."* → Cite; our novelty is the
-  control-specific gradient / kernel-of-Gram mechanism and the effective-rank law, absent there.
+  control-specific gradient / kernel-of-Gram mechanism and the effective-rank bound, absent there.
 - *"Oracle labels + plain LS is not real RL."* → The oracle half is the controlled instrument;
   the learned LSPI / capacity-sweep benchmark is the deployment-realistic confirmation. Both shown.
 - *"Only these plants."* → Graded suite + two nonlinear families + generic theory.
@@ -41,13 +52,21 @@ read as a purely empirical negative.
 
 ## 2. Contributions (claim list, in order)
 
-1. **Formalisation** separating the representational hypothesis $H_2^{\mathrm{pop}}$ from the
-   finite-sample $H_2^{(n)}$, with the approximation/estimation decomposition. (Report §5.1.)
+1. **Delayed value-gradient control (the enabling framework).** The extension of Doya's
+   continuous-time value-gradient law $u=\tfrac12 R^{-1}B^\top\partial_x V$ from ODE (Markov) systems
+   to **delayed / non-Markovian** dynamics: the value as a functional of the history (augmented
+   state), and the continuous-time delayed oracle — delayed-LQR by Chebyshev collocation of the
+   history generator, and a Pontryagin two-point BVP for nonlinear delayed plants. This is what
+   makes $H_1/H_2$ askable at all. (Builds on the thesis framework, Jobard 2026; credit explicitly.)
 2. **Theory**: effective-rank / Veronese bound; kernel-of-Gram gradient indeterminacy; Lyapunov
-   exploration-invariance; the sample-efficiency law (off-sheet budget $\propto$ feature dimension).
+   exploration-invariance; the identifiability co-rank bound (proven) + the measured off-sheet
+   scaling (empirical). See §3 for the exact claim-strength split.
 3. **Empirics**: a confound-controlled, (partly) pre-registered program on a graded suite —
-   $H_1$ holds, $H_2$ fails under every control, the law verified across two nonlinear families.
-4. **Methodology**: gated-oracle labelling + on/off-sheet design + capacity/budget/conditioning
+   $H_1$ holds, $H_2$ fails under every control, the scaling verified across two nonlinear families.
+4. **Post-hoc formalisation (conceptual contribution, labelled as such).** The
+   approximation/estimation decomposition of $H_2$ into $H_2^{\mathrm{pop}}$ (representational) and
+   $H_2^{(n)}$ (finite-sample) that explains the collapse. Not a pre-registered hypothesis (§1).
+5. **Methodology**: gated-oracle labelling + on/off-sheet design + capacity/budget/conditioning
    controls + pre-registration — a template for representation studies in RL.
 
 ---
@@ -63,22 +82,33 @@ read as a purely empirical negative.
   compatible with an arbitrary deployed control gradient off-manifold.
 - **Proposition 3 (Lyapunov scale-invariance, PROVEN).** Isotropic exploration leaves the
   effective rank of a regulated plant unchanged — the degeneracy is structural.
-- **Proposition 4 (sample-efficiency law — SPLIT claim strength).**
-  *Provable:* co-rank identity $n_{\mathrm{off}} \ge \dim\phi - r^\star$ for full rank, hence
-  $n_{\mathrm{off}}^{\mathrm{sig}}=O(1)$ vs $n_{\mathrm{off}}^{\mathrm{raw}}=O(\tau^2)$.
-  *Empirical (labelled):* the constant $c\approx2$ and the non-genericity of small perturbations.
-  Present as Proposition + separate Empirical finding.
+- **Proposition 4 (identifiability co-rank bound, PROVEN).** By rank subadditivity,
+  $\operatorname{rank}(G_n)\le r^\star + n_{\mathrm{off}}$ (on-sheet effective rank $r^\star$ plus the
+  off-sheet count, since each off-sheet row adds at most one to the rank), so full rank requires
+  $n_{\mathrm{off}}\ge\dim\phi-r^\star$. Hence the off-sheet budget for gradient identifiability is
+  $O(1)$ for the fixed-dimension signature and $O(\tau^2)$ for degree-two raw-history. *This is the
+  theorem; it is the whole of the "law" that is provable.*
+- **Empirical finding (measured, NOT a theorem).** The *realised* threshold is
+  $n_{\mathrm{off}}\approx c\,\dim\phi$ with $c\approx2$ (the off/dim $\gtrsim2$ transition), beyond
+  the bare-rank $c=1$, reflecting the non-genericity of small perturbations and conditioning.
+  Reported as a measured scaling — never a theorem.
 - **Conjecture 1 (approximation–conditioning trade-off).** Interior optimal depth/degree
   $L^\star(n,d,k)$ from the bias/variance decomposition. Conjecture with empirical support
   (capacity sweep), not a theorem.
+
+*(Optional theory of the framework, Contribution 1: state the delayed value-gradient consistency —
+that on the augmented state, Doya's law applied to the collocated/Pontryagin value reproduces the
+delayed-optimal control (the report's consistency check, provable at $\varepsilon=0$ where the BVP
+reduces to the delayed-LQR). Decide whether to include as a Proposition or leave as construction.)*
 
 ---
 
 ## 4. Numerical results
 
 **Suite (graded, pre-registered).** markovian (negative control) · linear DDE · delayed Hopfield
-{linear, tanh, Duffing} · $N{=}5$ platoon (high state-dim) · Mackey–Glass {limit cycle, chaotic}.
-Dadebo CSTR demoted with the measured kernel-ratio (an honest null).
+{linear, tanh, Duffing} · Mackey–Glass {limit cycle, chaotic} · [$N{=}5$ platoon, high state-dim —
+**candidate for cut**, see below]. Dadebo CSTR demoted with the measured kernel-ratio (an honest
+null).
 
 **Main-text (5 items):**
 1. **Table 1 — $H_1/H_2$ verdicts**, 5 seeds ± CI, three axes ($R^2$, gradient cosine, cost $I$).
@@ -86,11 +116,16 @@ Dadebo CSTR demoted with the measured kernel-ratio (an honest null).
    off-sheet rebalancing) collapse it; annotate the on/off *balance* sub-finding.
 3. **Figure 2 — the mechanism.** Effective-rank-vs-$\tau$ (flat $\approx3.4$ while $\dim$ grows
    $28\times$).
-4. **Figure 3 — the sample-efficiency law.** off/dim $\in\{1,2,4\}$ cost curves for Hopfield
+4. **Figure 3 — the off-sheet scaling (empirical).** off/dim $\in\{1,2,4\}$ cost curves for Hopfield
    $\tau{=}3$ and both Mackey–Glass cells: signature flat, raw-history crosses below at
-   off/dim $\gtrsim2$.
-5. **Figure 4 — the high-state-dim reversal.** Platoon controlled trajectory: signature sustains
-   an undamped oscillation (cond $\sim10^{14}$, $\gamma{=}0.32$); raw-history tracks.
+   off/dim $\gtrsim2$. Verifies the co-rank bound (Prop 4) and its measured constant $c\approx2$.
+5. **Figure 4 — the high-state-dimension reversal (CANDIDATE FOR CUT).** Platoon controlled
+   trajectory: signature sustains an undamped oscillation (cond $\sim10^{14}$, $\gamma{=}0.32$);
+   raw-history tracks. *If the platoon is dropped, this figure goes with it and the $O(d^L)$ reversal
+   becomes theory-only (Prop 1: signature dimension grows with channels) — the empirical core is
+   then the delay-length $O(\tau^2)$ story alone, which is cleaner. The $O(\tau^2)$-vs-$O(d^L)$
+   "duality" is then stated as one measured axis (delay) + one theoretical axis (state dimension),
+   not two empirical axes.*
 
 **Appendix.** On-sheet-only divergence (kernel-of-Gram, 5-seed); comprehensive *learned*
 capacity-sweep benchmark + the $H_1$ under-convergence reconciliation (budget sweep, oracle ladder,
@@ -105,20 +140,23 @@ full reproduction (scripts, run dirs, seeds).
    contributions.
 2. **Problem setup** (¾ pg) — delayed plant, Doya law, three representations, gated-oracle
    labelling, on/off-sheet data, three metrics.
-3. **Formalising the question** (½ pg) — $H_2^{\mathrm{pop}}$ vs $H_2^{(n)}$ + decomposition
-   (report §5.1, trimmed).
-4. **Theory** (1¼ pg) — Prop 1–4 (sketch proofs), the law, Conjecture 1; *density $\neq$
-   realisability for control*.
-5. **Experimental protocol** (½ pg) — suite, pre-registration, confound controls, claim-strength
-   policy.
-6. **Results** (2 pg) — $H_1$ (Table 1); overturn (Fig 1); mechanism (Fig 2); the law (Fig 3);
-   high-dim reversal (Fig 4); learned-benchmark confirmation (1 para → appendix).
+3. **Hypotheses and protocol** (½ pg) — the pre-registered *operational* $H_1/H_2$
+   (closed-loop-cost comparisons only), the suite, the confound controls, the claim-strength policy.
+   The $H_2^{\mathrm{pop}}/H_2^{(n)}$ split does **not** appear here (post hoc, item 6).
+4. **Theory** (1¼ pg) — Prop 1–4 (sketch proofs) + the empirical off-sheet scaling + Conjecture 1;
+   *density $\neq$ realisability for control*.
+5. **Results** (2 pg) — $H_1$ (Table 1); the $H_2$ overturn (Fig 1); mechanism (Fig 2); the off-sheet
+   scaling (Fig 3); [high-dim reversal (Fig 4) — only if platoon kept]; learned-benchmark
+   confirmation (1 para → appendix).
+6. **Interpretation (post hoc, labelled)** (½ pg) — the approximation/estimation decomposition of the
+   pre-registered $H_2$ into $H_2^{\mathrm{pop}}$ (measured false) and $H_2^{(n)}$ (regime-dependent),
+   explaining the flip (report §5.1). Explicitly *not* a pre-registered hypothesis.
 7. **Related work** (½ pg) — signatures in ML/RL (Morrill, Kidger, Lyons–Oberhauser), Doya
-   continuous-time RL, delayed/POMDP RL, representation-in-RL, evaluation rigor / registered
-   reports.
-8. **Discussion & limitations** (½ pg) — when history/signature reps help; $O(\tau^2)$ vs $O(d^L)$
-   duality; practitioner guidance (off-manifold data + conditioning > richer algebra); limits
-   (LQR-style oracle, finite suite).
+   continuous-time RL **and its delayed extension**, delayed/POMDP RL, representation-in-RL,
+   evaluation rigor / registered reports.
+8. **Discussion & limitations** (½ pg) — when history/signature reps help; the $O(\tau^2)$
+   (measured) vs $O(d^L)$ (theoretical) axes; practitioner guidance (off-manifold data +
+   conditioning > richer algebra); limits (LQR-style oracle, finite suite, platoon scoping).
 
 ---
 
@@ -151,8 +189,9 @@ effective-rank-vs-$\tau$; on-sheet-only 5-seed; the learned capacity-sweep bench
 
 ## 8. Open framing questions to refine
 
-- Lead contribution: the **law** (sample efficiency) vs the **separation** ($H_2^{\mathrm{pop}}$
-  vs $H_2^{(n)}$) vs the **methodology**? (Current lean: the separation as spine, the law as
+- Lead contribution: the **scaling result** (sample efficiency: Prop 4 + measured $c$) vs the
+  **separation** ($H_2^{\mathrm{pop}}$ vs $H_2^{(n)}$, post hoc) vs the **delayed value-gradient
+  framework** vs the **methodology**? (Current lean: the framework + theory as spine, the scaling as
   takeaway.)
 - How much of the *learned* comprehensive benchmark to keep in main text vs appendix (it carries
   the deployment-realism, but the oracle half is the cleaner instrument).
