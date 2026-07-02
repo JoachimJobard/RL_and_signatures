@@ -148,12 +148,12 @@ The reference controller is the continuous-time optimal control of \eqref{eq:pla
 example.
 \begin{itemize}
 \item \emph{Linear / linearised examples (delayed-LQR).} The history segment $[-\tau,0]$ is
-discretised at the $\nu+1$ Chebyshev collocation nodes $-\tau=\theta_{\nu}<\dots<\theta_{0}=0$, and
-the augmented state $z=\big(x(t+\theta_{0}),\dots,x(t+\theta_{\nu})\big)\in\R^{n(\nu+1)}$ stacks the
+discretised at the $\nu+1$ Chebyshev collocation nodes $-\tau=s_{\nu}<\dots<s_{0}=0$, and
+the augmented state $z=\big(x(t+s_{0}),\dots,x(t+s_{\nu})\big)\in\R^{n(\nu+1)}$ stacks the
 state at those nodes. The delay equation \eqref{eq:plant} becomes the ordinary differential equation
 $\dot z=Mz+\mathcal N u$, in which $M\in\R^{n(\nu+1)\times n(\nu+1)}$ collocates the transport
-identity $\partial_{t}x=\partial_{\theta}x$ at the interior nodes and the linearised dynamics
-$\dot x=A_{0}\,x(t)+A_{1}\,x(t-\tau)$ at the boundary node $\theta_{0}=0$, and
+identity $\partial_{t}x=\partial_{s}x$ at the interior nodes and the linearised dynamics
+$\dot x=A_{0}\,x(t)+A_{1}\,x(t-\tau)$ at the boundary node $s_{0}=0$, and
 $\mathcal N=(B^{\top},0,\dots,0)^{\top}\in\R^{n(\nu+1)\times m}$ injects the control at that node. The
 algebraic Riccati equation $M^{\top}P_{c}+P_{c}M-P_{c}\mathcal N R^{-1}\mathcal N^{\top}P_{c}+Q_{z}=0$,
 with $Q_{z}$ equal to $Q$ on the boundary block and $0$ elsewhere, yields the value
@@ -239,7 +239,7 @@ displaced,
 \]
 (the state is of order unity in every example). The perturbed sequence is \emph{re-labelled through
 the oracle}: it is mapped to the augmented state $z(\underline x')$ by interpolating its samples onto
-the collocation nodes $\theta_{0},\dots,\theta_{\nu}$, and $V^{\ast}(\underline x')$ is read from the
+the collocation nodes $s_{0},\dots,s_{\nu}$, and $V^{\ast}(\underline x')$ is read from the
 oracle at $z(\underline x')$ --- in closed form ($-z^{\top}P_{c}z$) for the linear examples, by one
 Pontryagin boundary-value problem for the nonlinear examples. There are $n_{\mathrm{off}}$ such
 sequences.
@@ -260,7 +260,7 @@ estimators of $\theta$ are used.
 \begin{itemize}
 \item \emph{Oracle half} (the primary evidence). The regularised normal-equation solution
 \[
-\hat\theta=\Big(G+\lambda\,\tfrac{\tr G}{\dim\phi}\,\mathrm J\Big)^{-1}\Phi^{\top}y,
+\hat\theta=\Big(G+\lambda\,\tfrac{\tr G}{\dim\phi}\,\mathrm{Id}\Big)^{-1}\Phi^{\top}y,
 \]
 with scale-aware penalty $\lambda\ge0$ (the parameter \texttt{H1H2\_RIDGE}); at $\lambda=0$ this is
 the minimum-norm least-squares solution $\hat\theta=\Phi^{+}y$. Because the labels are the
@@ -282,7 +282,10 @@ Each fit is scored on three axes, one symbol each, on the deployment trajectory:
 \begin{itemize}
 \item value-fit $R^{2}\in(-\infty,1]$ --- \emph{expressivity}: the coefficient of
 determination of $V_{\theta}$ against $V^{\ast}$ on the training sequences;
-\item gradient cosine $\eta:=\cos\!\big(u_{\theta},u^{\ast}\big)\in[-1,1]$ ---
+\item gradient cosine
+$\eta:=\dfrac{\inner{u_{\theta}}{u^{\ast}}}{\norm{u_{\theta}}\,\norm{u^{\ast}}}\in[-1,1]$, the
+cosine of the angle between the deployed control $u_{\theta}$ and the optimal control $u^{\ast}$
+stacked along the deployment trajectory ---
 \emph{extraction}: the alignment of the deployed value-gradient control with the optimal
 control along the deployment trajectory;
 \item closed-loop cost $J$ (Equation~\eqref{eq:cost}) --- \emph{control}: the operative
@@ -792,19 +795,31 @@ advantage, quantified next.
 measured. The proven part (a Veronese effective-rank bound, and the value/gradient gap) is the
 companion note
 \texttt{latex\_documents/notes/2026\_06\_17\_signature\_density\_vs\_conditioning}; its operative
-statements are reproduced here, with the measured part kept in a separate
+statements are reproduced and cited here, not re-proved (the density theorem is a classical result,
+attributed there to Arribas and to Hambly--Lyons), with the measured part kept in a separate
 \textnormal{Empirical finding}.}
 
 \subsection{The proven part}
 
-\begin{theorem}[Density is existence, not recovery; attribution]\label{thm:density}
-Linear functionals of the signature of augmented bounded-variation paths are dense, for the
-uniform norm, in the continuous functionals of the path (Stone--Weierstrass via the shuffle
-identity and Hambly--Lyons injectivity). This guarantees the \emph{existence} of a good
-linear-in-signature critic; it bounds neither the norm of the approximant, nor the stability of
-its recovery from a finite sample, nor any derivative of it. The three obstructions below all
-live in that gap.
+\begin{theorem}[Density of linear functionals of the signature; Arribas 2018]\label{thm:density}
+Let $\mathcal X$ be a set of continuous bounded-variation paths $[0,T]\to\R^{1+d}$, time-augmented
+(each carrying a monotone time coordinate), compact for the $1$-variation topology, and containing
+no two distinct tree-like-equivalent paths. Then for every $F\in C(\mathcal X;\R)$ and every
+$\varepsilon>0$ there exist a truncation level $L\in\N$ and a linear functional $\ell$ of the
+depth-$L$ signature such that
+\[
+\sup_{X\in\mathcal X}\big|F(X)-\inner{\ell}{\sig_{\le L}(X)}\big|<\varepsilon .
+\]
 \end{theorem}
+
+\begin{remark}[Existence, not recovery]\label{rem:density}
+Theorem~\ref{thm:density} is an existence statement in
+$\big(C(\mathcal X),\norm{\cdot}_{\infty}\big)$: it asserts that an $\varepsilon$-approximant $\ell$
+\emph{exists}, but bounds neither its norm, nor the stability of recovering it from a finite sample,
+nor any derivative of $F$. The obstructions of this section --- the effective-rank degeneracy
+(Proposition~\ref{prop:veronese}) and the value/gradient gap (Proposition~\ref{prop:kerG}) --- all
+live in that gap.
+\end{remark}
 
 \begin{proposition}[Veronese effective-rank bound]\label{prop:veronese}
 Let the law of the history sequence be supported on a family
@@ -817,16 +832,9 @@ dimension of the Veronese embedding,
 \rank\Cov\big(\sig_{\le L}(\underline x)\big)\ \le\ \binom{k+L}{L},
 \]
 \emph{independently of the ambient feature dimension} $N(d,L)=\sum_{m\le L}d^{m}$. The identical
-bound, with $L=2$, governs the degree-two raw-history covariance.
+bound, with $L=2$, governs the degree-two raw-history covariance. (Companion note,
+Proposition~3.2 and Corollary~3.3.)
 \end{proposition}
-
-\begin{proof}[Proof (the note, Proposition~3.2--Corollary~3.3)]
-Each feature coordinate is a polynomial of degree $\le L$ in $z$; the space of such polynomials
-has dimension $\binom{k+L}{L}$. Writing the feature vector as $C\,b(z)$ for a fixed basis $b$ of
-that space and a constant matrix $C$, the covariance is $C\,\Cov(b(z))\,C^{\top}$, of rank at
-most $\binom{k+L}{L}$. Summing the per-level homogeneous parts and the hockey-stick identity give
-the stated form.
-\end{proof}
 
 \begin{lemma}[Differentiation is unbounded]\label{lem:diff}
 There is a sequence $g_{n}\in C^{1}$ with $\norm{g_{n}}_{\infty}\to0$ and
@@ -841,15 +849,8 @@ by Proposition~\ref{prop:veronese}, since the effective rank is $\ll N$). Then $
 an equally good minimiser for every $h\in\ker G_{n}$, with identical fitted values on the
 sample; if some such $h$ has non-zero gradient at a deployment point off the data manifold, the
 deployed control gradient there is \emph{not determined by the data}. A perfect value fit
-($R^{2}=1$) is compatible with an arbitrary control.
+($R^{2}=1$) is compatible with an arbitrary control. (Companion note, Proposition~6.2.)
 \end{proposition}
-
-\begin{proof}[Proof (the note, Proposition~6.2)]
-For $h\in\ker G_{n}$, $\sum_i\inner{h}{\Phi_i}^{2}=h^{\top}(nG_{n})h=0$, so $\hat\ell$ and
-$\hat\ell+h$ have identical sample fits and risk; their deployed gradients differ by
-$\partial_{x}\inner{h}{\sig}$ at the deployment point, non-zero by hypothesis and unconstrained
-by the data.
-\end{proof}
 
 Proposition~\ref{prop:kerG} is the exact form of Finding~\ref{find:onsheet}: on-sheet-only data
 leaves $\ker G_{n}$ large, the value fits perfectly, and the off-manifold gradient --- hence the
@@ -863,13 +864,9 @@ For a Hurwitz closed loop with generator $A$, the stationary state covariance un
 noise covariance $\Sigma\succeq0$ is the solution $P(\Sigma)$ of $AP+PA^{\top}+\Sigma=0$. For a fixed
 noise shape $\Sigma_{0}$, the effective rank $\effrank P(\sigma^{2}\Sigma_{0})$ and the condition
 number $\cond P(\sigma^{2}\Sigma_{0})$ are independent of the exploration amplitude $\sigma$.
+(Companion note, Proposition~4.1; the map $\Sigma\mapsto P(\Sigma)$ is linear, so
+$P(\sigma^{2}\Sigma_{0})=\sigma^{2}P(\Sigma_{0})$, and $\effrank,\cond$ are degree-zero homogeneous.)
 \end{proposition}
-
-\begin{proof}[Proof (the note)]
-The map $\Sigma\mapsto P(\Sigma)=\int_{0}^{\infty}e^{tA}\,\Sigma\,e^{tA^{\top}}\,\mathrm dt$ is linear,
-so $P(\sigma^{2}\Sigma_{0})=\sigma^{2}P(\Sigma_{0})$; $\effrank$ and $\cond$ are homogeneous of degree
-zero in the eigenvalues and are therefore invariant under the positive scaling $P\mapsto\sigma^{2}P$.
-\end{proof}
 
 \begin{observation}[Off-sheet design versus exploration]\label{obs:explore}
 Off-sheet perturbation and exploration pursue the same end --- populating the directions transverse
