@@ -9,9 +9,56 @@ The helpers that implement them live in `src/utils/run_context.py`.
 
 Every script that produces a top-level output folder derives it from
 `Path(__file__).stem`, via `run_context.script_data_dir(__file__)` →
-`<repo_root>/data/<script_stem>/`. Renaming the script therefore moves its data
-folder automatically; a hardcoded literal such as `Path("data/some_name")` is
-forbidden because it silently drifts from the filename.
+`<data_root>/data/<script_stem>/`, where `<data_root>` is the repository root by
+default. Renaming the script therefore moves its data folder automatically; a
+hardcoded literal such as `Path("data/some_name")` is forbidden because it
+silently drifts from the filename.
+
+### 1.1 Redirecting the data root (`RL_SIGNATURES_DATA_ROOT`)
+
+`<data_root>` is not unconditionally the repository root: setting the environment
+variable `RL_SIGNATURES_DATA_ROOT` to an **absolute** path redirects it. Only the
+root moves — the `data/<script_stem>/` suffix is appended unchanged, so the
+filename-derived folder name, and every convention built on it (the timestamped
+sub-folder, the `_debug_` prefix, the `_seed<seed>` suffix), is preserved. The
+override is therefore invisible to the conventions of this section; it changes
+only where the tree is rooted.
+
+The override exists because a project filesystem may carry an inode quota too
+small for a job array's output. On Jean Zay the repository lives on `$WORK`,
+whose inode quota is far below what an array produces, while `$SCRATCH` is sized
+for run output. Writing an array to `$WORK` is what aborted job 544311 mid-array
+with `OSError: [Errno 122] Disk quota exceeded`: it left 80 SLURM logs and **zero**
+run directories. `$SCRATCH` is purged periodically, so results worth keeping are
+to be rapatriated.
+
+Two constraints are enforced in `script_data_dir`:
+
+- A leading `~` is expanded, after which a **non-absolute** value is rejected with
+  a `ValueError` rather than resolved against the process working directory. The
+  cluster workers `cd` into the repository checkout before invoking python
+  (`bash_scripts/cluster/jeanzay/_environment.sh`), so a relative value would
+  resolve back inside the repository — exactly the write the override exists to
+  prevent, and silently so.
+- An empty (exported-but-unset) value is treated as absent and falls back to the
+  repository root, since `Path("").resolve()` yields the working directory.
+
+The override is one knob, but its propagation to a worker depends on how that
+worker's entry point resolves its output, and the two mechanisms in use must not
+be confused:
+
+| Launcher | Entry point | Mechanism |
+| --- | --- | --- |
+| `rl_launch.sh` | `main_unified.py` (no `--out-dir`) | `RL_SIGNATURES_DATA_ROOT` exported to the worker; `script_data_dir` reads it |
+| `h1h2_launch.sh` | `run/study/h1h2_evaluation.py` | explicit `--out-dir $EXPDIR`, with `EXPDIR` re-based onto the data root by the launcher |
+| `rl_lspi_launch.sh` | `run/study/h1h2_rl_lspi.py` | explicit `--out-dir $EXPDIR`, with `EXPDIR` re-based onto the data root by the launcher |
+
+Where an entry point receives `--out-dir`, it takes `Path(args.out_dir) / tag` and
+never consults `script_data_dir`; exporting the environment variable to such a
+worker would be a dead flag. Those launchers instead re-base `EXPDIR` itself,
+keeping the `<data_root>/data/<script_stem>/` shape the override would have
+produced, so that the campaign shares a single on-disk layout regardless of which
+mechanism carried the redirect.
 
 Individual runs use `run_context.resolve_run_dir(__file__, config_tag, seed=...,
 debug=...)`, which appends a timestamped, config- and seed-tagged sub-folder:

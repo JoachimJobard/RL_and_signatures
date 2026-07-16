@@ -2,9 +2,12 @@
 
 from pathlib import Path
 
+import pytest
+
 from src.utils.run_context import (
     derive_seed,
     derive_seeds,
+    find_repo_root,
     resolve_run_dir,
     script_data_dir,
     capture_run_context,
@@ -16,6 +19,69 @@ def test_script_data_dir_derives_from_filename():
     d = script_data_dir("run/diagnostics/my_experiment.py")
     assert d.name == "my_experiment"
     assert d.parent.name == "data"
+
+
+def test_script_data_dir_default_root_is_the_repository(monkeypatch):
+    monkeypatch.delenv("RL_SIGNATURES_DATA_ROOT", raising=False)
+    d = script_data_dir("run/diagnostics/my_experiment.py")
+    assert d == find_repo_root(Path(__file__)) / "data" / "my_experiment"
+
+
+def test_script_data_dir_env_override_redirects_root_keeping_stem(monkeypatch, tmp_path):
+    # The Jean Zay case: the repository lives on $WORK but runs must be written to
+    # $SCRATCH. Only the root moves; the filename-derived suffix is preserved.
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", str(tmp_path))
+    d = script_data_dir("run/diagnostics/my_experiment.py")
+    assert d == tmp_path / "data" / "my_experiment"
+
+
+def test_script_data_dir_env_override_tolerates_trailing_slash(monkeypatch, tmp_path):
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", f"{tmp_path}/")
+    assert script_data_dir("run/foo.py") == tmp_path / "data" / "foo"
+
+
+def test_script_data_dir_empty_env_override_falls_back_to_repository(monkeypatch):
+    # An unset-but-exported variable (RL_SIGNATURES_DATA_ROOT=) must not redirect the
+    # root to the process working directory, which is what Path("").resolve() returns.
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", "")
+    assert script_data_dir("run/foo.py") == find_repo_root(Path(__file__)) / "data" / "foo"
+
+
+def test_script_data_dir_relative_env_override_is_rejected(monkeypatch):
+    # _environment.sh does `cd "$PATH_CONTENT_ROOT"` before invoking python, so a
+    # relative override would resolve INSIDE the repository -- the $WORK inode-quota
+    # write the override exists to prevent (job 544311). It must raise, not resolve.
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", "scratch/rl_campaigns")
+    with pytest.raises(ValueError, match="absolute"):
+        script_data_dir("run/foo.py")
+
+
+def test_script_data_dir_dot_env_override_is_rejected(monkeypatch):
+    # The degenerate case: "." resolves to the working directory silently.
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", ".")
+    with pytest.raises(ValueError, match="absolute"):
+        script_data_dir("run/foo.py")
+
+
+def test_script_data_dir_env_override_expands_user(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/somebody")
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", "~/rl_campaigns")
+    assert script_data_dir("run/foo.py") == Path("/home/somebody/rl_campaigns/data/foo")
+
+
+def test_script_data_dir_whitespace_env_override_falls_back_to_repository(monkeypatch):
+    # A whitespace-only value is an unset variable in practice, not a relative path.
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", "   ")
+    assert script_data_dir("run/foo.py") == find_repo_root(Path(__file__)) / "data" / "foo"
+
+
+def test_resolve_run_dir_honours_the_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("RL_SIGNATURES_DATA_ROOT", str(tmp_path))
+    run_dir = resolve_run_dir(
+        "run/foo.py", "tag", seed=3, debug=False,
+        timestamp="20260101_000000", create=False,
+    )
+    assert run_dir == tmp_path / "data" / "foo" / "20260101_000000_tag_seed3"
 
 
 def test_resolve_run_dir_layout(tmp_path):

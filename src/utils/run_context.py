@@ -68,10 +68,34 @@ def script_data_dir(script_file: str | Path) -> Path:
     Jean Zay the repository lives on ``$WORK`` but runs must be written to
     ``$SCRATCH``. Writing a job array to ``$WORK`` is what aborted job 544311
     mid-array (``OSError: [Errno 122] Disk quota exceeded``), losing every task.
+
+    A leading ``~`` is expanded. An override that is set but *not* absolute is
+    rejected loudly rather than resolved against the process working directory:
+    the cluster workers ``cd`` into the repository checkout before invoking
+    python (``bash_scripts/cluster/jeanzay/_environment.sh``), so a relative
+    value would silently resolve back inside the repository — precisely the
+    write the override exists to prevent. An empty (exported-but-unset) value is
+    treated as absent and falls back to the repository root.
+
+    Raises:
+        ValueError: if ``RL_SIGNATURES_DATA_ROOT`` is set to a non-absolute path.
     """
     script_path = Path(script_file).resolve()
-    data_root_override = os.environ.get("RL_SIGNATURES_DATA_ROOT")
-    root = Path(data_root_override).resolve() if data_root_override else find_repo_root(script_path)
+    data_root_override = os.environ.get("RL_SIGNATURES_DATA_ROOT", "").strip()
+    if data_root_override:
+        root = Path(data_root_override).expanduser()
+        if not root.is_absolute():
+            raise ValueError(
+                "RL_SIGNATURES_DATA_ROOT must be an absolute path, got "
+                f"{data_root_override!r}. A relative value would resolve against the "
+                "process working directory (the repository checkout on the cluster "
+                "workers), which is the $WORK inode-quota write this override exists "
+                "to prevent. Set it to an absolute path such as $SCRATCH/rl_campaigns, "
+                "or unset it to write under the repository root."
+            )
+        root = root.resolve()
+    else:
+        root = find_repo_root(script_path)
     return root / "data" / script_path.stem
 
 
