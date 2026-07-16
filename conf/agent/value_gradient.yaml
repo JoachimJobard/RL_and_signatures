@@ -25,7 +25,21 @@ training:
 # =============================================================================
 discount:
   discounted: false
-  tau: 100.0
+  # Restored to the normal value. 1.0 is the DiscountConfig default (src/configs.py:54) and Doya's
+  # own setting (2000, Figure 2 caption: tau = 1.0), and is what every other agent config carries
+  # (1.0 or 1.2). Only this file and conf/agent/csac.yaml held 100.0 -- a hundredfold outlier, and
+  # the sole remaining hundredfold gap against conf/agent/signatures.yaml (1.0), which would have
+  # meant the two learners weighing horizons of order 100 s and 1 s on episodes lasting 15-60 s.
+  #
+  # The change is INERT and that was verified, not assumed: tau enters only the discounted branch
+  # of the temporal-difference residual (value_gradient_jax.py:264, :659; signatures_jax.py:580,
+  # :610, :736), and discount.discounted is false; its one unconditional use, the LSTD accumulator
+  # at value_gradient_jax.py:309, is unreachable because algorithm.lstd resolves to False. The
+  # value gradient is therefore bit-unchanged, so the existing five-seed H1/H2 results stand.
+  #
+  # This is a latent foot-gun disarmed, not a live defect fixed: enabling discount.discounted or
+  # algorithm.lstd would have armed the hundredfold gap silently.
+  tau: 1.0
   V_target: 0.0
   V_bad: -10.0
 
