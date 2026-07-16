@@ -13,7 +13,15 @@ training:
   critic_lr: 1e-2
   scale: 1.0
   clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
-  clip_action: 10.0
+  # null/<=0: no action clipping. Matched to conf/agent/value_gradient.yaml:14 so that both
+  # learners apply the SAME rule to the control. The array does not override clip_action, so the
+  # previous 10.0 made this agent the only one clipping. Measured at seed 0 over 20 episodes: the
+  # bound never binds on linear_dde / hopfield_linear / hopfield_nonlinear (max |u| 0.36-0.44) nor
+  # on double_integrator/{markovian,signature} (max |u| 0.35), but binds on 152/2973 = 5.113% of
+  # steps on double_integrator/raw_history, whose pre-clip |u| reaches 2014.44. That is ONE ARM of
+  # the H1 contrast on the falsification control cell, so the clamp acted on the comparison rather
+  # than on both sides of it. Setting null is bit-inert wherever it did not bind.
+  clip_action: null
   # Episode is cut when ||x|| exceeds this bound. Aligned with the value gradient's
   # conf/agent/value_gradient.yaml (100.0): the previous 50.0 made this agent the outlier and
   # terminated episodes on state excursions the value gradient was allowed to complete, which is a

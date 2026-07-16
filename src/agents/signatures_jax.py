@@ -354,6 +354,17 @@ class CTACSignatureJAX:
         """Create JIT-compiled action selection function."""
         actor = self.actor
         clip_action = self.training.clip_action
+        # Action clipping is opt-in, mirroring ContinuousValueGradient._make_action_jit_fn:
+        # clip_action None/<=0 means NO clipping. The default is null so that this agent and
+        # the value gradient apply the SAME rule to the control; the previous default (10.0)
+        # was applied here and nowhere in the value gradient, and it bound on 152/2973 =
+        # 5.113% of steps on double_integrator/raw_history (pre-clip |u| = 2014.44) whilst
+        # binding on 0/3020 of double_integrator/{markovian,signature}. It therefore acted on
+        # ONE ARM of the H1 contrast (raw_history against markovian) on the falsification
+        # control cell, where the raw-history window of a Markovian plant is collinear, its
+        # feature Gram near-singular and its greedy control consequently unbounded -- the
+        # regime under study. A clamp that fires there masks that regime.
+        do_clip = clip_action is not None and clip_action > 0
         smooth_noise = self.noise.smooth  # Capture static config
         @jax.jit
         def select_action_fn(actor_params, sig, key, sigma, noise_state, dt, explicit_noise_val):
@@ -372,8 +383,9 @@ class CTACSignatureJAX:
                 noise = sigma * jax.random.normal(subkey, shape=mu.shape) # type: ignore
 
             action = mu + noise
-            action = jnp.clip(action, -clip_action, clip_action)
-            
+            if do_clip:
+                action = jnp.clip(action, -clip_action, clip_action)
+
             return action, mu, noise, key, noise
         
         return select_action_fn
@@ -745,7 +757,9 @@ class CTACSignatureJAX:
             action = self.actor.apply(self.actor_params, sig)
 
         action = jnp.asarray(action)
-        action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
+        # Opt-in, as in _make_select_action_fn: null/<=0 means no clipping.
+        if self.training.clip_action is not None and self.training.clip_action > 0:
+            action = jnp.clip(action, -self.training.clip_action, self.training.clip_action)
         return jnp.array(action)
 
     def get_value(self) -> float:
@@ -991,7 +1005,9 @@ class CTACSignatureJAX:
                     mu = -self.optimal_K @ jnp.array(self.wrapper.state.x)  # type: ignore
             else:
                 mu = self.actor.apply(self.actor_params, sig_input) #type: ignore
-            mu = jnp.clip(mu, -self.training.clip_action, self.training.clip_action)
+            # Opt-in, as in _make_select_action_fn: null/<=0 means no clipping.
+            if self.training.clip_action is not None and self.training.clip_action > 0:
+                mu = jnp.clip(mu, -self.training.clip_action, self.training.clip_action)
             
             _, x_next, reward = self.wrapper.step(self.wrapper.state, mu)  # type: ignore
             if x_next.ndim == 0:
