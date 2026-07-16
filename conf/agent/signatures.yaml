@@ -14,7 +14,15 @@ training:
   scale: 1.0
   clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
   clip_action: 10.0
-  divergence_threshold: 50.0
+  # Episode is cut when ||x|| exceeds this bound. Aligned with the value gradient's
+  # conf/agent/value_gradient.yaml (100.0): the previous 50.0 made this agent the outlier and
+  # terminated episodes on state excursions the value gradient was allowed to complete, which is a
+  # confound in any actor-critic-versus-value-gradient comparison at fixed representation.
+  # The bound is INERT with respect to the state scaling only while network.normalize_entries is
+  # false: signatures_jax.py:93 sets training.scale = training.divergence_threshold when
+  # normalize_entries is true, so a study enabling that flag changes its normalisation constant
+  # from 50 to 100 along with this value.
+  divergence_threshold: 100.0
   eval_interval: 20
   eval_start_episode: 0
   patience: 0
@@ -73,6 +81,11 @@ algorithm:
   actor_oracle: false
   critic_oracle: false
   actor_update_frequency: 10
-  preheat: true
-  burning_steps: 5
+  # The initial condition of a delay differential equation is the initial PATH phi on [-tau, 0],
+  # loaded directly into the representation window from the env history buffer by
+  # _fill_buffer_initial. Control therefore begins at t=0 from phi, and there is NO zero-control
+  # burn-in: a burn-in would replace phi by the uncontrolled evolution and, the episode clock not
+  # being re-based, would be charged to the episode horizon.
+  preheat: false
+  burning_steps: 0
   fix_initial_state: true
