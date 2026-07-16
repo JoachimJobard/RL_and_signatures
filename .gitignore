@@ -45,3 +45,6 @@ venv/
 # =============================================================================
 # Reference PDFs under documents/references/ are intentionally tracked and are
 # NOT ignored here (no blanket *.pdf rule).
+
+# Personal Claude Code permission settings (machine-local, not team policy)
+.claude/settings.local.json
