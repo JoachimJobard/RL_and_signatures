@@ -10,7 +10,15 @@ training:
   n_episodes: 2000
   max_time: 15.0
   actor_lr: 1e-3
-  critic_lr: 1e-2
+  # Matched to conf/agent/value_gradient.yaml (1e-3). Both learners fit a critic to the same
+  # object -- the value functional V -- through a continuous-time temporal-difference residual, so
+  # a learning rate ten times larger here made the critic update the one thing that differed
+  # between the agents besides the learning rule itself. Neither value was ever tuned: `git log -S
+  # critic_lr` returns a single commit for each config, a02cc92 ("initial: extract RL as standalone
+  # rep"), so both are inherited defaults and matching them discards no tuning. actor_lr is NOT
+  # matched and cannot be: the value gradient has no actor, extracting its control analytically
+  # from the critic's vertical derivative instead.
+  critic_lr: 1e-3
   scale: 1.0
   clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
   # null/<=0: no action clipping. Matched to conf/agent/value_gradient.yaml:14 so that both
@@ -56,7 +64,21 @@ noise:
   schedule: constant      # 'constant', 'linear_decay', 'adaptive'
   decay: false
   smooth: true            # GP-sampled smooth noise
-  length_scale: 0.02
+  # Matched to conf/agent/value_gradient.yaml (0.002). The difference was INERT rather than a
+  # confound, and the measurement is worth recording: the kernel built at
+  # value_gradient_jax.py:425 is k(t,t') = exp(-(t-t')^2 / (2 l^2)) on a grid of spacing dt, so the
+  # correlation between adjacent control steps is exp(-dt^2 / (2 l^2)). At dt = 0.1 that is 0.000
+  # for l = 0.002 and 3.7e-06 for l = 0.02: BOTH covariance matrices are numerically the identity,
+  # so both agents already drew WHITE noise and `smooth: true` bought nothing but a Cholesky
+  # factorisation per episode. Matching removes the appearance of a difference, not a real one.
+  #
+  # NOTE, deliberately not acted upon here: this is a fidelity gap against Doya (2000), whose
+  # exploration is LOW-PASS FILTERED (Ornstein-Uhlenbeck, tau_n = 1.0) and therefore strongly
+  # correlated in time. src/configs.py:66 defaults length_scale to 0.2, which WOULD deliver
+  # correlated noise (0.883 at dt = 0.1); both shipped configs override that default with values
+  # that destroy the correlation. Restoring it would change the value gradient and hence the
+  # existing five-seed results, so it is recorded rather than applied.
+  length_scale: 0.002
 
 # =============================================================================
 # Signature (path signature architecture)

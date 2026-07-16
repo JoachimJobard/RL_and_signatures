@@ -15,6 +15,7 @@ from src.utils.optim import build_adam
 from src.utils.step_context import StepContextSignature
 from src.utils.step_metrics import StepMetrics
 from src.utils.state_counter import StateCounter
+from src.utils.clamp_reporting import report_clamp_activation
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,)
@@ -623,9 +624,32 @@ class ContinuousValueGradient:
         if t - getattr(self, "_t_episode_start", 0.0) >= self.training.max_time:
             return True
         if not time_only:
-            if jnp.any(jnp.isnan(x)):
+            # Both exits below TRUNCATE the episode, and a truncated episode's cost is not the
+            # cost of a completed one, so each announces itself when it fires (see
+            # src/utils/clamp_reporting.py). Reporting is side-effect-free numerically: the
+            # returned booleans are unchanged, so this agent stays bit-reproducible.
+            if bool(jnp.any(jnp.isnan(x))):
+                report_clamp_activation(
+                    "nan_state_termination/value_gradient",
+                    code_location="src/agents/value_gradient_jax.py:_is_episode_done",
+                    bound_description="the state must be finite (no NaN component)",
+                    most_extreme_raw_value=float("nan"),
+                    number_of_affected_elements=int(jnp.sum(jnp.isnan(x))),
+                    additional_context=f"at t={t:.4f}.",
+                )
                 return True
-            if jnp.linalg.norm(x) > self.training.divergence_threshold:
+            state_norm = float(jnp.linalg.norm(x))
+            if state_norm > self.training.divergence_threshold:
+                report_clamp_activation(
+                    "divergence_threshold/value_gradient",
+                    code_location="src/agents/value_gradient_jax.py:_is_episode_done",
+                    bound_description=f"||x|| <= {self.training.divergence_threshold}",
+                    most_extreme_raw_value=state_norm,
+                    additional_context=(
+                        f"at t={t:.4f}; the episode is cut here, so its accumulated cost covers "
+                        f"less than the full horizon max_time={self.training.max_time}."
+                    ),
+                )
                 return True
         return False
 

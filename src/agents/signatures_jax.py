@@ -19,6 +19,7 @@ from src.networks.LQR_actor_critics import (
 from src.utils.step_metrics import StepMetrics
 from src.utils.step_context import StepContextSignature
 from src.utils.state_counter import StateCounter
+from src.utils.clamp_reporting import report_clamp_activation
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
@@ -468,15 +469,30 @@ class CTACSignatureJAX:
         """
         if self.wrapper.state is None:
             return False
-        done: jax.Array | bool
         if time_only:
-            done = self.wrapper.state.t >= self.training.max_time
-        else:
-            done = jnp.logical_or(
-                self.wrapper.state.t >= self.training.max_time,
-                jnp.linalg.norm(x) > self.training.divergence_threshold,
+            return bool(self.wrapper.state.t >= self.training.max_time)
+        # The horizon test and the state norm are fetched in a SINGLE device_get, preserving the
+        # one-synchronisation property of the previous jnp.logical_or form. The norm is fetched
+        # rather than the comparison so that the divergence cut can report the raw value it
+        # truncated at: a cut episode's cost is not a completed episode's cost, so the cut must
+        # announce itself (see src/utils/clamp_reporting.py).
+        horizon_reached, state_norm = jax.device_get(
+            (self.wrapper.state.t >= self.training.max_time, jnp.linalg.norm(x))
+        )
+        if float(state_norm) > self.training.divergence_threshold:
+            report_clamp_activation(
+                "divergence_threshold/actor_critic",
+                code_location="src/agents/signatures_jax.py:_is_episode_done",
+                bound_description=f"||x|| <= {self.training.divergence_threshold}",
+                most_extreme_raw_value=float(state_norm),
+                additional_context=(
+                    f"at t={float(self.wrapper.state.t):.4f}; the episode is cut here, so its "
+                    f"accumulated cost covers less than the full horizon "
+                    f"max_time={self.training.max_time}."
+                ),
             )
-        return bool(done)
+            return True
+        return bool(horizon_reached)
 
     # =========================================================================
     # Single Training Step (orchestration)
