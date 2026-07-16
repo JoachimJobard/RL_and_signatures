@@ -7,6 +7,7 @@ import jax
 import numpy as np
 import tqdm
 import pickle
+import warnings
 from pathlib import Path
 from typing import Any, Callable
 from src.utils.dynamic_signature import SlidingSignatureJAX, DequeBuffer
@@ -244,20 +245,111 @@ class CTACSignatureJAX:
         return jax.random.normal(subkey, shape=(self.env.N,))
     
     def _fill_buffer_initial(self):
-        """Fill the signature buffer with initial states from wrapper."""
+        """Load the initial path phi of the delay differential equation into the window.
+
+        The initial condition of a delay differential equation is a PATH
+        phi in C([-tau, 0], R^N), not a point; the environment holds its discretisation
+        (``wrapper.initial_conditions``), and it is loaded here directly, subsampled to the
+        control cadence.
+
+        The window is filled to FULL capacity (window_size + 1). A partial fill would leave
+        the reset's zero prefill in the oldest slots, so the window would open on a spurious
+        jump from the origin to phi — a path the plant never followed, and one whose signature
+        is dominated by that jump. When the subsampled history is shorter than the capacity it
+        is FRONT-padded with its earliest element, that is, by the constant extension of phi to
+        the left of its own support: the only extension derivable from the environment, and the
+        one ContinuousValueGradient._fill_buffer_initial applies, so both agents open every
+        episode on the same padding SEMANTICS — their windows agreeing up to the float32 residual
+        quantified below — and a comparison between them at fixed representation is not confounded
+        by the initial condition. The constant extension IS phi wherever phi is itself constant,
+        which is measured to hold on all five campaign cells; on an environment supplying a
+        non-constant history_function it would fabricate an input, and must be revisited before
+        any such cell enters a study.
+
+        Elements are appended through ``RepresentationBuffer.append``, which casts to the
+        buffer's float64 dtype. ContinuousValueGradient instead casts to float32 while writing
+        past ``append`` into the raw deque; that cast is a known residual of code-review finding
+        F-E1 (commits 07b8d4a / 7b1153e moved the buffers to float64 and missed this path) and
+        is NOT mirrored here: the rounding is irreversible, ``DequeBuffer.to_array`` merely
+        upcasting the already-rounded values back to float64. The cast is live in production,
+        where main_unified.py:63 enables jax_enable_x64 and the env history is therefore float64;
+        it is inert only when x64 is off, the history then already being float32. The residual is
+        therefore the binary32 representation error of the initial state: it is 0 exactly when
+        every entry of x0 is representable in binary32, and the rounding error otherwise. Measured
+        max|actor-critic - value-gradient| over the loaded window, x64 enabled, on all five
+        campaign cells: 0 on markovian (x0 = [1.0, 0.5]) and platoon (entries 0.0 and 0.5), and
+        1.192093e-08 on linear_dde, mg_limit_cycle and mg_chaotic (x0 = [0.8], not representable).
+        Rounding the actor-critic window to float32 drives the residual to 0 on all five, which
+        identifies this cast as its sole cause. Removing it from value_gradient_jax.py is the
+        follow-up that makes the two agents load phi bit-identically; it is deferred because the
+        existing five-seed value-gradient results must stay bit-reproducible.
+        """
         self.sliding_signature.reset()
-        if self.wrapper.state is not None:
-            _, history_data = self.wrapper.initial_conditions
-            # Subsample by resolution to match window size
-            # Apply scaling to be consistent with training
-            for x in history_data[::self.env.resolution]:
-                self.sliding_signature.append(x / self.training.scale)
-            self.sliding_signature._signature_dirty = True
+        if self.wrapper.state is None:
+            return
+        _, history_data = self.wrapper.initial_conditions
+        subsampled = history_data[::self.env.resolution]
+        target_len = self.sliding_signature.window_size + 1
+        if len(subsampled) >= target_len:
+            initial_path = list(subsampled[-target_len:])
+        else:
+            earliest = subsampled[0]
+            initial_path = [earliest] * (target_len - len(subsampled)) + list(subsampled)
+        for state_on_initial_path in initial_path:
+            self.sliding_signature.append(state_on_initial_path / self.training.scale)
+        # Assigned eagerly rather than left to the lazy dirty-flag path so that the agent's
+        # internal state immediately after the fill — window AND cached feature — is identical
+        # to ContinuousValueGradient's at the same point.
+        self.sliding_signature.current_signature = self.sliding_signature.compute_signature()
+
+    def _zero_control_burn_in_steps(self) -> int:
+        """Number of zero-control steps taken after the reset, before the first controlled step."""
+        steps = int(self.algorithm.burning_steps)
+        if self.algorithm.preheat:
+            steps += int(self.sliding_signature.window_size)
+        return steps
+
+    def _announce_zero_control_burn_in(self) -> None:
+        """Announce, once per agent, that a zero-control burn-in is active.
+
+        The burn-in is retained for the studies that deliberately define their control problem
+        to start from the uncontrolled continuation of phi rather than from phi itself: the
+        Mackey-Glass configurations drive the plant onto its attractor with burning_steps=100
+        before control begins (conf/agent/CTAC_sig_MG_1D.yaml:73,
+        conf/agent/CTAC_jax_mackey_glass.yaml:82), and conf/agent/CTAC_sig_chemical.yaml:72 uses
+        5. It is NOT the initial condition of the delay
+        differential equation: _fill_buffer_initial already loads phi, and the burn-in overwrites
+        it with an uncontrolled-evolution path. It also shortens the episode, because the clock
+        is not re-based across the burn-in while _is_episode_done terminates on
+        wrapper.state.t >= training.max_time.
+
+        Both consequences are invisible in the metrics, so the path announces itself rather than
+        altering the object under study in silence.
+        """
+        if getattr(self, "_zero_control_burn_in_announced", False):
+            return
+        self._zero_control_burn_in_announced = True
+        steps = self._zero_control_burn_in_steps()
+        if steps == 0:
+            return
+        warnings.warn(
+            f"Zero-control burn-in active (preheat={self.algorithm.preheat}, "
+            f"burning_steps={self.algorithm.burning_steps}, window_size="
+            f"{self.sliding_signature.window_size}): {steps} zero-control steps run after each "
+            f"reset. The initial path phi loaded by _fill_buffer_initial is overwritten by the "
+            f"uncontrolled evolution, so the episode does not start from the delay differential "
+            f"equation's initial condition; and the first controlled step occurs at "
+            f"t={steps * self.env.step_size:.4g} of training.max_time={self.training.max_time:.4g}, "
+            f"the burn-in being charged to the episode horizon. Set preheat=false and "
+            f"burning_steps=0 to control from phi at t=0.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     # =========================================================================
     # Action Selection
     # =========================================================================
-    
+
     def _make_select_action_fn(self):
         """Create JIT-compiled action selection function."""
         actor = self.actor
@@ -715,6 +807,7 @@ class CTACSignatureJAX:
             self._fill_buffer_initial()  # Refill signature buffer after reset
             self.current_noise = jnp.zeros(self.env.B.shape[1]) # Initialize noise state
             self._on_episode_start(episode, np.array(x_t, dtype=np.float64))
+            self._announce_zero_control_burn_in()
             for _ in range(self.algorithm.burning_steps):
                 action = jnp.zeros(self.env.B.shape[1]) #burning with zero action
                 t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
@@ -871,7 +964,8 @@ class CTACSignatureJAX:
         self.key, subkey = jax.random.split(self.key)
         x_t = self.wrapper.reset(subkey, x0=np.array(x_init), t0=0.0)
         self._fill_buffer_initial()
-        
+        self._announce_zero_control_burn_in()
+
         for _ in range(self.algorithm.burning_steps):
             action = jnp.zeros(self.env.B.shape[1])
             _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
