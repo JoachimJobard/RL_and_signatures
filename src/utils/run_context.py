@@ -21,6 +21,7 @@ from login-node / init-only code paths.
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import sys
 from datetime import datetime
@@ -52,15 +53,26 @@ def find_repo_root(start: str | Path | None = None) -> Path:
 
 
 def script_data_dir(script_file: str | Path) -> Path:
-    """Return ``<repo_root>/data/<script_stem>/`` for the calling script.
+    """Return ``<data_root>/data/<script_stem>/`` for the calling script.
 
     Every script that writes experiment data MUST derive its top-level output
     directory from this helper by passing ``__file__``, so the folder name on
     disk is mechanically tied to the running script and cannot drift if the
     script is renamed. The directory is *not* created (side-effect-free).
+
+    ``<data_root>`` is the repository root by default. It may be redirected by
+    setting the environment variable ``RL_SIGNATURES_DATA_ROOT`` to an absolute
+    path; the ``data/<script_stem>/`` suffix is appended unchanged, so the
+    filename-derived folder name is preserved. This exists for clusters whose
+    project filesystem has an inode quota too small for experiment output: on
+    Jean Zay the repository lives on ``$WORK`` but runs must be written to
+    ``$SCRATCH``. Writing a job array to ``$WORK`` is what aborted job 544311
+    mid-array (``OSError: [Errno 122] Disk quota exceeded``), losing every task.
     """
     script_path = Path(script_file).resolve()
-    return find_repo_root(script_path) / "data" / script_path.stem
+    data_root_override = os.environ.get("RL_SIGNATURES_DATA_ROOT")
+    root = Path(data_root_override).resolve() if data_root_override else find_repo_root(script_path)
+    return root / "data" / script_path.stem
 
 
 def run_timestamp() -> str:

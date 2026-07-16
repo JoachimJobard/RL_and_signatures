@@ -46,7 +46,9 @@ noise:
 # Signature (path signature architecture)
 # =============================================================================
 signature:
-  depth: 3
+  kind: signature       # representation: signature | raw_history | markovian
+  depth: 3              # signature truncation depth (kind=signature)
+  degree: 2             # polynomial degree (kind=raw_history / markovian)
   window_size: 40
   time_augmentation: true
   origin_augmentation: true

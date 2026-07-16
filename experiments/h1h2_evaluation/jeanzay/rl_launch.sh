@@ -10,12 +10,24 @@
 # (cell, rep) at a given seed uses the same derived per-role seeds). The smoke run pins a
 # single fixed seed (0).
 #
+# AGENT selects the learner (default `value_gradient`; `signatures` = the continuous-time
+# actor-critic CTACSignatureJAX). Both agents build their features through the same
+# `make_representation` factory, so the three representations are the same objects in both.
+#
 # Usage (Jean Zay login node, after git pull + uv sync):
-#   ACCOUNT=<projid>@cpu bash experiments/h1h2_evaluation/jeanzay/rl_launch.sh           # full
-#   ACCOUNT=<projid>@cpu bash experiments/h1h2_evaluation/jeanzay/rl_launch.sh --smoke   # 2 cells x 3 reps x seed 0
+#   ACCOUNT=<projid>@cpu bash experiments/h1h2_evaluation/jeanzay/rl_launch.sh                    # value-gradient, full
+#   ACCOUNT=<projid>@cpu bash experiments/h1h2_evaluation/jeanzay/rl_launch.sh --smoke            # 2 cells x 3 reps x seed 0
+#   ACCOUNT=<projid>@cpu AGENT=signatures bash .../rl_launch.sh                                   # actor-critic, full
+#   ACCOUNT=<projid>@cpu AGENT=signatures bash .../rl_launch.sh --smoke                           # actor-critic smoke
 #
 # Partition / QoS (see ~/.claude/CLAUDE.md): cpu_p1 + qos_cpu-t3 (billed CPU); smoke uses
 # qos_cpu-dev. Replotting/aggregation of the saved eval.pkl is a separate prepost step.
+#
+# OUTPUT ROOT — read this before changing it. Runs are written under $SCRATCH, NOT under the
+# repository ($WORK), via RL_SIGNATURES_DATA_ROOT (see run_context.script_data_dir). $WORK has an
+# inode quota far too small for a job array's output: job 544311 (the previous h1h2 RL array) died
+# mid-array with `OSError: [Errno 122] Disk quota exceeded` writing to $WORK and produced ZERO run
+# directories against 80 slurm logs. $SCRATCH is purged periodically, so rapatriate what matters.
 # =============================================================================
 
 set -euo pipefail
@@ -23,6 +35,13 @@ set -euo pipefail
 NAME_PROJECT="${NAME_PROJECT:-RL_and_signatures}"
 PATH_CONTENT_ROOT="${PATH_CONTENT_ROOT:-${WORK:?WORK not set — are you on Jean Zay?}/git_repositories/$NAME_PROJECT}"
 ACCOUNT="${ACCOUNT:?Set ACCOUNT to your Jean Zay CPU account, e.g. ACCOUNT=abc@cpu}"
+AGENT="${AGENT:-value_gradient}"
+case "$AGENT" in
+    value_gradient|signatures) ;;
+    *) echo "Error: AGENT must be 'value_gradient' or 'signatures' (got '$AGENT')" >&2; exit 1 ;;
+esac
+# Runs go to $SCRATCH; only the slurm logs stay beside the repo-independent group dir.
+DATA_ROOT="${RL_SIGNATURES_DATA_ROOT:-${SCRATCH:?SCRATCH not set — are you on Jean Zay?}/rl_campaigns/$NAME_PROJECT}"
 
 REPS=(markovian raw_history signature)
 SMOKE=""
@@ -31,22 +50,26 @@ SMOKE=""
 if [[ -n "$SMOKE" ]]; then
     CELLS=(markovian linear_dde); SEEDS=(0); N_EPISODES=5
     QOS="qos_cpu-dev"; TIME="00:30:00"; DEBUG="true"
-    GROUP="_debug_h1h2_rl_$(date +%Y%m%d_%H%M%S)"
+    GROUP="_debug_h1h2_rl_${AGENT}_$(date +%Y%m%d_%H%M%S)"
 else
     CELLS=(markovian linear_dde platoon mg_limit_cycle mg_chaotic); SEEDS=(0 1 2 3 4); N_EPISODES=1000
     QOS="qos_cpu-t3"; TIME="04:00:00"; DEBUG="false"
-    GROUP="h1h2_rl_$(date +%Y%m%d_%H%M%S)"
+    GROUP="h1h2_rl_${AGENT}_$(date +%Y%m%d_%H%M%S)"
 fi
 N_TASKS=$(( ${#CELLS[@]} * ${#REPS[@]} * ${#SEEDS[@]} ))
 
-EXPDIR="$PATH_CONTENT_ROOT/data/main_unified/$GROUP"
+# The group name carries the agent: aggregate_representation_study groups by
+# (env, kind, capacity) and NOT by agent, so the two learners must never share a group.
+EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
 SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
 
-EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP,CELLS_STR=${CELLS[*]},REPS_STR=${REPS[*]},SEEDS_STR=${SEEDS[*]},N_EPISODES=$N_EPISODES,DEBUG=$DEBUG"
+EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP,CELLS_STR=${CELLS[*]},REPS_STR=${REPS[*]},SEEDS_STR=${SEEDS[*]},N_EPISODES=$N_EPISODES,DEBUG=$DEBUG,AGENT=$AGENT,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT"
 
+echo "agent = $AGENT"
 echo "cells = ${CELLS[*]} | reps = ${REPS[*]} | seeds = ${SEEDS[*]} | tasks = $N_TASKS"
 echo "experiment_group = $GROUP  (n_episodes=$N_EPISODES)"
+echo "data root = $DATA_ROOT   (\$SCRATCH, not \$WORK — see the header)"
 
 # Compute array: cpu_p1 (CPU-only: JAX on CPU). 8 cores/task for JAX + signature threading.
 ARRAY_JOB=$(sbatch --parsable \
@@ -60,5 +83,5 @@ ARRAY_JOB=$(sbatch --parsable \
     "$PATH_CONTENT_ROOT/experiments/h1h2_evaluation/jeanzay/rl_array.slurm")
 echo "submitted RL array job $ARRAY_JOB ($N_TASKS tasks, cpu_p1 / $QOS)"
 echo
-echo "runs land in: $EXPDIR/<timestamp>_<cell>_<rep>_seed<seed>/  (eval.pkl has cost_reduction_pct)"
+echo "runs land in: $EXPDIR/<timestamp>_${AGENT}_<cell>_<rep>_seed<seed>/  (eval.pkl has cost_reduction_pct)"
 echo "watch: squeue -u \$USER"

@@ -10,6 +10,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Callable
 from src.utils.dynamic_signature import SlidingSignatureJAX, DequeBuffer
+from src.representations.factory import make_representation, RepresentationBuffer
 from src.utils.optim import build_adam
 from src.networks.LQR_actor_critics import (
     ActorFlax, ActorFlaxLayerNorm, CriticFlax, CriticFlaxLayerNorm, CriticFlaxQuadratic,
@@ -163,11 +164,26 @@ class CTACSignatureJAX:
             self.signature_conf.window_size = window_size_from_delay
         else:
             print(f"force_signature_window is True: setting window_size to {self.signature_conf.window_size} to cover max delay of {max_delay}")
-        self.sliding_signature = SlidingSignatureJAX(
-            depth=self.signature_conf.depth, window_size=self.signature_conf.window_size, d=self.env.N,
+        # Representation backbone: signature / raw_history / markovian, selected by
+        # ``signature_conf.kind`` and held behind a window buffer exposing the
+        # SlidingSignatureJAX surface, so the rest of this class is unchanged. This
+        # mirrors ContinuousValueGradient._init_networks: both agents consume the
+        # SAME feature maps through the SAME factory, so an actor-critic-versus-
+        # value-gradient comparison at fixed representation is not confounded by two
+        # different implementations of the representation.
+        window_length = self.signature_conf.window_size + 1
+        representation = make_representation(
+            self.signature_conf.kind,
+            window_length=window_length,
+            n_state=self.env.N,
+            depth=self.signature_conf.depth,
+            degree=self.signature_conf.degree,
             time_augmentation=self.signature_conf.time_augmentation,
             origin_augmentation=self.signature_conf.origin_augmentation,
-            time_origin=self.signature_conf.time_origin, bias=self.signature_conf.bias,
+            bias=self.signature_conf.bias,
+        )
+        self.sliding_signature = RepresentationBuffer(
+            representation, window_length=window_length, n_state=self.env.N,
         )
         self._sigma_effective: float | jax.Array = self.noise.sigma
 
