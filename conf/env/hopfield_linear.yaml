@@ -1,0 +1,38 @@
+# Delay-coupled Hopfield network — LINEAR-in-delay arm (eps = 0):
+#   dx/dt = -x + W x(t - tau) + B u .
+#
+# AUTHORITY. The parameters below reproduce EXACTLY the cell 'hopfield_linear' of
+# run/study/h1h2_evaluation.py (the oracle-referenced H1/H2 harness), so the reinforcement-learning
+# half and the oracle half of the design matrix act on one and the same plant. Any change to that
+# cell must be mirrored here; the coupling W is instantiated through the SAME helper
+# (src.envs.delayed_hopfield_network.rotational_coupling) rather than transcribed as a literal, so
+# the matrix itself cannot drift.
+#
+# Genuinely non-Markovian. The delay sits on the ENTIRE coupling term, hence the present state does
+# not summarise the relevant past. The linearised delay-impact gate (run/study/hopfield_delay_impact.py)
+# records, at tau = 0.5, a history-kernel ratio ||K_hist||/||K_now|| = 0.30 and a markovian-oracle cost
+# gap of +55% — against 0.17 / +12.5% for the platoon and 0.009 / +1% for the Dadebo plant, which that
+# gate disqualified as near-Markovian. H1 therefore holds on this cell.
+#
+# Predicted H2 outcome: NEGATIVE, by construction. At eps = 0 the plant is a linear delay system, the
+# optimal value is exactly quadratic in the method-of-steps augmented state, and its gradient is linear
+# in the history window; raw-history already spans that window and attains the delayed-LQR oracle
+# gradient, so the signature can contribute only ill-conditioned directions. This arm is the provable
+# negative control of the eps sweep.
+#
+# Unstated arguments take the DelayedHopfieldNetwork defaults, which are precisely what the harness
+# cell relies upon: B = I_2 (full, per-neuron control), Q = I_2, R = 0.1 I_2, x_target = 0 (the
+# equilibrium is the origin).
+environment_params:
+  _target_: src.envs.delayed_hopfield_network.DelayedHopfieldNetwork
+
+  W:                 # rho = 2, theta = pi/2 -> antisymmetric [[0, -2], [2, 0]], eigenvalues +/- 2i;
+    _target_: src.envs.delayed_hopfield_network.rotational_coupling   # against the unit leak -x and
+    rho: 2.0         # the delay tau this yields a delay-induced (Hopf) oscillation, so control is
+    theta: 1.5707963267948966                                         # genuinely required.
+
+  delay: 0.5         # tau; sets the H1 structure jointly with W
+  eps: 0.0           # LINEAR in the delay: phi_0(xi) = xi
+
+  step_size: 0.1     # TD step dt; window length round(tau/dt) + 1 = 6 spans the augmented state
+  resolution: 4      # RK4 sub-steps per control step (solver step 0.025)

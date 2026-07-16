@@ -50,12 +50,25 @@ CELL=${CELLS[$ci]}; REP=${REPS[$ri]}; SEED=${SEEDS[$si]}
 
 # Per-cell env + signature window (must cover the delay) + horizon + eval IC. These match the
 # oracle-referenced harness cells in run/study/h1h2_evaluation.py.
+#
+# WIN below is the RESOLVED window: the value that each agent actually uses, made LIVE by
+# `agent.signature.force_signature_window=true` on the python invocation. Without that flag the
+# window_size passed here was DISCARDED by both agents, each deriving its own from the delay by a
+# DIFFERENT formula -- ContinuousValueGradient._compute_window_size (value_gradient_jax.py:56-61)
+# adds 3, CTACSignatureJAX._init_signatures (signatures_jax.py:161-166) adds 1 -- so the two agents
+# ran on different histories (measured, WIN -> VG/AC: markovian 10/10, linear_dde 8/6, platoon 7/6,
+# mg_limit_cycle 27/25, mg_chaotic 71/69). On kind=signature that divergence leaves NO trace in any
+# recorded dimension (the signature dim depends only on channel count and depth), so it is
+# undetectable after the fact. The values are the value-gradient's PREVIOUS effective windows, so
+# the value-gradient half stays bit-unchanged and comparable with the existing mackey_glass studies
+# (27, 71); only the actor-critic moves, and it has no prior data on these cells. Every window
+# covers its delay (taps needed 0/5/4/24/68 against 10/8/7/27/71).
 case "$CELL" in
-    markovian)      ENV=double_integrator; WIN=5;  MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
+    markovian)      ENV=double_integrator; WIN=10; MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
     linear_dde)     ENV=linear_dde_scalar; WIN=8;  MAXT=20; TSIM=20; X0="[0.8]" ;;
-    platoon)        ENV=platoon_h1h2;      WIN=5;  MAXT=15; TSIM=15; X0="[0.0,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]" ;;
-    mg_limit_cycle) ENV=MG_1D_limit_cycle; WIN=28; MAXT=40; TSIM=40; X0="[0.8]" ;;
-    mg_chaotic)     ENV=MG_1D_chaotic;     WIN=72; MAXT=60; TSIM=60; X0="[0.8]" ;;
+    platoon)        ENV=platoon_h1h2;      WIN=7;  MAXT=15; TSIM=15; X0="[0.0,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]" ;;
+    mg_limit_cycle) ENV=MG_1D_limit_cycle; WIN=27; MAXT=40; TSIM=40; X0="[0.8]" ;;
+    mg_chaotic)     ENV=MG_1D_chaotic;     WIN=71; MAXT=60; TSIM=60; X0="[0.8]" ;;
     *) echo "Error: unknown cell '$CELL'" >&2; exit 1 ;;
 esac
 
@@ -86,10 +99,24 @@ sleep "$(( SLURM_ARRAY_TASK_ID * 3 ))"   # stagger starts
 # so co-locating them in one group would silently average an actor-critic run with a
 # value-gradient run of the same representation.
 
+# DIVERGENCE THRESHOLD is passed explicitly so that BOTH agents cut episodes at the SAME state
+# norm. Relying on the per-agent defaults would compare two different episode-termination rules:
+# conf/agent/value_gradient.yaml sets 100.0 while conf/agent/signatures.yaml sets 50.0. Measured on
+# mg_chaotic/raw_history seed 0, that mismatch cut ALL THREE actor-critic episodes at ||x||>50
+# (first at episode 0, ||x||=50.75, peak 97.46) against a single cut at >100 for the value gradient,
+# i.e. the actor-critic was charged for excursions the value gradient was allowed to complete.
+# 100.0 is chosen because it is the value-gradient default AND the value used by the existing 5-seed
+# value-gradient runs, so the value-gradient half stays comparable with its own history; the
+# actor-critic's 50.0 is the outlier and has no prior data on these cells. The threshold only
+# affects the mg_chaotic tasks: on mg_limit_cycle the cut never fires (peak ||x|| 1.15 actor-critic
+# / 1.23 value gradient, against 50).
+#
 # shellcheck disable=SC2086  # intentional word-splitting of the override strings
 python main_unified.py \
     agent="$AGENT" env="$ENV" $REPARG \
     agent.signature.window_size="$WIN" \
+    agent.signature.force_signature_window=true \
+    agent.training.divergence_threshold=100.0 \
     agent.training.n_episodes="$N_EPISODES" agent.training.max_time="$MAXT" \
     eval.x0_test="$X0" eval.T_sim="$TSIM" \
     seed="$SEED" experiment_group="$EXPERIMENT_GROUP" \

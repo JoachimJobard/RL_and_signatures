@@ -1,0 +1,56 @@
+# Delay-coupled network, phi^4 / Duffing variant — NONLINEAR-in-delay arm, NON-SATURATING activation
+# (eps = 1):
+#   dx/dt = -x - d x^3 + W phi(x(t - tau)) + B u ,   phi(xi) = xi + kappa xi^3 .
+#
+# AUTHORITY. The parameters below reproduce EXACTLY the cell 'hopfield_duffing' of
+# run/study/h1h2_evaluation.py (the oracle-referenced H1/H2 harness) at its DEFAULT environment
+# knobs (HOPFIELD_TAU = 0.5, HOPFIELD_KAPPA = 0.5, HOPFIELD_NONLIN = cubic, HOPFIELD_DAMPING = 2.0),
+# so the reinforcement-learning half and the oracle half of the design matrix act on one and the same
+# plant. Any change to that cell must be mirrored here; the coupling W is instantiated through the
+# SAME helper (src.envs.delayed_hopfield_network.rotational_coupling) rather than transcribed as a
+# literal, so the matrix itself cannot drift. Should a sweep over tau or kappa be required, override
+# environment_params.delay / environment_params.kappa on the command line and set the matching
+# HOPFIELD_TAU / HOPFIELD_KAPPA for the harness, rather than editing either side.
+#
+# Nomenclature. The cubic activation is a hardening (phi^4 / Duffing) nonlinearity of the opposite
+# sign to the literal Hopfield sigmoid; the cell is named 'hopfield_duffing' in the harness and the
+# name is kept here for correspondence, but the plant is a Duffing-type variant, not a Hopfield
+# network in the strict sense.
+#
+# Genuinely non-Markovian, with H1 held fixed against the linear arm. Since phi'(0) = 1 and the
+# derivative of -d x^3 vanishes at the origin, the linearisation at the regulation setpoint x* = 0 is
+# A = -I, A1 = W — identical to conf/env/hopfield_linear.yaml. The linearised delay-impact gate
+# (run/study/hopfield_delay_impact.py) therefore certifies this arm too: at tau = 0.5 the
+# history-kernel ratio is 0.30 and the markovian-oracle cost gap +55%, against 0.17 / +12.5% for the
+# platoon and 0.009 / +1% for the Dadebo plant, which that gate disqualified as near-Markovian.
+#
+# Predicted H2 outcome: MAY HOLD, and this is the arm in which H1 is preserved at finite amplitude.
+# The activation is NON-SATURATING — phi'(xi) = 1 + 3 kappa xi^2 GROWS with amplitude — so the
+# sensitivity to the delayed state does not decay away from the origin, unlike the saturating tanh of
+# conf/env/hopfield_nonlinear.yaml. The optimal value remains a nonlinear functional of the history,
+# which raw-history (linear in the window) under-fits. The instantaneous confinement -d x^3 with
+# d = 2 (chosen so that d >~ rho * kappa = 1) bounds the otherwise-explosive plant, boundedness being
+# the learnability prerequisite for the critic-only agent.
+#
+# Unstated arguments take the DelayedHopfieldNetwork defaults, which are precisely what the harness
+# cell relies upon: B = I_2 (full, per-neuron control), Q = I_2, R = 0.1 I_2, x_target = 0 (the
+# equilibrium is the origin).
+environment_params:
+  _target_: src.envs.delayed_hopfield_network.DelayedHopfieldNetwork
+
+  W:                 # rho = 2, theta = pi/2 -> antisymmetric [[0, -2], [2, 0]], eigenvalues +/- 2i;
+    _target_: src.envs.delayed_hopfield_network.rotational_coupling   # against the unit leak -x and
+    rho: 2.0         # the delay tau this yields a delay-induced (Hopf) oscillation, so control is
+    theta: 1.5707963267948966                                         # genuinely required.
+
+  delay: 0.5         # tau; sets the H1 structure jointly with W. The operative knob for H2: the
+                     # raw-history degree-2 dimension grows as (window * n)^2 / 2 while the signature
+                     # dimension is window-independent.
+  eps: 1.0           # fully NONLINEAR in the delay (eps is inert for nonlinearity=cubic, which
+                     # ignores it; kept at the harness cell's value for exact correspondence)
+  kappa: 0.5         # hardening gain: phi'(xi) = 1 + 3 kappa xi^2
+  nonlinearity: cubic  # NON-SATURATING (Duffing / hardening) activation
+  damping: 2.0       # instantaneous confinement -d x^3; d >~ rho * kappa bounds the plant
+
+  step_size: 0.1     # TD step dt; window length round(tau/dt) + 1 = 6 spans the augmented state
+  resolution: 4      # RK4 sub-steps per control step (solver step 0.025)
