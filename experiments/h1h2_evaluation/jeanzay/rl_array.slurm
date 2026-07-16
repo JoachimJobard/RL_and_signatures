@@ -59,16 +59,26 @@ CELL=${CELLS[$ci]}; REP=${REPS[$ri]}; SEED=${SEEDS[$si]}
 # ran on different histories (measured, WIN -> VG/AC: markovian 10/10, linear_dde 8/6, platoon 7/6,
 # mg_limit_cycle 27/25, mg_chaotic 71/69). On kind=signature that divergence leaves NO trace in any
 # recorded dimension (the signature dim depends only on channel count and depth), so it is
-# undetectable after the fact. The values are the value-gradient's PREVIOUS effective windows, so
-# the value-gradient half stays bit-unchanged and comparable with the existing mackey_glass studies
-# (27, 71); only the actor-critic moves, and it has no prior data on these cells. Every window
-# covers its delay (taps needed 0/5/4/24/68 against 10/8/7/27/71).
+# undetectable after the fact. For the five cells that predate this campaign the values are the
+# value-gradient's PREVIOUS effective windows, so the value-gradient half stays bit-unchanged and
+# comparable with the existing mackey_glass studies (27, 71); only the actor-critic moves, and it has
+# no prior data on those cells. Every window covers its delay (taps needed 0/5/4/24/68 against
+# 10/8/7/27/71).
+#
+# The two Hopfield cells have NO prior value-gradient data, so their window is taken from the
+# oracle-referenced harness instead (run/study/h1h2_evaluation.py: win = round(tau/dt) + 1, i.e.
+# window_size 5 at tau = 0.5, dt = 0.1), which spans exactly the delay rather than over-covering it,
+# and keeps the two halves of the project on identical windows as well as identical plants. Their
+# horizon (tf = 15.0) and evaluation initial condition (x0c = [0.5, 0.0]) are likewise the harness's.
 case "$CELL" in
-    markovian)      ENV=double_integrator; WIN=10; MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
-    linear_dde)     ENV=linear_dde_scalar; WIN=8;  MAXT=20; TSIM=20; X0="[0.8]" ;;
-    platoon)        ENV=platoon_h1h2;      WIN=7;  MAXT=15; TSIM=15; X0="[0.0,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]" ;;
-    mg_limit_cycle) ENV=MG_1D_limit_cycle; WIN=27; MAXT=40; TSIM=40; X0="[0.8]" ;;
-    mg_chaotic)     ENV=MG_1D_chaotic;     WIN=71; MAXT=60; TSIM=60; X0="[0.8]" ;;
+    markovian)          ENV=double_integrator; WIN=10; MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
+    linear_dde)         ENV=linear_dde_scalar; WIN=8;  MAXT=20; TSIM=20; X0="[0.8]" ;;
+    hopfield_linear)    ENV=hopfield_linear;   WIN=5;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
+    hopfield_nonlinear) ENV=hopfield_nonlinear; WIN=5; MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
+    hopfield_duffing)   ENV=hopfield_duffing;  WIN=5;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
+    platoon)            ENV=platoon_h1h2;      WIN=7;  MAXT=15; TSIM=15; X0="[0.0,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]" ;;
+    mg_limit_cycle)     ENV=MG_1D_limit_cycle; WIN=27; MAXT=40; TSIM=40; X0="[0.8]" ;;
+    mg_chaotic)         ENV=MG_1D_chaotic;     WIN=71; MAXT=60; TSIM=60; X0="[0.8]" ;;
     *) echo "Error: unknown cell '$CELL'" >&2; exit 1 ;;
 esac
 

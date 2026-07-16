@@ -52,7 +52,29 @@ if [[ -n "$SMOKE" ]]; then
     QOS="qos_cpu-dev"; TIME="00:30:00"; DEBUG="true"
     GROUP="_debug_h1h2_rl_${AGENT}_$(date +%Y%m%d_%H%M%S)"
 else
-    CELLS=(markovian linear_dde platoon mg_limit_cycle mg_chaotic); SEEDS=(0 1 2 3 4); N_EPISODES=1000
+    # Minimal spanning set: each axis of the design is covered exactly once, at 30 tasks per cell
+    # (3 representations x 5 seeds x 2 agents). Selected against the measured linearised
+    # delayed-LQR gate of run/study/hopfield_delay_impact.py (history-kernel ratio / H1 cost gap);
+    # the ratio is initial-condition-invariant and therefore carries the verdict, while the gap
+    # varies with the initial condition (measured +6.26% to +39.09% across initial conditions on one
+    # platoon plant) and is quoted at the deployment condition only.
+    #   markovian           0.000 / +0.00%   falsification control: A1 = 0 and tau = 0 exactly, so
+    #                                        H1 MUST fail. Exact CARE oracle (no discretisation).
+    #   linear_dde          0.346 / +117.34% linear-in-delay, scalar; the largest measured gap.
+    #   hopfield_linear     0.300 / +54.86%  linear-in-delay, multichannel (n = 2), conditioned.
+    #   hopfield_nonlinear  0.300 / +54.86%  NONLINEAR-in-delay; identical linearisation to the arm
+    #                                        above because phi_eps'(0) = 1, measured bit-identical.
+    #                                        The pair is the suite's only controlled experiment: eps
+    #                                        moves H2 with H1 held fixed by construction.
+    #   mg_chaotic          0.115 / +89.09%  nonlinear-in-delay, scalar, chaotic.
+    # Excluded deliberately: platoon (0.398 / +78.03%; redundant with hopfield_linear on the
+    # linear-multichannel axis and the most expensive cell, raw-history dimension 3320);
+    # hopfield_duffing (redundant with hopfield_nonlinear); mg_limit_cycle (redundant with
+    # mg_chaotic). All three qualify on the gate and remain dispatchable in rl_array.slurm.
+    # Excluded as DISQUALIFIED: dadebo_cstr, measured near-Markovian at 0.009 / +1.03% against a
+    # qualification floor of about 0.10 -- it is present in main_unified's existing five-seed
+    # benchmark and must not carry an H1 claim.
+    CELLS=(markovian linear_dde hopfield_linear hopfield_nonlinear mg_chaotic); SEEDS=(0 1 2 3 4); N_EPISODES=1000
     QOS="qos_cpu-t3"; TIME="04:00:00"; DEBUG="false"
     GROUP="h1h2_rl_${AGENT}_$(date +%Y%m%d_%H%M%S)"
 fi
