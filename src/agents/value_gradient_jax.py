@@ -624,33 +624,49 @@ class ContinuousValueGradient:
         if t - getattr(self, "_t_episode_start", 0.0) >= self.training.max_time:
             return True
         if not time_only:
-            # Both exits below TRUNCATE the episode, and a truncated episode's cost is not the
-            # cost of a completed one, so each announces itself when it fires (see
-            # src/utils/clamp_reporting.py). Reporting is side-effect-free numerically: the
-            # returned booleans are unchanged, so this agent stays bit-reproducible.
-            if bool(jnp.any(jnp.isnan(x))):
+            # NON-FINITE STATE. This is a FAILURE GUARD, not a trim: a trajectory containing a NaN
+            # or an infinity is already mathematically over -- there is nothing left to integrate,
+            # every subsequent state is non-finite, and every downstream number is meaningless. It
+            # therefore always fires, is never opt-out, and announces itself loudly, so that a
+            # diverging run is DIAGNOSED rather than silently producing nan.
+            if not bool(jnp.all(jnp.isfinite(x))):
+                n_nan = int(jnp.sum(jnp.isnan(x)))
+                n_inf = int(jnp.sum(jnp.isinf(x)))
                 report_clamp_activation(
-                    "nan_state_termination/value_gradient",
+                    "nonfinite_state_termination/value_gradient",
                     code_location="src/agents/value_gradient_jax.py:_is_episode_done",
-                    bound_description="the state must be finite (no NaN component)",
-                    most_extreme_raw_value=float("nan"),
-                    number_of_affected_elements=int(jnp.sum(jnp.isnan(x))),
-                    additional_context=f"at t={t:.4f}.",
-                )
-                return True
-            state_norm = float(jnp.linalg.norm(x))
-            if state_norm > self.training.divergence_threshold:
-                report_clamp_activation(
-                    "divergence_threshold/value_gradient",
-                    code_location="src/agents/value_gradient_jax.py:_is_episode_done",
-                    bound_description=f"||x|| <= {self.training.divergence_threshold}",
-                    most_extreme_raw_value=state_norm,
+                    bound_description="the state must be finite (no NaN, no inf component)",
+                    most_extreme_raw_value=float("nan") if n_nan else float("inf"),
+                    number_of_affected_elements=n_nan + n_inf,
                     additional_context=(
-                        f"at t={t:.4f}; the episode is cut here, so its accumulated cost covers "
-                        f"less than the full horizon max_time={self.training.max_time}."
+                        f"at t={t:.4f}: {n_nan} NaN and {n_inf} infinite component(s). The plant "
+                        f"has diverged; this is the failure, not a truncation. Every number this "
+                        f"episode reports downstream is meaningless."
                     ),
+                    alters_the_value=False,  # a detector, not an intervention
                 )
                 return True
+            # DIVERGENCE BOUND -- OPT-IN, and off by default. None/<=0 means the episode runs to
+            # its horizon whatever ||x|| does. A cut episode's accumulated cost is not the cost of
+            # a completed one, so this bound edits the objective it is meant to measure; and a run
+            # rescued from divergence cannot be diagnosed. Kept only as a compute safeguard for a
+            # caller who deliberately opts in, and it announces itself when it binds.
+            bound = self.training.divergence_threshold
+            if bound is not None and bound > 0:
+                state_norm = float(jnp.linalg.norm(x))
+                if state_norm > bound:
+                    report_clamp_activation(
+                        "divergence_threshold/value_gradient",
+                        code_location="src/agents/value_gradient_jax.py:_is_episode_done",
+                        bound_description=f"||x|| <= {bound}",
+                        most_extreme_raw_value=state_norm,
+                        additional_context=(
+                            f"at t={t:.4f}; the episode is CUT here, so its accumulated cost "
+                            f"covers less than the full horizon max_time={self.training.max_time} "
+                            f"and is not comparable with a completed episode's."
+                        ),
+                    )
+                    return True
         return False
 
     def _format_progress(self, episode: int, episode_metrics: dict) -> str:

@@ -36,7 +36,25 @@ class TrainingConfig:
     scale: float = 1.0
     clip_gradient: float | None = None  # None/<=0: no gradient clipping (default); else global-norm bound
     clip_action: float | None = None  # None/<=0: no action clipping (default); else bound |u|
-    divergence_threshold: float = 50.0
+    # Episode termination on a diverging state, as an OPT-IN bound on ||x||.
+    # None/<=0 means NO trimming: the episode runs to its horizon whatever the state does.
+    #
+    # Default OFF, by the project owner's decision: "I don't want to trim trajectories I prefer
+    # the algorithm to fail ... we rather need to understand why it diverges initially." A cut
+    # episode's accumulated cost is not the cost of a completed one, so the bound edits the very
+    # objective whose value is being reported; and a run that is rescued from divergence cannot be
+    # diagnosed, because the divergence is what wants studying.
+    #
+    # Divergence is NOT silent when this is off. It surfaces two ways, both loud: a non-finite
+    # state trips the NaN guard in _is_episode_done (which reports through
+    # src/utils/clamp_reporting.py and is NOT a trim -- a trajectory containing NaN is already
+    # mathematically over, and there is nothing left to integrate), and the reported closed-loop
+    # cost is then the honest full-horizon value, however large, rather than a number truncated at
+    # the moment the plant misbehaved.
+    #
+    # Runs predating this change carry `divergence_threshold: 100.0` (or 50.0) in their own saved
+    # config.yaml and remain reproducible by re-running at that value.
+    divergence_threshold: float | None = None
     eval_interval: int = 50
     eval_start_episode: int = 0
     patience: int = 0               # 0 = no early stopping

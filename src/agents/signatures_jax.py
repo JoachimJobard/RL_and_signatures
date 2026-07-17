@@ -482,24 +482,54 @@ class CTACSignatureJAX:
             return False
         if time_only:
             return bool(self.wrapper.state.t >= self.training.max_time)
-        # The horizon test and the state norm are fetched in a SINGLE device_get, preserving the
-        # one-synchronisation property of the previous jnp.logical_or form. The norm is fetched
-        # rather than the comparison so that the divergence cut can report the raw value it
-        # truncated at: a cut episode's cost is not a completed episode's cost, so the cut must
-        # announce itself (see src/utils/clamp_reporting.py).
-        horizon_reached, state_norm = jax.device_get(
-            (self.wrapper.state.t >= self.training.max_time, jnp.linalg.norm(x))
+        # Horizon test, finiteness and norm are fetched in a SINGLE device_get, preserving the
+        # one-synchronisation property of the previous jnp.logical_or form.
+        horizon_reached, all_finite, state_norm = jax.device_get(
+            (self.wrapper.state.t >= self.training.max_time,
+             jnp.all(jnp.isfinite(x)),
+             jnp.linalg.norm(x))
         )
-        if float(state_norm) > self.training.divergence_threshold:
+        # NON-FINITE STATE. A FAILURE GUARD, not a trim: a trajectory containing a NaN or an
+        # infinity is already mathematically over. Always fires, never opt-out, announces itself.
+        #
+        # This agent previously had NO finiteness guard at all, whilst ContinuousValueGradient did
+        # (value_gradient_jax.py). The omission was not benign: `nan > threshold` evaluates to
+        # False, so a NaN state never tripped the divergence bound either and the episode simply
+        # ran on. That is the measured mechanism by which this agent's evaluation on
+        # MG_1D_chaotic/raw_history reached ||x|| = 3.37e28 and returned nan, whilst the value
+        # gradient on the identical cell, representation and seed stayed finite.
+        if not bool(all_finite):
+            n_nan = int(jnp.sum(jnp.isnan(x)))
+            n_inf = int(jnp.sum(jnp.isinf(x)))
+            report_clamp_activation(
+                "nonfinite_state_termination/actor_critic",
+                code_location="src/agents/signatures_jax.py:_is_episode_done",
+                bound_description="the state must be finite (no NaN, no inf component)",
+                most_extreme_raw_value=float("nan") if n_nan else float("inf"),
+                number_of_affected_elements=n_nan + n_inf,
+                additional_context=(
+                    f"at t={float(self.wrapper.state.t):.4f}: {n_nan} NaN and {n_inf} infinite "
+                    f"component(s). The plant has diverged; this is the failure, not a "
+                    f"truncation. Every number this episode reports downstream is meaningless."
+                ),
+                alters_the_value=False,  # a detector, not an intervention
+            )
+            return True
+        # DIVERGENCE BOUND -- OPT-IN, off by default. See the note in configs.DiscountConfig's
+        # sibling TrainingConfig.divergence_threshold: a cut episode's cost is not a completed
+        # episode's cost, so the bound edits the objective it is meant to measure.
+        bound = self.training.divergence_threshold
+        if bound is not None and bound > 0 and float(state_norm) > bound:
             report_clamp_activation(
                 "divergence_threshold/actor_critic",
                 code_location="src/agents/signatures_jax.py:_is_episode_done",
-                bound_description=f"||x|| <= {self.training.divergence_threshold}",
+                bound_description=f"||x|| <= {bound}",
                 most_extreme_raw_value=float(state_norm),
                 additional_context=(
-                    f"at t={float(self.wrapper.state.t):.4f}; the episode is cut here, so its "
+                    f"at t={float(self.wrapper.state.t):.4f}; the episode is CUT here, so its "
                     f"accumulated cost covers less than the full horizon "
-                    f"max_time={self.training.max_time}."
+                    f"max_time={self.training.max_time} and is not comparable with a completed "
+                    f"episode's."
                 ),
             )
             return True
@@ -743,10 +773,11 @@ class CTACSignatureJAX:
 
     def _reset_monte_carlo_episode_buffer(self) -> None:
         """Discard the previous episode's recorded steps. Called at every episode start."""
+        # Three buffers, not four: the critic's V(s_t) is no longer recorded, because this
+        # learner's actor does not read the critic (see _monte_carlo_actor_update).
         self._mc_episode_sig: list = []
         self._mc_episode_noise: list = []
         self._mc_episode_reward_rate: list = []
-        self._mc_episode_baseline: list = []
 
     def _monte_carlo_actor_update(self) -> jnp.ndarray:
         """Perform the episode's single REINFORCE update. Returns the gradient norm.
@@ -763,12 +794,28 @@ class CTACSignatureJAX:
         noise_batch = jnp.stack([jnp.atleast_1d(jnp.asarray(n)) for n in self._mc_episode_noise])
         reward_rates = jnp.stack(
             [jnp.asarray(r).reshape(()) for r in self._mc_episode_reward_rate])
-        baseline = jnp.stack([jnp.asarray(v).reshape(()) for v in self._mc_episode_baseline])
 
-        returns = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
-        # A_t = R_t - V(s_t). The baseline depends on the state only, never on the action, so it
-        # reduces the estimator's variance without biasing it.
-        advantage = returns - baseline
+        # NO BASELINE. The signal is the realised return itself: A_t = R_t.
+        #
+        # By the project owner's decision -- "the baseline idea is ok but i dont want to implement
+        # it right now and i dont want the algorithm to become actor critic, let keep things
+        # simple". The consequence is the point of this learner: its actor never reads the critic,
+        # so an H1 verdict measured under it is a statement about the REPRESENTATION rather than
+        # about the value machinery. A baseline V(s_t) would put the critic back into the actor's
+        # signal and make this a third actor-critic.
+        #
+        # This also removes a defect rather than merely simplifying. With discount.discounted =
+        # false the critic's temporal-difference error is exactly invariant to V -> V + c, so the
+        # critic loss supplies no gradient pinning V's absolute level; the level is unidentified
+        # and drifts (the signature's constant channel absorbs it). A baseline read off that
+        # critic therefore carries an arbitrary offset into the advantage. R_t has no such offset.
+        #
+        # The cost, stated plainly: no baseline means higher variance. Var[R_t] is not reduced by
+        # an action-independent constant, and REINFORCE without one is the high-variance form. If
+        # that dominates, the cheapest unbiased remedy is a baseline depending on the state ONLY
+        # -- not the episode's own mean return, which depends on the actions taken and would bias
+        # the gradient.
+        advantage = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
 
         self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
             self.actor_params, self.actor_opt_state,
@@ -810,7 +857,6 @@ class CTACSignatureJAX:
                 self._mc_episode_sig.append(sig_t)
                 self._mc_episode_noise.append(noise)
                 self._mc_episode_reward_rate.append(reward)
-                self._mc_episode_baseline.append(ctx.V_t)
             elif step % self.algorithm.actor_update_frequency == 0:
                 self.actor_params, self.actor_opt_state, actor_grad_norm = \
                     self._jit_actor_update(

@@ -126,7 +126,7 @@ python main_unified.py \
     agent="$AGENT" env="$ENV" $REPARG \
     agent.signature.window_size="$WIN" \
     agent.signature.force_signature_window=true \
-    agent.training.divergence_threshold=100.0 \
+    ++agent.training.tau_polyak=1.0 \
     agent.training.n_episodes="$N_EPISODES" agent.training.max_time="$MAXT" \
     eval.x0_test="$X0" eval.T_sim="$TSIM" \
     seed="$SEED" experiment_group="$EXPERIMENT_GROUP" \

@@ -38,7 +38,15 @@ training:
   # false: signatures_jax.py:93 sets training.scale = training.divergence_threshold when
   # normalize_entries is true, so a study enabling that flag changes its normalisation constant
   # from 50 to 100 along with this value.
-  divergence_threshold: 100.0
+  # null/<=0: NO trimming, matched to conf/agent/value_gradient.yaml. See the note there.
+  #
+  # This agent additionally had NO finiteness guard at all until 2026-07-17, and `nan > threshold`
+  # is False, so a NaN state tripped neither the bound nor anything else and the episode simply
+  # ran on. That is the measured mechanism by which this agent's evaluation on
+  # MG_1D_chaotic/raw_history reached ||x|| = 3.37e28 and returned nan whilst the value gradient,
+  # on the identical cell/representation/seed, stayed finite. The guard now added to
+  # _is_episode_done catches it and says so.
+  divergence_threshold: null
   eval_interval: 20
   eval_start_episode: 0
   patience: 0

@@ -13,7 +13,21 @@ training:
   scale: 1.0
   clip_action: null  # null/<=0: no action clipping (default preference); else bound |u|
   clip_gradient: null  # null/<=0: no gradient clipping (default); else global-norm bound on the critic gradient
-  divergence_threshold: 100.0
+  # null/<=0: NO trimming. The episode runs to max_time whatever ||x|| does.
+  #
+  # By explicit decision: trajectories are not to be trimmed; the algorithm should be allowed to
+  # fail, because the divergence is the thing that wants understanding. A cut episode's
+  # accumulated cost is not the cost of a completed one, so this bound edits the very objective
+  # whose value is reported, and a run rescued from divergence cannot be diagnosed.
+  #
+  # Divergence stays LOUD, not silent: a non-finite state trips the finiteness guard in
+  # _is_episode_done, which reports through src/utils/clamp_reporting.py. That guard is a FAILURE
+  # detector, not a trim -- a trajectory containing NaN is already over.
+  #
+  # This CHANGES this agent where the bound previously fired (measured: it fires on mg_chaotic).
+  # The existing five-seed studies carry `divergence_threshold: 100.0` in their own saved
+  # config.yaml and stay reproducible by re-running at that value.
+  divergence_threshold: null
   eval_interval: 20
   tau_polyak: 0.01
   log_interval: 10

@@ -52,6 +52,7 @@ def report_clamp_activation(
     most_extreme_raw_value: float,
     number_of_affected_elements: int = 1,
     additional_context: str = "",
+    alters_the_value: bool = True,
 ) -> None:
     """Report that a numerical clamp has bound, i.e. has actually changed a value.
 
@@ -80,12 +81,25 @@ def report_clamp_activation(
     _CLAMP_ACTIVATION_COUNTS[clamp_name] = count
 
     context_suffix = f" {additional_context}" if additional_context else ""
+    if alters_the_value:
+        kind, consequence = "Clamp", (
+            "A quantity computed downstream of a clamp that binds is not the quantity it appears "
+            "to be: the clamp has replaced the value the mathematics prescribed."
+        )
+    else:
+        # A FAILURE GUARD replaces nothing — it detects that the computation has already left the
+        # domain where its result means anything (a non-finite state, say). Reporting it with the
+        # clamp boilerplate would misdescribe it as an intervention, which is exactly the sort of
+        # imprecision this module exists to prevent.
+        kind, consequence = "Guard", (
+            "This guard alters no value: it reports that the computation had already left the "
+            "domain in which its result is meaningful."
+        )
     message = (
-        f"Clamp '{clamp_name}' BOUND at {code_location}: the bound is {bound_description}, and the "
-        f"most extreme raw (pre-clamp) value was {most_extreme_raw_value!r}, affecting "
-        f"{number_of_affected_elements} element(s).{context_suffix} A quantity computed downstream "
-        f"of a clamp that binds is not the quantity it appears to be: the clamp has replaced the "
-        f"value the mathematics prescribed. Activation number {count} for this clamp."
+        f"{kind} '{clamp_name}' FIRED at {code_location}: the condition is {bound_description}, "
+        f"and the most extreme raw value was {most_extreme_raw_value!r}, affecting "
+        f"{number_of_affected_elements} element(s).{context_suffix} {consequence} "
+        f"Activation number {count} for this {kind.lower()}."
     )
 
     if clamp_name not in _CLAMPS_ALREADY_WARNED:
