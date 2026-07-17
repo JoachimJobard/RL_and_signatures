@@ -1,0 +1,60 @@
+# GP exploration correlation-length sweep (value-gradient backbone).
+#
+# QUESTION. conf/agent/value_gradient.yaml ships noise.length_scale = 0.002 with
+# noise.smooth = true, which reads as "temporally-correlated Gaussian-process exploration".
+# It is not. The kernel built at value_gradient_jax.py:425 is
+#     k(t, t') = exp(-(t - t')^2 / (2 l^2))
+# evaluated on the CONTROL grid, so the correlation between adjacent control steps is
+# exp(-dt^2 / (2 l^2)). On this environment (stable_non_normal_2D, dt = 0.01) the shipped
+# l = 0.002 gives 3.7e-06; on the campaign cells (dt = 0.1) it gives 0.000 to float64.
+# The covariance matrix is numerically the identity, its Cholesky factor is the identity, and
+# the "GP sample" is exactly the white noise it was constructed from -- after building and
+# factorising an n-by-n matrix to achieve it. src/configs.py:66 DEFAULTS l to 0.2, which would
+# deliver 0.9988 here; both shipped agent configs override that working default.
+#
+# WHY IT MATTERS, in this repository's own words (run/study/trick_ablation_variants.txt:15-17):
+#   "Core Doya machinery is NOT ablated (it is not a trick): ... the temporally-correlated (GP)
+#    exploration -- i.i.d. per-step noise has the wrong continuous limit (its trajectory effect
+#    ~sqrt(dt) -> 0)."
+# The trick ablation therefore classified correlated exploration as core machinery rather than a
+# removable device, whilst the shipped length scale made it i.i.d. regardless. Its `white_noise`
+# arm (noise.smooth=false) consequently compared white noise against white noise and measured
+# rho 0.03662 +/- 0.00338 against a baseline of 0.03636 +/- 0.00337 -- overlapping, and read as
+# "the GP does not matter" when it means "the GP was never switched on". Doya (2000) uses
+# low-pass filtered (Ornstein-Uhlenbeck) noise with tau_n = 1.0, which IS correlated.
+#
+# DESIGN. One axis only: noise.length_scale. Everything else is held at the trick ablation's
+# configuration so the arms are comparable with data/main_unified/trick_ablation_convergence/.
+#   env      = stable_non_normal_2D (in --common), dt = 0.01: NO delay, so the markovian
+#              representation spans the ordinary-LQR value and rho -> 0 is attainable, which is
+#              what makes "near-optimal" well posed and rho a meaningful metric.
+#   rep      = markovian deg2 -- the axis is the NOISE, not the representation.
+#   tau_polyak = 1.0 on EVERY arm. This removes the target network, which the trick ablation
+#              measured to be the only trick that matters and to HURT (rho 0.03636 -> 0.02503,
+#              disjoint 95% CIs, 190 -> 160 episodes). Sweeping the noise at the shipped
+#              tau_polyak = 0.01 would measure the noise axis underneath a defect known to
+#              dominate it. This also makes the critic Doya-faithful (a stop-gradient on the SAME
+#              function rather than a difference of two).
+#
+# THE CONTROL ARM IS LOAD-BEARING: ls0.002 reproduces the trick ablation's `no_target_net`
+# variant exactly (same config, same seeds), so it MUST recover rho = 0.02503 +/- 0.00203. If it
+# does not, this harness is wrong and no other arm may be read.
+#
+# Adjacent-step correlation exp(-dt^2 / (2 l^2)) at dt = 0.01, stated per arm so the sweep is
+# interpretable without re-deriving it:
+#   l = 0.002 -> 3.7e-06   (white; the shipped value; the CONTROL)
+#   l = 0.01  -> 0.607     (correlated over ~one control step)
+#   l = 0.02  -> 0.882
+#   l = 0.05  -> 0.980
+#   l = 0.2   -> 0.9988    (the src/configs.py default)
+# Larger l is deliberately excluded: as l grows the kernel tends to the all-ones matrix, whose
+# rank is 1, and the Cholesky at value_gradient_jax.py:431 relies on a 1e-6 jitter to remain
+# positive definite. An arm that silently falls back to the SVD branch would confound the
+# noise axis with a numerical failure. If l = 0.2 already shows the effect, that is the answer.
+#
+# Analyse with: uv run python run/study/ablation_convergence.py <GROUP_DIR> --threshold 0.1
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 agent.noise.smooth=true agent.noise.length_scale=0.002 run_tag=ls0.002_white_control
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 agent.noise.smooth=true agent.noise.length_scale=0.01 run_tag=ls0.01_corr0.61
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 agent.noise.smooth=true agent.noise.length_scale=0.02 run_tag=ls0.02_corr0.88
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 agent.noise.smooth=true agent.noise.length_scale=0.05 run_tag=ls0.05_corr0.98
+agent=value_gradient agent.signature.kind=markovian agent.signature.degree=2 agent.training.tau_polyak=1.0 agent.noise.smooth=true agent.noise.length_scale=0.2 run_tag=ls0.2_corr0.999
