@@ -1,4 +1,4 @@
-# Monte-Carlo policy gradient (REINFORCE with a value baseline) on the shared representations.
+# Monte-Carlo policy gradient (REINFORCE, NO baseline) on the shared representations.
 #
 # The THIRD learner of the campaign, alongside conf/agent/value_gradient.yaml (analytic control
 # extraction from the critic's vertical derivative) and conf/agent/signatures.yaml (the continuous
@@ -10,13 +10,14 @@
 #                                                      error, wdot^A = eta^A delta(t) n(t) dA/dw.
 #                                                      The signal is BOOTSTRAPPED through the critic.
 #   this file            actor_target: monte_carlo  -- the actor regresses the score function
-#                                                      against the realised return-to-go,
-#                                                      R_t = int_t^T r ds, with the advantage
-#                                                      A_t = R_t - V(s_t). The critic still learns
-#                                                      by temporal difference but enters the actor's
-#                                                      signal ONLY as a variance-reducing baseline,
-#                                                      never as its target, so the actor's learning
-#                                                      signal contains NO bootstrap.
+#                                                      against the realised return-to-go itself,
+#                                                      A_t = R_t = int_t^T r ds. There is NO
+#                                                      baseline: the actor does not read the critic
+#                                                      at all, so its signal contains no bootstrap
+#                                                      and no value estimate. The cost is variance
+#                                                      (R_t is not centred); the benefit is that an
+#                                                      H1 verdict under it is a statement about the
+#                                                      REPRESENTATION, not the value machinery.
 #
 # WHY IT EARNS ITS PLACE IN THE CAMPAIGN. The two existing learners both read the value function to
 # obtain their control -- the value gradient analytically through grad_{x(t)}V, the actor-critic

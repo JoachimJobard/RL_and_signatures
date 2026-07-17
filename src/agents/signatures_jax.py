@@ -92,10 +92,10 @@ class CTACSignatureJAX:
         self._reset_monte_carlo_episode_buffer()
         if self._actor_target_is_monte_carlo:
             print(
-                "algorithm.actor_target='monte_carlo': the actor is REINFORCE with a value "
-                "baseline (advantage A_t = R_t - V(s_t), R_t the realised return-to-go), updated "
-                "ONCE per episode. The critic still learns by temporal difference but enters the "
-                "actor's signal only as a baseline, so the actor's target carries NO bootstrap."
+                "algorithm.actor_target='monte_carlo': the actor is REINFORCE with NO baseline "
+                "(A_t = R_t, the realised return-to-go), updated ONCE per episode. The actor does "
+                "not read the critic at all, so its learning signal contains no bootstrap and no "
+                "value estimate."
             )
 
     def _init_env(self, env: JAXDDEEnv, rng_key: int) -> None:
@@ -689,7 +689,7 @@ class CTACSignatureJAX:
         return update_fn
 
     # =========================================================================
-    # Monte-Carlo policy gradient (REINFORCE with a value baseline)
+    # Monte-Carlo policy gradient (REINFORCE, no baseline: A_t = R_t)
     # =========================================================================
 
     @property
@@ -708,7 +708,7 @@ class CTACSignatureJAX:
         """Create a JIT-compiled REINFORCE actor update over one whole episode.
 
         This mirrors ``_make_actor_update_fn`` term for term. The ONLY differences are the signal
-        the score function is regressed against -- the advantage A_t = R_t - V(s_t) rather than
+        the score function is regressed against -- the realised return A_t = R_t rather than
         the instantaneous temporal-difference error delta_t -- and the fact that a single
         optimiser step is taken per EPISODE over the mean of the per-step losses, which is the
         standard REINFORCE estimator. Keeping the loss algebraically identical is deliberate: the

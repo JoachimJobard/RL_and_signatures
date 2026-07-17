@@ -36,9 +36,13 @@ NAME_PROJECT="${NAME_PROJECT:-RL_and_signatures}"
 PATH_CONTENT_ROOT="${PATH_CONTENT_ROOT:-${WORK:?WORK not set — are you on Jean Zay?}/git_repositories/$NAME_PROJECT}"
 ACCOUNT="${ACCOUNT:?Set ACCOUNT to your Jean Zay CPU account, e.g. ACCOUNT=abc@cpu}"
 AGENT="${AGENT:-value_gradient}"
+# The three implemented learners. policy_gradient was added in 5b410d6 and was NOT accepted here
+# until now, so the third learner could not be dispatched at all -- an omission caught by the
+# abstract-evidence audit, which observed that "three algorithms work" could not be a measurement
+# over three algorithms when the launcher rejects one of them.
 case "$AGENT" in
-    value_gradient|signatures) ;;
-    *) echo "Error: AGENT must be 'value_gradient' or 'signatures' (got '$AGENT')" >&2; exit 1 ;;
+    value_gradient|signatures|policy_gradient) ;;
+    *) echo "Error: AGENT must be 'value_gradient', 'signatures' or 'policy_gradient' (got '$AGENT')" >&2; exit 1 ;;
 esac
 # Runs go to $SCRATCH; only the slurm logs stay beside the repo-independent group dir.
 DATA_ROOT="${RL_SIGNATURES_DATA_ROOT:-${SCRATCH:?SCRATCH not set — are you on Jean Zay?}/rl_campaigns/$NAME_PROJECT}"

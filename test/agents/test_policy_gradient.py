@@ -1,8 +1,14 @@
 """Sanity checks for the Monte-Carlo policy gradient (algorithm.actor_target='monte_carlo').
 
-The estimator under test is REINFORCE with a value baseline: the actor regresses the Gaussian
-score function against the realised return-to-go, with the advantage A_t = R_t - V(s_t), once per
-episode. These checks are ordered from the cheapest and most decisive to the most integrated.
+The estimator under test is REINFORCE with NO baseline: the actor regresses the Gaussian score
+function against the realised return-to-go, A_t = R_t, once per episode. The actor does not read
+the critic at all (commit 8d0f4b0), which is the point of the learner -- an H1 verdict measured
+under it is a statement about the REPRESENTATION rather than about the value machinery.
+
+NOTE on what these tests do and do not certify. An adversarial audit mutated the shipped
+estimator's sign and all thirteen of the original tests PASSED: none constrained the DIRECTION of
+the parameter step, only its norm, and a norm is sign-blind. The three directional tests below
+close that gap and are verified to close it -- the same mutant now fails exactly those three.
 
 What each check buys, and why it is here rather than a weaker one:
 
@@ -147,8 +153,11 @@ def test_score_function_estimator_is_unbiased_against_the_analytic_gradient():
 def test_state_dependent_baseline_does_not_bias_the_estimator():
     """Subtracting any action-independent baseline must leave the expectation unchanged.
 
-    This is the property that licenses A_t = R_t - V(s_t): E[(n/sigma^2) b] = 0 for any b not
-    depending on the action. If it failed, the baseline would silently bias the gradient.
+    The shipped estimator has NO baseline (A_t = R_t, commit 8d0f4b0), so this test does not
+    describe it. It is kept because it pins the property that WOULD license adding one:
+    E[(n/sigma^2) b] = 0 for any b not depending on the action. If a baseline is ever added, it
+    must depend on the STATE only -- not on the episode's own mean return, which depends on the
+    actions taken and would bias the gradient.
 
     The tolerance is DERIVED, not chosen. The baseline's contribution is (b/sigma^2) * mean(n),
     whose standard error is |b| / (sigma sqrt(N)) -- it grows in proportion to the baseline, so a
@@ -196,6 +205,121 @@ def test_baseline_reduces_the_estimator_variance():
 # =============================================================================
 # 3-4. The implementation's own invariants
 # =============================================================================
+
+def _actor_mean(agent, params, sig):
+    """The actor's mean action at one signature, as a float (first control component)."""
+    return float(jnp.ravel(agent.actor.apply(params, sig))[0])
+
+
+def test_positive_advantage_moves_the_actor_TOWARD_the_sampled_action():
+    """A better-than-expected outcome must move the mean TOWARD the action that produced it.
+
+    THIS IS THE TEST THAT PINS THE SIGN, and it drives the SHIPPED estimator
+    (_jit_monte_carlo_actor_update) rather than a re-implementation of it.
+
+    Why it is needed, measured: an adversarial audit mutated the shipped estimator's sign -- an
+    actor that ascends COST rather than reward, i.e. the exact negation of the intended learner --
+    and all thirteen of this file's other tests passed unchanged. The two whose names imply they
+    guard the update direction assert only |grad| == 0 and |grad| > 1e-8, and a norm is sign-blind
+    by construction. A suite that cannot distinguish an estimator from its own negation certifies
+    nothing about the estimator, whilst being cited as evidence that it is correct.
+
+    The mechanism under test: the policy is Gaussian with mean mu, the realised action is
+    u = mu + n, and the loss is -A * <n/sigma^2, mu>. Gradient DESCENT on that loss therefore
+    ascends A * <n/sigma^2, mu>, so for A > 0 and n > 0 the mean must INCREASE -- towards u.
+    """
+    agent = _build()
+    # A NON-ZERO signature is load-bearing: the agent's signature at construction is all zeros, and
+    # a linear actor's gradient with respect to its weights is proportional to its input, so a zero
+    # input gives an identically zero gradient and the actor cannot move at all -- the test would
+    # then pass or fail for a reason unrelated to the estimator's sign.
+    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    sig = jnp.asarray(np.random.default_rng(0).normal(size=(d,)))
+    m = int(agent.env.B.shape[1])
+    sigma = 0.1
+    noise = jnp.ones((1, m)) * 0.5                 # a POSITIVE perturbation: u = mu + 0.5 > mu
+    advantage = jnp.asarray([+1.0])               # and it turned out BETTER than expected
+
+    before = _actor_mean(agent, agent.actor_params, sig)
+    new_params, _, grad_norm = agent._jit_monte_carlo_actor_update(
+        agent.actor_params, agent.actor_opt_state, sig[None, :], noise, advantage, sigma
+    )
+    after = _actor_mean(agent, new_params, sig)
+
+    assert float(grad_norm) > 1e-8, "the update did not fire at all"
+    assert after > before, (
+        f"positive advantage on a positive perturbation moved the actor's mean AWAY from the "
+        f"sampled action ({before:.6e} -> {after:.6e}). The estimator ascends cost rather than "
+        f"reward: its sign is inverted."
+    )
+
+
+def test_negative_advantage_moves_the_actor_AWAY_from_the_sampled_action():
+    """The converse. A worse-than-expected outcome must move the mean away from its action.
+
+    Together with the previous test this pins the sign in both directions, so neither an overall
+    negation nor a one-sided defect can survive.
+    """
+    agent = _build()
+    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    sig = jnp.asarray(np.random.default_rng(0).normal(size=(d,)))
+    m = int(agent.env.B.shape[1])
+    sigma = 0.1
+    noise = jnp.ones((1, m)) * 0.5                 # the same POSITIVE perturbation
+    advantage = jnp.asarray([-1.0])               # but it turned out WORSE than expected
+
+    before = _actor_mean(agent, agent.actor_params, sig)
+    new_params, _, grad_norm = agent._jit_monte_carlo_actor_update(
+        agent.actor_params, agent.actor_opt_state, sig[None, :], noise, advantage, sigma
+    )
+    after = _actor_mean(agent, new_params, sig)
+
+    assert float(grad_norm) > 1e-8, "the update did not fire at all"
+    assert after < before, (
+        f"negative advantage on a positive perturbation moved the actor's mean TOWARD the sampled "
+        f"action ({before:.6e} -> {after:.6e}). The estimator reinforces the action that did "
+        f"worse: its sign is inverted."
+    )
+
+
+def test_the_shipped_estimator_recovers_the_analytic_policy_gradient():
+    """Drive the SHIPPED estimator on a problem whose gradient is known in closed form.
+
+    This replaces the weaker guarantee of the NumPy unbiasedness tests below, which re-implement
+    the estimator and therefore verify the author's algebra rather than the shipped code (measured:
+    a trace over the estimator's lines during those tests returns the empty list -- they would pass
+    unchanged if the estimator were deleted).
+
+    One-step Gaussian problem: u = mu + n, n ~ N(0, sigma^2), reward r(u) = -(u - u_star)^2, so
+    J(mu) = -(mu - u_star)^2 - sigma^2 and dJ/dmu = -2(mu - u_star). Driving the SHIPPED update
+    repeatedly with A_t = r must therefore carry the actor's mean towards u_star.
+    """
+    agent = _build()
+    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    rng = np.random.default_rng(0)
+    sig = jnp.asarray(rng.normal(size=(d,)))   # non-zero: see the note in the directional test
+    m = int(agent.env.B.shape[1])
+    sigma, u_star = 0.3, -1.0
+
+    params, opt_state = agent.actor_params, agent.actor_opt_state
+    start = _actor_mean(agent, params, sig)
+    for _ in range(600):
+        n = jnp.asarray(rng.normal(0.0, sigma, size=(1, m)))
+        mu_now = _actor_mean(agent, params, sig)
+        reward = -((mu_now + float(n[0, 0]) - u_star) ** 2)      # the realised return
+        params, opt_state, _ = agent._jit_monte_carlo_actor_update(
+            params, opt_state, sig[None, :], n, jnp.asarray([reward]), sigma
+        )
+    end = _actor_mean(agent, params, sig)
+
+    # It must move TOWARDS the optimum. The tolerance is the direction, not a fitted value: an
+    # estimator with the wrong sign moves away, and one with the right sign closes the gap.
+    assert abs(end - u_star) < abs(start - u_star), (
+        f"the shipped estimator did not move the actor's mean towards the analytic optimum "
+        f"u* = {u_star}: |{start:.4f} - u*| = {abs(start - u_star):.4f} -> "
+        f"|{end:.4f} - u*| = {abs(end - u_star):.4f}"
+    )
+
 
 def test_zero_advantage_gives_exactly_zero_actor_gradient():
     """A vanishing advantage must give a vanishing update: no signal manufactured from nothing."""

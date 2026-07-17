@@ -137,12 +137,13 @@ class AlgorithmConfig:
     #                    the actor is updated every step against the instantaneous temporal-
     #                    difference error, wdot^A = eta^A delta(t) n(t) dA/dw. This is the
     #                    continuous actor-critic and is the default.
-    #   "monte_carlo" -- REINFORCE with a value baseline: the actor is updated ONCE per episode
+    #   "monte_carlo" -- REINFORCE with NO baseline: the actor is updated ONCE per episode
     #                    against the realised return-to-go R_t = int_t^T r ds, estimated by
-    #                    R_t = sum_{k >= t} r_k dt, with the advantage A_t = R_t - V(s_t).
-    #                    The critic still learns by temporal difference but enters the actor's
-    #                    update only as a variance-reducing baseline, never as its target, so the
-    #                    actor's learning signal contains NO bootstrap.
+    #                    R_t = sum_{k >= t} r_k dt, and A_t = R_t. The actor does NOT read the
+    #                    critic at all, so its learning signal contains no bootstrap and no value
+    #                    estimate. That is the point of the learner: an H1 verdict measured under
+    #                    it is a statement about the REPRESENTATION rather than about the value
+    #                    machinery. The cost is variance: R_t is not centred.
     # The two are estimators of the SAME policy gradient and differ in their bias/variance
     # trade-off: the temporal-difference signal is bootstrapped (biased whilst the critic is
     # wrong, low variance), the Monte-Carlo signal is unbiased and higher variance.
