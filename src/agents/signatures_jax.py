@@ -84,8 +84,19 @@ class CTACSignatureJAX:
         # JIT-compiled update functions (created once)
         self._jit_critic_update = self._make_critic_update_fn()
         self._jit_actor_update = self._make_actor_update_fn()
+        self._jit_monte_carlo_actor_update = self._make_monte_carlo_actor_update_fn()
         self._jit_select_action = self._make_select_action_fn()
         self._jit_compute_values = self._make_compute_values_fn()
+        # Validate algorithm.actor_target once, at construction, rather than on the hot path: an
+        # unknown value must fail loudly at start-up, not silently fall through to the default.
+        self._reset_monte_carlo_episode_buffer()
+        if self._actor_target_is_monte_carlo:
+            print(
+                "algorithm.actor_target='monte_carlo': the actor is REINFORCE with a value "
+                "baseline (advantage A_t = R_t - V(s_t), R_t the realised return-to-go), updated "
+                "ONCE per episode. The critic still learns by temporal difference but enters the "
+                "actor's signal only as a baseline, so the actor's target carries NO bootstrap."
+            )
 
     def _init_env(self, env: JAXDDEEnv, rng_key: int) -> None:
         self.env = env
@@ -635,18 +646,136 @@ class CTACSignatureJAX:
             log_prob_grad = noise / (sigma ** 2 + 1e-8)
             return -td_error * jnp.dot(log_prob_grad, mu) # type: ignore
         
-        @jax.jit  
+        @jax.jit
         def update_fn(actor_params, opt_state, sig_t, noise, td_error, sigma, dt):
             grads = jax.grad(actor_loss)(actor_params, sig_t, noise, td_error, sigma)
             # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, actor_params)
-            
+
             new_params = optax.apply_updates(actor_params, updates)
             grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
             return new_params, new_opt_state, grad_norm
-        
+
         return update_fn
-    
+
+    # =========================================================================
+    # Monte-Carlo policy gradient (REINFORCE with a value baseline)
+    # =========================================================================
+
+    @property
+    def _actor_target_is_monte_carlo(self) -> bool:
+        """Whether the actor regresses against the realised return rather than the TD error."""
+        target = str(getattr(self.algorithm, "actor_target", "td")).lower()
+        if target not in ("td", "monte_carlo"):
+            raise ValueError(
+                f"algorithm.actor_target must be 'td' or 'monte_carlo', got {target!r}. "
+                f"'td' is Doya (2000) Equation 20; 'monte_carlo' is REINFORCE with a value "
+                f"baseline."
+            )
+        return target == "monte_carlo"
+
+    def _make_monte_carlo_actor_update_fn(self):
+        """Create a JIT-compiled REINFORCE actor update over one whole episode.
+
+        This mirrors ``_make_actor_update_fn`` term for term. The ONLY differences are the signal
+        the score function is regressed against -- the advantage A_t = R_t - V(s_t) rather than
+        the instantaneous temporal-difference error delta_t -- and the fact that a single
+        optimiser step is taken per EPISODE over the mean of the per-step losses, which is the
+        standard REINFORCE estimator. Keeping the loss algebraically identical is deliberate: the
+        two estimators then differ only in their target, so a difference in behaviour is
+        attributable to the bootstrap and not to an incidental discrepancy between two
+        hand-written losses.
+
+        The policy is Gaussian with mean mu(s; w) and standard deviation sigma, so the score with
+        respect to the mean is grad_mu log N(u; mu, sigma^2) = (u - mu)/sigma^2 = noise/sigma^2,
+        which is the ``log_prob_grad`` term shared with the temporal-difference form.
+        """
+        actor = self.actor
+        optimizer = self.actor_optimizer
+
+        def actor_loss(actor_params, sig_batch, noise_batch, advantage_batch, sigma):
+            # vmap rather than relying on the network broadcasting over a leading batch axis, so
+            # the estimator is correct for any actor architecture.
+            mu = jax.vmap(lambda s: actor.apply(actor_params, s))(sig_batch)       # (T, m)
+            log_prob_grad = noise_batch / (sigma ** 2 + 1e-8)                      # (T, m)
+            per_step = -advantage_batch * jnp.sum(log_prob_grad * mu, axis=-1)     # (T,)
+            return jnp.mean(per_step)
+
+        @jax.jit
+        def update_fn(actor_params, opt_state, sig_batch, noise_batch, advantage_batch, sigma):
+            grads = jax.grad(actor_loss)(
+                actor_params, sig_batch, noise_batch, advantage_batch, sigma)
+            updates, new_opt_state = optimizer.update(grads, opt_state, actor_params)
+            new_params = optax.apply_updates(actor_params, updates)
+            grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
+            return new_params, new_opt_state, grad_norm
+
+        return update_fn
+
+    def monte_carlo_returns(self, reward_rates: jnp.ndarray, dt: float) -> jnp.ndarray:
+        """Return-to-go R_t of an episode, from the per-step reward RATES.
+
+        The environment's reward is a RATE, r(t) = -(x'Qx + u'Ru); the objective is its integral
+        over the episode, which the rest of the code forms as ``reward * step_size``. The
+        return-to-go is therefore the right-hand Riemann sum
+
+            R_t = int_t^T r(s) ds  ~=  sum_{k >= t} r_k dt,
+
+        and, when ``discount.discounted`` is set, its exponentially weighted analogue
+        R_t = int_t^T exp(-(s-t)/tau) r(s) ds, satisfying the backward recursion
+        R_t = r_t dt + exp(-dt/tau) R_{t+1}.
+
+        Exposed publicly (rather than as a private helper) because it is the part of the
+        estimator that is checkable against a closed form, and the tests do check it.
+        """
+        rates = jnp.asarray(reward_rates)
+        if getattr(self.discount, "discounted", False):
+            decay = float(np.exp(-dt / self.discount.tau))
+
+            def backward_step(carry, r_k):
+                carry = r_k * dt + decay * carry
+                return carry, carry
+
+            _, returns = jax.lax.scan(backward_step, 0.0, rates, reverse=True)
+            return returns
+        # Undiscounted: R_t = sum_{k >= t} r_k dt, by a reversed cumulative sum.
+        return jnp.flip(jnp.cumsum(jnp.flip(rates))) * dt
+
+    def _reset_monte_carlo_episode_buffer(self) -> None:
+        """Discard the previous episode's recorded steps. Called at every episode start."""
+        self._mc_episode_sig: list = []
+        self._mc_episode_noise: list = []
+        self._mc_episode_reward_rate: list = []
+        self._mc_episode_baseline: list = []
+
+    def _monte_carlo_actor_update(self) -> jnp.ndarray:
+        """Perform the episode's single REINFORCE update. Returns the gradient norm.
+
+        No-op (returning a zero gradient norm) when the actor target is the temporal-difference
+        error, when the actor is the oracle, or when the episode recorded no steps.
+        """
+        if not self._actor_target_is_monte_carlo or self.algorithm.actor_oracle:
+            return jnp.array(0.0)
+        if not getattr(self, "_mc_episode_sig", None):
+            return jnp.array(0.0)
+
+        sig_batch = jnp.stack([jnp.asarray(s) for s in self._mc_episode_sig])
+        noise_batch = jnp.stack([jnp.atleast_1d(jnp.asarray(n)) for n in self._mc_episode_noise])
+        reward_rates = jnp.stack(
+            [jnp.asarray(r).reshape(()) for r in self._mc_episode_reward_rate])
+        baseline = jnp.stack([jnp.asarray(v).reshape(()) for v in self._mc_episode_baseline])
+
+        returns = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
+        # A_t = R_t - V(s_t). The baseline depends on the state only, never on the action, so it
+        # reduces the estimator's variance without biasing it.
+        advantage = returns - baseline
+
+        self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
+            self.actor_params, self.actor_opt_state,
+            sig_batch, noise_batch, advantage, self._sigma_effective,
+        )
+        return grad_norm
+
     def _update_networks(self, ctx: StepContextSignature) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Update actor and critic networks using JIT-compiled JAX autodiff."""
         step = self.step_counter
@@ -670,12 +799,24 @@ class CTACSignatureJAX:
                 )
         
         # Actor update (JIT-compiled)
-        if not self.algorithm.actor_oracle and (step % self.algorithm.actor_update_frequency == 0):
-            self.actor_params, self.actor_opt_state, actor_grad_norm = \
-                self._jit_actor_update(
-                    self.actor_params, self.actor_opt_state,
-                    sig_t, noise, td_error, sigma, dt
-                )
+        if not self.algorithm.actor_oracle:
+            if self._actor_target_is_monte_carlo:
+                # REINFORCE: the actor's signal is the realised return-to-go, which is not known
+                # until the episode terminates, so the step is RECORDED here and the episode's
+                # single update is performed by _monte_carlo_actor_update from train(). Every
+                # step is recorded regardless of actor_update_frequency, because the return needs
+                # the whole reward sequence; the frequency flag gates the temporal-difference
+                # update only.
+                self._mc_episode_sig.append(sig_t)
+                self._mc_episode_noise.append(noise)
+                self._mc_episode_reward_rate.append(reward)
+                self._mc_episode_baseline.append(ctx.V_t)
+            elif step % self.algorithm.actor_update_frequency == 0:
+                self.actor_params, self.actor_opt_state, actor_grad_norm = \
+                    self._jit_actor_update(
+                        self.actor_params, self.actor_opt_state,
+                        sig_t, noise, td_error, sigma, dt
+                    )
         
         # Return JAX arrays - defer float() sync to episode end
         return c_loss, actor_grad_norm, critic_grad_norm
@@ -686,6 +827,10 @@ class CTACSignatureJAX:
     
     def _on_episode_start(self, episode: int, x_init: np.ndarray) -> None:
         """Hook called at the start of each episode. Override for custom logic."""
+        # REINFORCE records one entry per step and consumes them at episode end; the buffer must
+        # be emptied here so a truncated episode (divergence cut) cannot leak its steps into the
+        # next episode's return, which would attribute one episode's rewards to another's actions.
+        self._reset_monte_carlo_episode_buffer()
         if self.noise.smooth:
             # Generate pre-sampled Gaussian Process noise
             # Kernel: Squared Exponential (RBF): k(t, t') = sigma^2 * exp(-|t-t'|^2 / (2 * l^2))
@@ -882,6 +1027,14 @@ class CTACSignatureJAX:
                     metrics_history['noise'].append(
                         np.asarray(ctx.noise).flatten()
                     )
+            # REINFORCE: the episode is over, so the realised return-to-go is now known and the
+            # actor's single update is performed here. A no-op when actor_target is 'td'.
+            monte_carlo_grad_norm = self._monte_carlo_actor_update()
+            if self._actor_target_is_monte_carlo:
+                # One update per episode, so report its gradient norm directly rather than the
+                # per-step mean (which would be this value divided by n_steps and misleading).
+                actor_grad_sum = monte_carlo_grad_norm * max(n_steps, 1)
+
             # Episode metrics (convert to float only at episode end)
             episode_metrics = {
                 'loss': float(episode_loss),

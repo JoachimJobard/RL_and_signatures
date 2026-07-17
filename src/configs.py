@@ -114,6 +114,21 @@ class AlgorithmConfig:
     actor_oracle: bool = False
     critic_oracle: bool = False
     actor_update_frequency: int = 1
+    # Learning signal the ACTOR regresses the score function against.
+    #   "td"          -- Doya (2000) Equation 20 / the Gullapalli stochastic real-valued rule:
+    #                    the actor is updated every step against the instantaneous temporal-
+    #                    difference error, wdot^A = eta^A delta(t) n(t) dA/dw. This is the
+    #                    continuous actor-critic and is the default.
+    #   "monte_carlo" -- REINFORCE with a value baseline: the actor is updated ONCE per episode
+    #                    against the realised return-to-go R_t = int_t^T r ds, estimated by
+    #                    R_t = sum_{k >= t} r_k dt, with the advantage A_t = R_t - V(s_t).
+    #                    The critic still learns by temporal difference but enters the actor's
+    #                    update only as a variance-reducing baseline, never as its target, so the
+    #                    actor's learning signal contains NO bootstrap.
+    # The two are estimators of the SAME policy gradient and differ in their bias/variance
+    # trade-off: the temporal-difference signal is bootstrapped (biased whilst the critic is
+    # wrong, low variance), the Monte-Carlo signal is unbiased and higher variance.
+    actor_target: str = "td"
     preheat: bool = True
     burning_steps: int = 0
     fix_initial_state: bool = False

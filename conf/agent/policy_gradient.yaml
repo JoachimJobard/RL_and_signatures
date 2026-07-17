@@ -1,0 +1,43 @@
+# Monte-Carlo policy gradient (REINFORCE with a value baseline) on the shared representations.
+#
+# The THIRD learner of the campaign, alongside conf/agent/value_gradient.yaml (analytic control
+# extraction from the critic's vertical derivative) and conf/agent/signatures.yaml (the continuous
+# actor-critic, Doya 2000 Equation 20). It reuses CTACSignatureJAX unchanged and differs from the
+# actor-critic in exactly ONE respect, algorithm.actor_target:
+#
+#   signatures.yaml      actor_target: td           -- the actor regresses the score function
+#                                                      against the instantaneous temporal-difference
+#                                                      error, wdot^A = eta^A delta(t) n(t) dA/dw.
+#                                                      The signal is BOOTSTRAPPED through the critic.
+#   this file            actor_target: monte_carlo  -- the actor regresses the score function
+#                                                      against the realised return-to-go,
+#                                                      R_t = int_t^T r ds, with the advantage
+#                                                      A_t = R_t - V(s_t). The critic still learns
+#                                                      by temporal difference but enters the actor's
+#                                                      signal ONLY as a variance-reducing baseline,
+#                                                      never as its target, so the actor's learning
+#                                                      signal contains NO bootstrap.
+#
+# WHY IT EARNS ITS PLACE IN THE CAMPAIGN. The two existing learners both read the value function to
+# obtain their control -- the value gradient analytically through grad_{x(t)}V, the actor-critic
+# through the TD error. A representation ordering measured under both could therefore still be a
+# property of the value machinery rather than of the representation of history. The Monte-Carlo
+# policy gradient never bootstraps: its actor is driven by the realised cost of the trajectory it
+# actually flew. An H1 verdict that survives this learner is a statement about the REPRESENTATION,
+# which is a strictly stronger claim than one resting on two value-based learners.
+#
+# INHERITANCE. Composed from conf/agent/signatures.yaml so that every parameter matched to the
+# value gradient -- clip_action (null), critic_lr (1e-3), noise.length_scale (0.002), noise.sigma,
+# noise.schedule, discount.tau (1.0), divergence_threshold -- is inherited rather than copied, and
+# cannot drift out of step with it. Only actor_target is overridden.
+defaults:
+  - signatures
+  - _self_
+
+algorithm:
+  # The one line that makes this a policy gradient rather than an actor-critic.
+  actor_target: monte_carlo
+  # Every step of the episode is recorded regardless of this flag (the return needs the whole
+  # reward sequence), and exactly one actor update is taken per episode. Set to 1 so the value
+  # cannot be misread as gating the Monte-Carlo update, which it does not.
+  actor_update_frequency: 1
