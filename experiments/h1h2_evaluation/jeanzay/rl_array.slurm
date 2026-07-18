@@ -70,15 +70,25 @@ CELL=${CELLS[$ci]}; REP=${REPS[$ri]}; SEED=${SEEDS[$si]}
 # window_size 5 at tau = 0.5, dt = 0.1), which spans exactly the delay rather than over-covering it,
 # and keeps the two halves of the project on identical windows as well as identical plants. Their
 # horizon (tf = 15.0) and evaluation initial condition (x0c = [0.5, 0.0]) are likewise the harness's.
+# WIN is now round(tau/dt) at the UNIFORM control dt = 0.05 (env configs, 2026-07-17). The number
+# of taps therefore SCALES WITH THE DELAY, by design: a longer delay is a longer history and must be
+# represented by more samples. This is the physically honest discretisation, and it is deliberately
+# NOT equalised across cells -- equalising the window would hide the regime the study is about. The
+# signature's dimension is independent of the tap count (depth-N of d channels = d + d^2 + ... +
+# d^N), so it is bounded even at 340 taps; raw_history degree-2 grows as taps^2 and explodes on the
+# long-delay cells, where its critic Gram becomes rank-deficient. That divergence is a genuine H1
+# result (a history representation broken by its own dimension), surfaced loudly now that trimming
+# is off and the finiteness guards are in. MAXT/TSIM are time horizons (dt-invariant); steps per
+# episode = MAXT/dt, so mg_chaotic is ~1200 steps at 340 taps -- the heaviest cell by far.
 case "$CELL" in
-    markovian)          ENV=double_integrator; WIN=10; MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
-    linear_dde)         ENV=linear_dde_scalar; WIN=8;  MAXT=20; TSIM=20; X0="[0.8]" ;;
-    hopfield_linear)    ENV=hopfield_linear;   WIN=5;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
-    hopfield_nonlinear) ENV=hopfield_nonlinear; WIN=5; MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
-    hopfield_duffing)   ENV=hopfield_duffing;  WIN=5;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
-    platoon)            ENV=platoon_h1h2;      WIN=7;  MAXT=15; TSIM=15; X0="[0.0,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]" ;;
-    mg_limit_cycle)     ENV=MG_1D_limit_cycle; WIN=27; MAXT=40; TSIM=40; X0="[0.8]" ;;
-    mg_chaotic)         ENV=MG_1D_chaotic;     WIN=71; MAXT=60; TSIM=60; X0="[0.8]" ;;
+    markovian)          ENV=double_integrator; WIN=10;  MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;   # tau=0: WIN arbitrary (redundant history of a Markov plant; H1 must fail)
+    linear_dde)         ENV=linear_dde_scalar; WIN=20;  MAXT=20; TSIM=20; X0="[0.8]" ;;        # tau=1.0 / dt=0.05
+    hopfield_linear)    ENV=hopfield_linear;   WIN=10;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;    # tau=0.5 / dt=0.05
+    hopfield_nonlinear) ENV=hopfield_nonlinear; WIN=10; MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;    # tau=0.5 / dt=0.05
+    hopfield_duffing)   ENV=hopfield_duffing;  WIN=10;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;    # tau=0.5 / dt=0.05
+    platoon)            ENV=platoon_h1h2;      WIN=4;   MAXT=15; TSIM=15; X0="[0.0,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]" ;;  # tau=0.2 / dt=0.05
+    mg_limit_cycle)     ENV=MG_1D_limit_cycle; WIN=120; MAXT=40; TSIM=40; X0="[0.8]" ;;        # tau=6.0 / dt=0.05
+    mg_chaotic)         ENV=MG_1D_chaotic;     WIN=340; MAXT=60; TSIM=60; X0="[0.8]" ;;        # tau=17.0 / dt=0.05 -- the long-delay stress cell
     *) echo "Error: unknown cell '$CELL'" >&2; exit 1 ;;
 esac
 

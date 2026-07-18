@@ -43,5 +43,5 @@ environment_params:
   nonlinearity: tanh # SATURATING (Hopfield) activation
   damping: 0.0       # no instantaneous confinement; tanh saturation alone bounds the plant
 
-  step_size: 0.1     # TD step dt; window length round(tau/dt) + 1 = 6 spans the augmented state
+  step_size: 0.05     # TD step dt; window length round(tau/dt) + 1 = 6 spans the augmented state
   resolution: 4      # RK4 sub-steps per control step (solver step 0.025)

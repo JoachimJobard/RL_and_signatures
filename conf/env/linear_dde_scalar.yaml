@@ -28,5 +28,5 @@ environment_params:
     _target_: numpy.array
     object: [[0.1]]
     dtype: float64
-  step_size: 0.2
+  step_size: 0.05
   resolution: 4
