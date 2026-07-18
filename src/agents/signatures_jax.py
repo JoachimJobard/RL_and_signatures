@@ -86,6 +86,8 @@ class CTACSignatureJAX:
         self._jit_critic_update = self._make_critic_update_fn()
         self._jit_actor_update = self._make_actor_update_fn()
         self._jit_monte_carlo_actor_update = self._make_monte_carlo_actor_update_fn()
+        self._jit_actor_snr = self._make_actor_snr_fn() if getattr(self.training, "monitor_snr", False) else None
+        self._last_actor_snr = float("nan")
         self._jit_select_action = self._make_select_action_fn()
         self._jit_compute_values = self._make_compute_values_fn()
         # Validate algorithm.actor_target once, at construction, rather than on the hot path: an
@@ -764,6 +766,39 @@ class CTACSignatureJAX:
 
         return update_fn
 
+    def _make_actor_snr_fn(self):
+        """JIT-compiled actor-gradient signal-to-noise ratio over one episode's recorded steps.
+
+        The once-per-episode update takes jax.grad of the MEAN loss, giving only E[g]. The SNR
+        needs the PER-STEP gradients g_t = A_t (n_t/sigma^2) dA_t(w), computed here by vmapping
+        jax.grad of the single-step loss, then
+
+            SNR = ||E[g]||^2 / Var[g],   Var[g] = mean_t ||g_t - E[g]||^2  (per-sample noise power).
+
+        A signal-to-noise POWER ratio: SNR > 1 means the averaged gradient's direction carries more
+        power than the per-sample fluctuation, i.e. the actor is learning rather than wandering. The
+        same estimate for the online TD actor is not produced (it does not accumulate an episode).
+        """
+        actor = self.actor
+
+        def per_step_loss(actor_params, s, n, a, sigma):
+            mu = actor.apply(actor_params, s)
+            return -a * jnp.sum((n / (sigma ** 2 + 1e-8)) * mu)
+
+        @jax.jit
+        def snr_fn(actor_params, sig_batch, noise_batch, advantage_batch, sigma):
+            per_step_grad = jax.vmap(
+                lambda s, n, a: jax.grad(per_step_loss)(actor_params, s, n, a, sigma)
+            )(sig_batch, noise_batch, advantage_batch)
+            flat = jax.vmap(lambda g: jnp.concatenate(
+                [jnp.ravel(x) for x in jax.tree_util.tree_leaves(g)]))(per_step_grad)   # (T, P)
+            mean = jnp.mean(flat, axis=0)
+            signal = jnp.sum(mean ** 2)
+            noise = jnp.mean(jnp.sum((flat - mean) ** 2, axis=1))
+            return signal / (noise + 1e-12)
+
+        return snr_fn
+
     def monte_carlo_returns(self, reward_rates: jnp.ndarray, dt: float) -> jnp.ndarray:
         """Return-to-go R_t of an episode, from the per-step reward RATES.
 
@@ -825,6 +860,9 @@ class CTACSignatureJAX:
             # critic still learns per step and enters only through delta_t, exactly as in the
             # online form -- only the actor's update cadence changes.
             advantage = jnp.stack([jnp.asarray(d).reshape(()) for d in self._mc_episode_td])
+            if self._jit_actor_snr is not None:
+                self._last_actor_snr = float(self._jit_actor_snr(
+                    self.actor_params, sig_batch, noise_batch, advantage, self._sigma_effective))
             self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
                 self.actor_params, self.actor_opt_state,
                 sig_batch, noise_batch, advantage, self._sigma_effective,
@@ -856,6 +894,9 @@ class CTACSignatureJAX:
         # the gradient.
         advantage = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
 
+        if self._jit_actor_snr is not None:
+            self._last_actor_snr = float(self._jit_actor_snr(
+                self.actor_params, sig_batch, noise_batch, advantage, self._sigma_effective))
         self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
             self.actor_params, self.actor_opt_state,
             sig_batch, noise_batch, advantage, self._sigma_effective,
@@ -1139,8 +1180,10 @@ class CTACSignatureJAX:
                 'cost': float(episode_cost),
                 'actor_grad_mean': float(actor_grad_sum) / max(n_steps, 1),
                 'critic_grad_mean': float(critic_grad_sum) / max(n_steps, 1),
+                'actor_snr': self._last_actor_snr,   # NaN unless training.monitor_snr
                 'n_steps': n_steps,
             }
+            metrics_history.setdefault('actor_snr', []).append(self._last_actor_snr)
             
             # Check for NaNs
             if (np.isnan(episode_metrics['loss']) or 

@@ -82,6 +82,13 @@ class TrainingConfig:
     #     slower. Caveat to watch empirically (via the SNR monitor): a decaying critic rate can
     #     stall tracking of the non-stationary value target if the critic is not fast enough.
     critic_lr_decay_power: float = 0.0
+    # Log the actor-gradient signal-to-noise ratio per episode (once-per-episode actors only).
+    # SNR = ||E[g]||^2 / Var[g] over the episode's per-step gradient terms g_t = A_t (n_t/sigma^2)
+    # dA_t. SNR below ~1 means the update is dominated by noise -- the learner wanders rather than
+    # learns, which distinguishes a genuine H1 failure from a variance failure (the policy gradient
+    # has no baseline, so its variance is highest). Off by default: computing the T per-step
+    # gradients is ~T actor backprops. The controllability sweep turns it on.
+    monitor_snr: bool = False
 
 
 @dataclass
