@@ -56,29 +56,48 @@ if [[ -n "$SMOKE" ]]; then
     QOS="qos_cpu-dev"; TIME="00:30:00"; DEBUG="true"
     GROUP="_debug_h1h2_rl_${AGENT}_$(date +%Y%m%d_%H%M%S)"
 else
-    # Minimal spanning set: each axis of the design is covered exactly once, at 30 tasks per cell
-    # (3 representations x 5 seeds x 2 agents). Selected against the measured linearised
-    # delayed-LQR gate of run/study/hopfield_delay_impact.py (history-kernel ratio / H1 cost gap);
-    # the ratio is initial-condition-invariant and therefore carries the verdict, while the gap
-    # varies with the initial condition (measured +6.26% to +39.09% across initial conditions on one
-    # platoon plant) and is quoted at the deployment condition only.
-    #   markovian           0.000 / +0.00%   falsification control: A1 = 0 and tau = 0 exactly, so
-    #                                        H1 MUST fail. Exact CARE oracle (no discretisation).
-    #   linear_dde          0.346 / +117.34% linear-in-delay, scalar; the largest measured gap.
-    #   hopfield_linear     0.300 / +54.86%  linear-in-delay, multichannel (n = 2), conditioned.
-    #   hopfield_nonlinear  0.300 / +54.86%  NONLINEAR-in-delay; identical linearisation to the arm
-    #                                        above because phi_eps'(0) = 1, measured bit-identical.
-    #                                        The pair is the suite's only controlled experiment: eps
-    #                                        moves H2 with H1 held fixed by construction.
-    #   mg_chaotic          0.115 / +89.09%  nonlinear-in-delay, scalar, chaotic.
-    # Excluded deliberately: platoon (0.398 / +78.03%; redundant with hopfield_linear on the
-    # linear-multichannel axis and the most expensive cell, raw-history dimension 3320);
-    # hopfield_duffing (redundant with hopfield_nonlinear); mg_limit_cycle (redundant with
-    # mg_chaotic). All three qualify on the gate and remain dispatchable in rl_array.slurm.
-    # Excluded as DISQUALIFIED: dadebo_cstr, measured near-Markovian at 0.009 / +1.03% against a
-    # qualification floor of about 0.10 -- it is present in main_unified's existing five-seed
-    # benchmark and must not carry an H1 claim.
-    CELLS=(markovian linear_dde hopfield_linear hopfield_nonlinear mg_chaotic); SEEDS=(0 1 2 3 4); N_EPISODES=1000
+    # H1 test suite, selected on METHODOLOGICAL grounds only: span the two axes along which
+    # "history helps a non-Markovian plant" can be tested, and cover each point once. The selection
+    # criterion is the design, NOT the presence of prior value-gradient data on disk (which would
+    # let the available evidence dictate the experiment). Each cell also qualifies on the measured
+    # linearised delayed-LQR gate (run/study/hopfield_delay_impact.py, history-kernel ratio); the
+    # ratio is initial-condition-invariant and carries the verdict, the +% gap varies with the
+    # initial condition and is quoted at the deployment condition only.
+    #
+    #   AXIS 1 -- degree of non-Markovianity (the gate, 0 = Markov):
+    #   AXIS 2 -- linear vs nonlinear in the delay; AXIS 3 -- state dimension.
+    #
+    #   markovian     0.000  dim 2   MARKOV control: A1 = 0 and tau = 0 EXACTLY, so history is
+    #                                irrelevant and H1 MUST fail by construction (a falsification
+    #                                control, not a finding). Exact CARE oracle.
+    #   mg_chaotic    0.115  dim 1   nonlinear-in-delay, scalar, chaotic.
+    #   hopfield_nonlinear 0.300 dim 2  NONLINEAR-in-delay, multichannel (n = 2). Fills the
+    #                                nonlinear x multichannel cell no other plant covers (mg is
+    #                                nonlinear but scalar). Its linear twin hopfield_linear is the
+    #                                H2 instrument (eps moves H2 with H1 held fixed) and is dropped:
+    #                                for H1 the pair is one plant, so keeping both tests nothing
+    #                                extra. Swap to hopfield_linear if an exact delayed-LQR oracle
+    #                                on this cell is wanted instead of nonlinear coverage.
+    #   linear_dde    0.346  dim 1   linear-in-delay, scalar; A = 0 so the dynamics are ENTIRELY
+    #                                delayed feedback -- the strongly-non-Markov linear end.
+    #   platoon       0.398  dim 10  linear-in-delay, HIGH-DIMENSIONAL (connected-cruise-control,
+    #                                5 vehicles). Adds the state-dimension axis the rest of the
+    #                                suite lacks, and stress-tests raw_history's conditioning: its
+    #                                feature dimension is ~3320, deep in the n < d / ker-G regime,
+    #                                so a raw_history divergence here is a genuine H1 finding (with
+    #                                trimming off and NaN guards on, it surfaces loudly). Earlier it
+    #                                was excluded as "redundant with hopfield on the linear-
+    #                                multichannel axis" -- true on that axis, FALSE on dimension
+    #                                (hopfield is 2-D, platoon is 10-D), which is why it is included.
+    #
+    # Dropped: hopfield_linear (H2 twin, see above); hopfield_duffing, mg_limit_cycle (redundant on
+    # every axis this suite spans). DISQUALIFIED: dadebo_cstr (near-Markovian, gate 0.009, must not
+    # carry an H1 claim). All remain dispatchable in rl_array.slurm.
+    #
+    # Task count: this launcher submits ONE learner per invocation, so 5 cells x 3 reps x 5 seeds
+    # = 75 tasks per learner; the full three-learner study (value_gradient + signatures +
+    # policy_gradient) is 225 tasks across three submissions.
+    CELLS=(markovian mg_chaotic hopfield_nonlinear linear_dde platoon); SEEDS=(0 1 2 3 4); N_EPISODES=1000
     QOS="qos_cpu-t3"; TIME="04:00:00"; DEBUG="false"
     GROUP="h1h2_rl_${AGENT}_$(date +%Y%m%d_%H%M%S)"
 fi
