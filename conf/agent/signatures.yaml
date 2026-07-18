@@ -54,6 +54,12 @@ training:
   init_log_interval: 50
   memory_clear_interval: 200000
   discretization_state: 0.01
+  # Robbins-Monro actor learning-rate decay alpha_k = actor_lr/(1+k)^p, k the episode index (the
+  # averaged actor steps once per episode). p=0.6 is just above the RM boundary 1/2, i.e. close to
+  # the largest-step admissible schedule. Inherited by conf/agent/policy_gradient.yaml. alpha_0
+  # (actor_lr) to be confirmed by the seed-42 controllability sweep. Constant (0) would converge
+  # only to a noise ball.
+  lr_decay_power: 0.6
 
 # =============================================================================
 # Discount (Doya continuous-time discounting)

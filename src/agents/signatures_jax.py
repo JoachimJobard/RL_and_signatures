@@ -216,9 +216,15 @@ class CTACSignatureJAX:
 
         #optimizers — absorb dt into learning rate for correct continuous-time scaling.
         # Gradient clipping is opt-in via training.clip_gradient (global-norm, off by default).
+        # Robbins-Monro 1/(1+k)^p schedule on the ACTOR optimiser only. For the averaged actor
+        # (algorithm.actor_averaged) and the policy gradient the actor steps once per episode, so
+        # k is the episode index and this is a per-episode RM schedule; with the online actor it is
+        # per-step. lr_decay_power = 0 (default) is a constant rate. The critic is left constant
+        # (per-step decay would be far more aggressive; see robbins_monro_schedule).
         self.actor_optimizer = build_adam(
             self.training.actor_lr * self.env.step_size,
-            clip_gradient=self.training.clip_gradient, b1=0.1)
+            clip_gradient=self.training.clip_gradient, b1=0.1,
+            decay_power=float(getattr(self.training, "lr_decay_power", 0.0)))
         self.critic_optimizer = build_adam(
             self.training.critic_lr * self.env.step_size,
             clip_gradient=self.training.clip_gradient)

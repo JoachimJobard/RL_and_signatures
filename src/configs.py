@@ -63,6 +63,12 @@ class TrainingConfig:
     memory_clear_interval: int = 20
     discretization_state: float = 0.01
     tau_polyak: float = 0.0          # Polyak averaging rate (0 = disabled, used by VG & CSAC)
+    # Robbins-Monro learning-rate decay for the ACTOR optimiser: alpha_k = actor_lr / (1+k)^p.
+    # 0 (default) is a constant rate, which fails the RM square-summability condition and converges
+    # only to a noise ball. Admissible RM range is p in (1/2, 1]; the largest-step choice is
+    # p -> 1/2^+. For the averaged actor / policy gradient the actor steps once per episode, so k is
+    # the episode index (a per-episode schedule). The critic is left constant (see optim.py).
+    lr_decay_power: float = 0.0
 
 
 @dataclass
