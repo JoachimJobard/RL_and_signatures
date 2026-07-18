@@ -59,7 +59,8 @@ training:
   # the largest-step admissible schedule. Inherited by conf/agent/policy_gradient.yaml. alpha_0
   # (actor_lr) to be confirmed by the seed-42 controllability sweep. Constant (0) would converge
   # only to a noise ball.
-  lr_decay_power: 0.6
+  lr_decay_power: 0.8       # ACTOR RM, two-timescale: decays FASTER than the critic (0.6) so the actor is the slow timescale
+  critic_lr_decay_power: 0.6  # CRITIC RM (fast timescale); value-function stochastic approximation
 
 # =============================================================================
 # Discount (Doya continuous-time discounting)

@@ -225,9 +225,13 @@ class CTACSignatureJAX:
             self.training.actor_lr * self.env.step_size,
             clip_gradient=self.training.clip_gradient, b1=0.1,
             decay_power=float(getattr(self.training, "lr_decay_power", 0.0)))
+        # Two-timescale (actor-critic): the critic also carries an RM schedule, on its per-step
+        # count. lr_decay_power (actor) > critic_lr_decay_power (critic) plus the actor's
+        # once-per-episode cadence puts the actor on the slower timescale.
         self.critic_optimizer = build_adam(
             self.training.critic_lr * self.env.step_size,
-            clip_gradient=self.training.clip_gradient)
+            clip_gradient=self.training.clip_gradient,
+            decay_power=float(getattr(self.training, "critic_lr_decay_power", 0.0)))
         self.actor_opt_state = self.actor_optimizer.init(self.actor_params)
         self.critic_opt_state = self.critic_optimizer.init(self.critic_params)
 

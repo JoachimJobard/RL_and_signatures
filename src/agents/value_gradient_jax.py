@@ -102,9 +102,13 @@ class ContinuousValueGradient:
         self.critic = self._build_network()
         self.target = self._build_network()
         # Gradient clipping is opt-in via training.clip_gradient (global-norm, off by default).
+        # Robbins-Monro schedule on the critic: for the value gradient the control IS the critic
+        # gradient, so the critic is the policy and this is the canonical value-function RM
+        # (single-timescale). Per-step k. critic_lr_decay_power = 0 (default) is a constant rate.
         self.optimizer = build_adam(
             self.training.critic_lr * self.env.step_size,
-            clip_gradient=self.training.clip_gradient)
+            clip_gradient=self.training.clip_gradient,
+            decay_power=float(getattr(self.training, "critic_lr_decay_power", 0.0)))
 
         key_critic, key_target, self.key = jax.random.split(self.key, 3)
         self.critic_params = self.critic.init(key_critic, jnp.zeros((self.sliding_signature.signature_size,)))

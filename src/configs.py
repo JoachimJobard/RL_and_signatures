@@ -67,8 +67,21 @@ class TrainingConfig:
     # 0 (default) is a constant rate, which fails the RM square-summability condition and converges
     # only to a noise ball. Admissible RM range is p in (1/2, 1]; the largest-step choice is
     # p -> 1/2^+. For the averaged actor / policy gradient the actor steps once per episode, so k is
-    # the episode index (a per-episode schedule). The critic is left constant (see optim.py).
+    # the episode index (a per-episode schedule).
     lr_decay_power: float = 0.0
+    # Robbins-Monro decay for the CRITIC optimiser: alpha_k = critic_lr / (1+k)^critic_lr_decay_power,
+    # k the critic's own (per-step) update count. Robbins-Monro is classically the value-function
+    # scheme (TD learning is stochastic approximation; Tsitsiklis, Sutton-Barto), so the critic is
+    # the canonical object.
+    #   - value gradient: the control IS the critic gradient, so the critic is the policy and this
+    #     is single-timescale value RM.
+    #   - actor-critic: TWO-TIMESCALE stochastic approximation (Borkar) -- BOTH critic and actor
+    #     carry RM step sizes with the actor on the SLOWER timescale (alpha_actor/alpha_critic->0).
+    #     Set lr_decay_power (actor) > critic_lr_decay_power (critic); combined with the actor's
+    #     once-per-episode versus the critic's per-step cadence this makes the actor asymptotically
+    #     slower. Caveat to watch empirically (via the SNR monitor): a decaying critic rate can
+    #     stall tracking of the non-stationary value target if the critic is not fast enough.
+    critic_lr_decay_power: float = 0.0
 
 
 @dataclass

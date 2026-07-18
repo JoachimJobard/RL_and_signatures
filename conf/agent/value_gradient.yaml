@@ -33,6 +33,10 @@ training:
   log_interval: 10
   init_log_interval: 50
   memory_clear_interval: 1000
+  # Robbins-Monro on the CRITIC: the value gradient's control is the critic gradient, so the critic
+  # IS the policy -- this is the canonical value-function RM (single-timescale). alpha_0 (critic_lr)
+  # to be confirmed by the seed-42 sweep.
+  critic_lr_decay_power: 0.6
 
 # =============================================================================
 # Discount
