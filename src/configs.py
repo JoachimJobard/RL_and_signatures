@@ -161,6 +161,20 @@ class AlgorithmConfig:
     # trade-off: the temporal-difference signal is bootstrapped (biased whilst the critic is
     # wrong, low variance), the Monte-Carlo signal is unbiased and higher variance.
     actor_target: str = "td"
+    # Actor update cadence for the TD target. False (default): Doya's ONLINE form -- the actor is
+    # updated every actor_update_frequency steps from that step's single-sample gradient. True: the
+    # per-step actor gradients delta_t (n_t/sigma^2) dA are ACCUMULATED over the episode and applied
+    # as ONE averaged step, matching the Monte-Carlo policy gradient's once-per-episode cadence.
+    #   Why the averaged form: with a constant learning rate the per-update noise-ball radius is
+    #   proportional to the gradient variance; averaging over the T steps of an episode reduces that
+    #   variance by up to 1/T, so the averaged step is far more stable than the single-sample online
+    #   step (the online form at frequency=10 is the worst of both -- it neither averages nor sees
+    #   every step). It also makes the actor-critic-versus-policy-gradient comparison a clean
+    #   one-variable contrast: identical once-per-episode cadence, differing ONLY in the target
+    #   (TD error delta_t versus realised return R_t). Doya (2000) is cited for the actor-gradient
+    #   FORM delta*n*dA; batching it per episode is a variance/comparability choice, stated as such.
+    # Ignored when actor_target is monte_carlo (which is inherently once-per-episode).
+    actor_averaged: bool = False
     preheat: bool = True
     burning_steps: int = 0
     fix_initial_state: bool = False

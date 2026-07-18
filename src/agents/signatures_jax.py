@@ -706,6 +706,16 @@ class CTACSignatureJAX:
             )
         return target == "monte_carlo"
 
+    @property
+    def _actor_updates_once_per_episode(self) -> bool:
+        """True when the actor takes a single averaged step per episode rather than online steps.
+
+        Both the Monte-Carlo policy gradient (inherently) and the averaged TD actor-critic
+        (algorithm.actor_averaged) update once per episode; they differ only in the signal recorded
+        per step -- the realised reward (whence the return R_t) versus the TD error delta_t.
+        """
+        return self._actor_target_is_monte_carlo or bool(getattr(self.algorithm, "actor_averaged", False))
+
     def _make_monte_carlo_actor_update_fn(self):
         """Create a JIT-compiled REINFORCE actor update over one whole episode.
 
@@ -775,25 +785,42 @@ class CTACSignatureJAX:
 
     def _reset_monte_carlo_episode_buffer(self) -> None:
         """Discard the previous episode's recorded steps. Called at every episode start."""
-        # Three buffers, not four: the critic's V(s_t) is no longer recorded, because this
-        # learner's actor does not read the critic (see _monte_carlo_actor_update).
+        # Per-step records for the once-per-episode actor update. reward_rate feeds the Monte-Carlo
+        # return R_t; td_error feeds the averaged TD actor-critic. Only the one in use is filled.
         self._mc_episode_sig: list = []
         self._mc_episode_noise: list = []
         self._mc_episode_reward_rate: list = []
+        self._mc_episode_td: list = []
 
     def _monte_carlo_actor_update(self) -> jnp.ndarray:
-        """Perform the episode's single REINFORCE update. Returns the gradient norm.
+        """Perform the episode's single averaged actor update. Returns the gradient norm.
 
-        No-op (returning a zero gradient norm) when the actor target is the temporal-difference
-        error, when the actor is the oracle, or when the episode recorded no steps.
+        Handles BOTH once-per-episode actors: the Monte-Carlo policy gradient (advantage = the
+        realised return-to-go R_t) and the averaged TD actor-critic (advantage = the recorded TD
+        errors delta_t). The update itself -- accumulate delta * (n/sigma^2) dA over the episode
+        and take one averaged step -- is identical; only the per-step signal differs. A no-op
+        (zero gradient norm) for the online TD actor, the oracle actor, or an empty episode.
         """
-        if not self._actor_target_is_monte_carlo or self.algorithm.actor_oracle:
+        if not self._actor_updates_once_per_episode or self.algorithm.actor_oracle:
             return jnp.array(0.0)
         if not getattr(self, "_mc_episode_sig", None):
             return jnp.array(0.0)
 
         sig_batch = jnp.stack([jnp.asarray(s) for s in self._mc_episode_sig])
         noise_batch = jnp.stack([jnp.atleast_1d(jnp.asarray(n)) for n in self._mc_episode_noise])
+
+        if not self._actor_target_is_monte_carlo:
+            # Averaged TD actor-critic: the per-step signal is the TD error delta_t (Doya Eq 20),
+            # accumulated and applied as one averaged step. No return-to-go, no baseline; the
+            # critic still learns per step and enters only through delta_t, exactly as in the
+            # online form -- only the actor's update cadence changes.
+            advantage = jnp.stack([jnp.asarray(d).reshape(()) for d in self._mc_episode_td])
+            self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
+                self.actor_params, self.actor_opt_state,
+                sig_batch, noise_batch, advantage, self._sigma_effective,
+            )
+            return grad_norm
+
         reward_rates = jnp.stack(
             [jnp.asarray(r).reshape(()) for r in self._mc_episode_reward_rate])
 
@@ -849,17 +876,21 @@ class CTACSignatureJAX:
         
         # Actor update (JIT-compiled)
         if not self.algorithm.actor_oracle:
-            if self._actor_target_is_monte_carlo:
-                # REINFORCE: the actor's signal is the realised return-to-go, which is not known
-                # until the episode terminates, so the step is RECORDED here and the episode's
-                # single update is performed by _monte_carlo_actor_update from train(). Every
-                # step is recorded regardless of actor_update_frequency, because the return needs
-                # the whole reward sequence; the frequency flag gates the temporal-difference
-                # update only.
+            if self._actor_updates_once_per_episode:
+                # Once-per-episode actor (Monte-Carlo return OR averaged TD): the per-step signal is
+                # RECORDED here and the single averaged update is performed by
+                # _monte_carlo_actor_update from train(). Monte-Carlo records the reward (its return
+                # needs the whole episode); averaged TD records the TD error delta_t, which is
+                # already known this step. Every step is recorded; actor_update_frequency is
+                # ignored in this mode.
                 self._mc_episode_sig.append(sig_t)
                 self._mc_episode_noise.append(noise)
-                self._mc_episode_reward_rate.append(reward)
+                if self._actor_target_is_monte_carlo:
+                    self._mc_episode_reward_rate.append(reward)
+                else:
+                    self._mc_episode_td.append(td_error)
             elif step % self.algorithm.actor_update_frequency == 0:
+                # Online TD (Doya Eq 20): single-sample update every actor_update_frequency steps.
                 self.actor_params, self.actor_opt_state, actor_grad_norm = \
                     self._jit_actor_update(
                         self.actor_params, self.actor_opt_state,
@@ -1084,10 +1115,10 @@ class CTACSignatureJAX:
                     metrics_history['noise'].append(
                         np.asarray(ctx.noise).flatten()
                     )
-            # REINFORCE: the episode is over, so the realised return-to-go is now known and the
-            # actor's single update is performed here. A no-op when actor_target is 'td'.
+            # Once-per-episode actor (Monte-Carlo return OR averaged TD): the episode is over, so
+            # the single averaged update is performed here. A no-op for the online TD actor.
             monte_carlo_grad_norm = self._monte_carlo_actor_update()
-            if self._actor_target_is_monte_carlo:
+            if self._actor_updates_once_per_episode:
                 # One update per episode, so report its gradient norm directly rather than the
                 # per-step mean (which would be this value divided by n_steps and misleading).
                 actor_grad_sum = monte_carlo_grad_norm * max(n_steps, 1)

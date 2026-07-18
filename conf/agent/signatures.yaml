@@ -120,7 +120,12 @@ algorithm:
   integral_td: false
   actor_oracle: false
   critic_oracle: false
-  actor_update_frequency: 10
+  actor_update_frequency: 10   # ignored when actor_averaged is true
+  # Accumulate the per-step actor gradient over the episode and apply ONE averaged step, matching
+  # the policy gradient's once-per-episode cadence (variance ~1/T lower than the online single-
+  # sample step; makes AC-vs-PG a clean one-variable contrast, TD error vs return). See
+  # AlgorithmConfig.actor_averaged.
+  actor_averaged: true
   # The initial condition of a delay differential equation is the initial PATH phi on [-tau, 0],
   # loaded directly into the representation window from the env history buffer by
   # _fill_buffer_initial. Control therefore begins at t=0 from phi, and there is NO zero-control
