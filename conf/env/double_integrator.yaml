@@ -25,9 +25,15 @@ environment_params:
   Q:
     _target_: numpy.eye
     N: 2
+  # R = 0.1, uniform with the four delay cells (all 0.1). Was 1.0. R is the control-cost weight
+  # in J = int(x'Qx + u'Ru)dt; a smaller R is a more active-control regime in which any history-
+  # dependence of the optimal control is more pronounced. R is SHARED across the three
+  # representations within a cell, so it sets the MAGNITUDE of any H1 effect, never its DIRECTION
+  # (which representation wins) -- it cannot bias the H1 contrast, only the regime. On this
+  # Markovian cell (tau=0) history is useless whatever R is, so the falsification control stands.
   R:
     _target_: numpy.array
-    object: [[1.0]]
+    object: [[0.1]]
     dtype: float64
   step_size: 0.05
   resolution: 4

@@ -76,12 +76,25 @@ class DiscountConfig:
 
 @dataclass
 class NoiseConfig:
-    """Exploration noise configuration."""
+    """Exploration noise configuration.
+
+    Three temporal structures, selected by (ou, smooth):
+      - ou=True             -> Ornstein-Uhlenbeck (Doya 2000): correlation exp(-dt/tau_n) over a
+                               step, a function of physical time, dt-INDEPENDENT. The correct
+                               continuous-time exploration; overrides smooth.
+      - ou=False, smooth=True  -> squared-exponential Gaussian process, correlation
+                               exp(-dt^2/2 length_scale^2) (dt-dependent, and white at small
+                               length_scale). Retained for reproducing older runs.
+      - ou=False, smooth=False -> i.i.d. white noise (no continuous-time limit; exploration
+                               vanishes as dt -> 0).
+    """
     sigma: float = 0.1
     schedule: str = "adaptive"       # 'constant', 'linear_decay', 'adaptive'
     decay: bool = True               # legacy flag for sigma decay
     smooth: bool = False             # use GP-sampled smooth noise
-    length_scale: float = 0.2       # GP kernel length scale
+    length_scale: float = 0.2        # GP kernel length scale (only if ou=False, smooth=True)
+    ou: bool = False                 # use Ornstein-Uhlenbeck noise (Doya 2000); overrides smooth
+    tau_n: float = 1.0               # OU correlation time (Doya uses 1.0)
 
 
 @dataclass
@@ -233,6 +246,8 @@ def from_legacy_params(
         decay=decay_noise,
         smooth=smooth_noise,
         length_scale=noise_length_scale,
+        ou=tp.get('ou', False),
+        tau_n=tp.get('tau_n', 1.0),
     )
 
     sig = SignatureConfig(

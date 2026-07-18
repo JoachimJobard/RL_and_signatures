@@ -16,6 +16,7 @@ from src.utils.step_context import StepContextSignature
 from src.utils.step_metrics import StepMetrics
 from src.utils.state_counter import StateCounter
 from src.utils.clamp_reporting import report_clamp_activation
+from src.utils.exploration_noise import sample_ou_trajectory
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,)
@@ -241,8 +242,9 @@ class ContinuousValueGradient:
             # 'constant' - fixed sigma throughout
             self._sigma_effective = self.noise.sigma
         
+        pre_sampled = getattr(self.noise, "ou", False) or self.noise.smooth
         explicit_noise_val = jnp.zeros(self.env.B.shape[1])
-        if self.noise.smooth and self.episode_noise_trajectory is not None:
+        if pre_sampled and self.episode_noise_trajectory is not None:
             t_idx = int(round(self.wrapper.state.t / self.env.step_size)) #type: ignore
             # Clamp to avoid overflow
             t_idx = min(t_idx, len(self.episode_noise_trajectory) - 1)
@@ -250,7 +252,7 @@ class ContinuousValueGradient:
         path_data = self._get_path_data()
         mu, end_gradient = self._select_action_jit(
                 self.critic_params, path_data, self.R, self.wrapper.state.x) #type: ignore
-        if self.noise.smooth:
+        if pre_sampled:
             noise = explicit_noise_val
         else:
             self.key, subkey = jax.random.split(self.key)
@@ -418,10 +420,20 @@ class ContinuousValueGradient:
             self._lstd_M *= self._lstd_forget
             self._lstd_b *= self._lstd_forget
             self._lstd_C *= self._lstd_forget
-        if self.noise.smooth:
+        if getattr(self.noise, "ou", False):
+            # Ornstein-Uhlenbeck exploration (Doya 2000): correlation exp(-dt/tau_n) over a step, a
+            # function of physical time and independent of dt. Pre-sampled for the whole episode so
+            # the per-step select_action can index into it (same contract as the GP path below).
+            n_points = len(np.arange(0, self.training.max_time + 5 * self.env.step_size,
+                                     self.env.step_size))
+            self.key, subkey = jax.random.split(self.key)
+            self.episode_noise_trajectory = sample_ou_trajectory(
+                n_points, self.env.B.shape[1], float(self.env.step_size),
+                float(self.noise.tau_n), float(self._sigma_effective), subkey)
+        elif self.noise.smooth:
             # Generate pre-sampled Gaussian Process noise
             # Kernel: Squared Exponential (RBF): k(t, t') = sigma^2 * exp(-|t-t'|^2 / (2 * l^2))
-            
+
             # 1. Define time points
             # Add a small buffer to max_time to avoid index out of bounds at the very last step
             ts = np.arange(0, self.training.max_time + 5 * self.env.step_size, self.env.step_size)

@@ -64,8 +64,15 @@ noise:
   sigma: 0.1
   schedule: constant
   decay: false
+  # Ornstein-Uhlenbeck exploration (Doya 2000): correlation exp(-dt/tau_n) over a step, dt-
+  # independent, FAR from white. At the uniform dt=0.05 and tau_n=1.0 the adjacent-step
+  # correlation is exp(-0.05)=0.951. Replaces the GP path, whose length_scale=0.002 gave
+  # correlation 0.000 (white) on every campaign cell. smooth/length_scale are kept only for
+  # reproducing older runs; ou=true overrides them.
   smooth: true
   length_scale: 0.002
+  ou: true
+  tau_n: 1.0
 
 # =============================================================================
 # Signature

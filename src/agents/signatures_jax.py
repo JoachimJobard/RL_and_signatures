@@ -20,6 +20,7 @@ from src.utils.step_metrics import StepMetrics
 from src.utils.step_context import StepContextSignature
 from src.utils.state_counter import StateCounter
 from src.utils.clamp_reporting import report_clamp_activation
+from src.utils.exploration_noise import sample_ou_trajectory
 from src.configs import (
     TrainingConfig, DiscountConfig, NoiseConfig,
     SignatureConfig, NetworkConfig, AlgorithmConfig,
@@ -377,7 +378,8 @@ class CTACSignatureJAX:
         # feature Gram near-singular and its greedy control consequently unbounded -- the
         # regime under study. A clamp that fires there masks that regime.
         do_clip = clip_action is not None and clip_action > 0
-        smooth_noise = self.noise.smooth  # Capture static config
+        # Both OU and GP pre-sample the whole episode's noise, so both feed explicit_noise_val.
+        smooth_noise = self.noise.smooth or getattr(self.noise, "ou", False)  # Capture static config
         @jax.jit
         def select_action_fn(actor_params, sig, key, sigma, noise_state, dt, explicit_noise_val):
             """
@@ -449,7 +451,7 @@ class CTACSignatureJAX:
             # Prepare explicit noise value if GP mode is active
             assert self.current_noise is not None  # guaranteed by the block above
             explicit_noise_val = jnp.zeros_like(self.current_noise)
-            if self.noise.smooth and self.episode_noise_trajectory is not None:
+            if (self.noise.smooth or getattr(self.noise, "ou", False)) and self.episode_noise_trajectory is not None:
                 # Find index corresponding to current time
                 t_idx = int(round(self.wrapper.state.t / self.env.step_size)) #type: ignore
                 # Clamp to avoid overflow
@@ -877,10 +879,19 @@ class CTACSignatureJAX:
         # be emptied here so a truncated episode (divergence cut) cannot leak its steps into the
         # next episode's return, which would attribute one episode's rewards to another's actions.
         self._reset_monte_carlo_episode_buffer()
-        if self.noise.smooth:
+        if getattr(self.noise, "ou", False):
+            # Ornstein-Uhlenbeck exploration (Doya 2000), dt-independent correlation. See
+            # src/utils/exploration_noise.py and the identical block in ContinuousValueGradient.
+            n_points = len(np.arange(0, self.training.max_time + 5 * self.env.step_size,
+                                     self.env.step_size))
+            self.key, subkey = jax.random.split(self.key)
+            self.episode_noise_trajectory = sample_ou_trajectory(
+                n_points, self.env.B.shape[1], float(self.env.step_size),
+                float(self.noise.tau_n), float(self._sigma_effective), subkey)
+        elif self.noise.smooth:
             # Generate pre-sampled Gaussian Process noise
             # Kernel: Squared Exponential (RBF): k(t, t') = sigma^2 * exp(-|t-t'|^2 / (2 * l^2))
-            
+
             # 1. Define time points
             # Add a small buffer to max_time to avoid index out of bounds at the very last step
             ts = np.arange(0, self.training.max_time + 5 * self.env.step_size, self.env.step_size)

@@ -87,6 +87,8 @@ noise:
   # that destroy the correlation. Restoring it would change the value gradient and hence the
   # existing five-seed results, so it is recorded rather than applied.
   length_scale: 0.002
+  ou: true                 # Ornstein-Uhlenbeck exploration (Doya 2000), dt-independent correlation exp(-dt/tau_n); overrides the white GP path
+  tau_n: 1.0
 
 # =============================================================================
 # Signature (path signature architecture)
