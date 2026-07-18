@@ -67,13 +67,26 @@ class ActorSignature:
     def __call__(self, signature): 
         return self.W.T @ signature
     
+# Every parametric layer below carries param_dtype=jnp.float64. Flax defaults param_dtype to
+# float32 REGARDLESS of jax_enable_x64, so without this the network weights are float32 even though
+# the data pipeline (buffers, env, signatures, gradients) runs in float64 under main_unified.py:63.
+# The study measures conditioning of the gradient extraction d_x V, which on the high-dimensional
+# platoon cell passes through a near-singular readout where float32 weights can change the answer;
+# full float64 is therefore the deliberate, consistent choice. Applied to every campaign module
+# (ActorFlax, CriticFlax and their LayerNorm variants). Changes all three learners symmetrically,
+# so it adds no confound between them; it does change absolute results against the pre-2026-07-17
+# float32-weight runs, which remain reproducible from their own commit.
+_PARAM_DTYPE = jnp.float64
+
+
 class ActorFlax(nn.Module):
     output_dim: int
     stddev: float = 0.01
     @nn.compact
-    def __call__(self, input): 
+    def __call__(self, input):
         return nn.Dense(features=self.output_dim,
                         use_bias=False,
+                        param_dtype=_PARAM_DTYPE,
                         kernel_init=nn.initializers.normal(stddev=self.stddev))(input)
 
 class CriticFlax(nn.Module):
@@ -85,11 +98,13 @@ class CriticFlax(nn.Module):
         x = input
         # Create hidden layers if specified
         for dim in self.hidden_dims:
-            x = nn.Dense(features=dim, kernel_init=nn.initializers.orthogonal(scale=np.sqrt(2)))(x)
+            x = nn.Dense(features=dim, param_dtype=_PARAM_DTYPE,
+                         kernel_init=nn.initializers.orthogonal(scale=np.sqrt(2)))(x)
             x = nn.relu(x)  # Common activation for hidden layers
-            
+
         out = nn.Dense(features=1,
                        use_bias=False,
+                       param_dtype=_PARAM_DTYPE,
                        kernel_init=nn.initializers.normal(stddev=self.stddev))(x)
         return out.squeeze()
 
@@ -99,25 +114,28 @@ class CriticFlaxLayerNorm(nn.Module):
     @nn.compact
     def __call__(self, input):
         x = input
-        x = nn.LayerNorm()(x)
+        x = nn.LayerNorm(param_dtype=_PARAM_DTYPE)(x)
         # Create hidden layers if specified
         for dim in self.hidden_dims:
-            x = nn.Dense(features=dim, kernel_init=nn.initializers.orthogonal(scale=np.sqrt(2)))(x)
+            x = nn.Dense(features=dim, param_dtype=_PARAM_DTYPE,
+                         kernel_init=nn.initializers.orthogonal(scale=np.sqrt(2)))(x)
             x = nn.relu(x)  # Common activation for hidden layers
-            
+
         out = nn.Dense(features=1,
                        use_bias=False,
+                       param_dtype=_PARAM_DTYPE,
                        kernel_init=nn.initializers.normal(stddev=self.stddev))(x)
         return out.squeeze()
-    
+
 class ActorFlaxLayerNorm(nn.Module):
     output_dim: int
     stddev: float = 0.01
     @nn.compact
-    def __call__(self, input): 
-        x = nn.LayerNorm()(input)
+    def __call__(self, input):
+        x = nn.LayerNorm(param_dtype=_PARAM_DTYPE)(input)
         return nn.Dense(features=self.output_dim,
                         use_bias=False,
+                        param_dtype=_PARAM_DTYPE,
                         kernel_init=nn.initializers.normal(stddev=self.stddev))(x)
 
 class CriticFlaxQuadratic(nn.Module):

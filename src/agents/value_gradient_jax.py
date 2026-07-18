@@ -158,18 +158,28 @@ class ContinuousValueGradient:
             
             # Ensure we fill the buffer completely (window_size + 1 elements)
             target_len = self.sliding_signature.window_size + 1
+            # float64, not float32 (finding F-E1, commits 07b8d4a/7b1153e moved the buffers to
+            # float64 and missed this path). The pipeline runs under jax_enable_x64
+            # (main_unified.py:63), and the buffer's own dtype is float64, so the previous float32
+            # cast narrowed ONLY the initial history and then upcast the already-rounded values
+            # back to float64. Keeping it made the value gradient and the actor-critic start from
+            # initial paths differing by ~1.2e-8 (a confound in the learner comparison), and
+            # rounded the very quantity whose conditioning this study measures (raw_history's Gram
+            # on platoon is ~3320-dimensional and near-singular; float32 rounding in the gradient
+            # extraction can change the answer). Removed. The existing main_unified runs predate
+            # this and are reproducible from their own commit, not from HEAD.
             if len(subsampled) >= target_len:
                 # Use the last target_len elements
                 for x in subsampled[-target_len:]:
-                    self.sliding_signature.buffer.append(np.asarray(x/self.training.scale, dtype=np.float32)) #type: ignore
+                    self.sliding_signature.buffer.append(np.asarray(x/self.training.scale, dtype=np.float64)) #type: ignore
             else:
                 # Pad with first element to reach target_len
-                first_val = np.asarray(subsampled[0]/self.training.scale, dtype=np.float32)
+                first_val = np.asarray(subsampled[0]/self.training.scale, dtype=np.float64)
                 padding_needed = target_len - len(subsampled)
                 for _ in range(padding_needed):
                     self.sliding_signature.buffer.append(first_val) #type: ignore
                 for x in subsampled:
-                    self.sliding_signature.buffer.append(np.asarray(x/self.training.scale, dtype=np.float32)) #type: ignore
+                    self.sliding_signature.buffer.append(np.asarray(x/self.training.scale, dtype=np.float64)) #type: ignore
             
             self.sliding_signature.current_signature = self.sliding_signature.compute_signature()
         self._path_data_dirty = True  # Invalidate cache
