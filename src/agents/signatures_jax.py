@@ -88,6 +88,12 @@ class CTACSignatureJAX:
         self._jit_monte_carlo_actor_update = self._make_monte_carlo_actor_update_fn()
         self._jit_actor_snr = self._make_actor_snr_fn() if getattr(self.training, "monitor_snr", False) else None
         self._last_actor_snr = float("nan")
+        # Rich per-episode actor diagnostics (built alongside the SNR when monitor_snr is on). The
+        # keys are logged every episode so the BEGINNING of training is fully resolved -- an actor
+        # poisoned by a cold critic in the first episodes never recovers, and a converged-state
+        # glance would not reveal it.
+        self._jit_actor_diag = self._make_actor_diag_fn() if getattr(self.training, "monitor_snr", False) else None
+        self._last_actor_diag: dict[str, float] = {}
         self._jit_select_action = self._make_select_action_fn()
         self._jit_compute_values = self._make_compute_values_fn()
         # Validate algorithm.actor_target once, at construction, rather than on the hot path: an
@@ -799,6 +805,83 @@ class CTACSignatureJAX:
 
         return snr_fn
 
+    def _make_actor_diag_fn(self):
+        """Comprehensive per-episode actor-signal diagnostics for the once-per-episode actors.
+
+        Returns a JIT function of one episode's recorded (sig, noise, advantage) that yields the
+        seven scalars needed to diagnose a weak actor signal -- the object of the markovian-cell
+        focus. Beyond the per-step SNR (which the SNR function already reports), the decisive one is
+        the AVERAGED-UPDATE SNR: the once-per-episode update applies E[g] = mean_t g_t, whose
+        precision is not the per-step SNR but
+
+            SNR_update = N_eff * SNR_per-step,
+
+        with N_eff the effective number of INDEPENDENT steps -- reduced below the step count T by the
+        temporal correlation the OU exploration deliberately injects. N_eff is estimated from the
+        lag-1 autocorrelation rho of the gradient projected on its own mean direction, via the AR(1)
+        relation N_eff = T (1 - rho)/(1 + rho). The advantage-noise coupling corr(A_t, n_t) is the
+        SOURCE of the signal (E[g] is non-zero only through it); a near-zero coupling means the
+        exploration is not producing a measurable advantage response, which is an exploration
+        problem, not an averaging one. adv_mean / adv_std separate a biased advantage (PG's
+        uncentred return) from a high-variance one; grad_signal is ||E[g]||.
+        """
+        actor = self.actor
+
+        def per_step_loss(actor_params, s, n, a, sigma):
+            mu = actor.apply(actor_params, s)
+            return -a * jnp.sum((n / (sigma ** 2 + 1e-8)) * mu)
+
+        @jax.jit
+        def diag_fn(actor_params, sig_batch, noise_batch, advantage_batch, sigma):
+            per_step_grad = jax.vmap(
+                lambda s, n, a: jax.grad(per_step_loss)(actor_params, s, n, a, sigma)
+            )(sig_batch, noise_batch, advantage_batch)
+            flat = jax.vmap(lambda g: jnp.concatenate(
+                [jnp.ravel(x) for x in jax.tree_util.tree_leaves(g)]))(per_step_grad)   # (T, P)
+            T = flat.shape[0]
+            mean = jnp.mean(flat, axis=0)
+            signal = jnp.sum(mean ** 2)
+            noise = jnp.mean(jnp.sum((flat - mean) ** 2, axis=1))
+            perstep_snr = signal / (noise + 1e-12)
+            # N_eff from the AR(1) lag-1 autocorrelation of the gradient projected on its mean dir.
+            ghat = mean / (jnp.sqrt(signal) + 1e-12)
+            proj = flat @ ghat
+            pc = proj - jnp.mean(proj)
+            denom = jnp.sum(pc * pc) + 1e-12
+            rho = jnp.clip(jnp.sum(pc[1:] * pc[:-1]) / denom, 0.0, 0.999)
+            n_eff = T * (1.0 - rho) / (1.0 + rho)
+            update_snr = n_eff * perstep_snr
+            # advantage-noise coupling corr(A_t, n_t) on the first action component.
+            a_ = advantage_batch.reshape(-1)
+            n0 = noise_batch.reshape(noise_batch.shape[0], -1)[:, 0]
+            ac_, nc_ = a_ - jnp.mean(a_), n0 - jnp.mean(n0)
+            coupling = jnp.sum(ac_ * nc_) / (jnp.sqrt(jnp.sum(ac_ ** 2) * jnp.sum(nc_ ** 2)) + 1e-12)
+            return (update_snr, perstep_snr, n_eff, coupling,
+                    jnp.mean(a_), jnp.std(a_), jnp.sqrt(signal))
+
+        return diag_fn
+
+    def _record_actor_diag(self, sig_batch, noise_batch, advantage) -> None:
+        """Run the diagnostic function on one episode's records and cache the scalars.
+
+        Sets ``_last_actor_snr`` (per-step, for backward compatibility with the SNR monitor) and
+        fills ``_last_actor_diag`` with the seven diagnostics; a no-op when monitoring is off."""
+        if self._jit_actor_diag is None:
+            return
+        vals = self._jit_actor_diag(
+            self.actor_params, sig_batch, noise_batch, advantage, self._sigma_effective)
+        update_snr, perstep_snr, n_eff, coupling, adv_mean, adv_std, grad_signal = (float(v) for v in vals)
+        self._last_actor_snr = perstep_snr
+        self._last_actor_diag = {
+            "actor_update_snr": update_snr,
+            "actor_perstep_snr": perstep_snr,
+            "actor_n_eff": n_eff,
+            "actor_coupling": coupling,
+            "actor_adv_mean": adv_mean,
+            "actor_adv_std": adv_std,
+            "actor_grad_signal": grad_signal,
+        }
+
     def monte_carlo_returns(self, reward_rates: jnp.ndarray, dt: float) -> jnp.ndarray:
         """Return-to-go R_t of an episode, from the per-step reward RATES.
 
@@ -860,9 +943,7 @@ class CTACSignatureJAX:
             # critic still learns per step and enters only through delta_t, exactly as in the
             # online form -- only the actor's update cadence changes.
             advantage = jnp.stack([jnp.asarray(d).reshape(()) for d in self._mc_episode_td])
-            if self._jit_actor_snr is not None:
-                self._last_actor_snr = float(self._jit_actor_snr(
-                    self.actor_params, sig_batch, noise_batch, advantage, self._sigma_effective))
+            self._record_actor_diag(sig_batch, noise_batch, advantage)
             self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
                 self.actor_params, self.actor_opt_state,
                 sig_batch, noise_batch, advantage, self._sigma_effective,
@@ -894,9 +975,7 @@ class CTACSignatureJAX:
         # the gradient.
         advantage = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
 
-        if self._jit_actor_snr is not None:
-            self._last_actor_snr = float(self._jit_actor_snr(
-                self.actor_params, sig_batch, noise_batch, advantage, self._sigma_effective))
+        self._record_actor_diag(sig_batch, noise_batch, advantage)
         self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
             self.actor_params, self.actor_opt_state,
             sig_batch, noise_batch, advantage, self._sigma_effective,
@@ -1184,6 +1263,11 @@ class CTACSignatureJAX:
                 'n_steps': n_steps,
             }
             metrics_history.setdefault('actor_snr', []).append(self._last_actor_snr)
+            # Rich actor-signal diagnostics, logged EVERY episode (incl. the first) so the beginning
+            # of training is fully resolved. Empty dict when monitor_snr is off.
+            for _k, _v in self._last_actor_diag.items():
+                episode_metrics[_k] = _v
+                metrics_history.setdefault(_k, []).append(_v)
             
             # Check for NaNs
             if (np.isnan(episode_metrics['loss']) or 
