@@ -17,9 +17,14 @@
 #   REPS_STR LR_SCALES_STR N_EPISODES DEBUG RL_SIGNATURES_DATA_ROOT
 # =============================================================================
 set -euo pipefail
-module load cray-python 2>/dev/null || true   # Jean Zay module env is not sourced in a batch shell
 
-cd "$PATH_CONTENT_ROOT"
+# Activate the project venv (.venv) + set PYTHONPATH / thread hygiene / cwd via the SAME shared helper
+# the proven rl_array.slurm sources. NOTE: a bare `module load cray-python` yields a Python WITHOUT
+# the project dependencies (hydra/jax/flax) -- the first submission (job 2045141) failed fast on
+# every task with `ModuleNotFoundError: No module named 'hydra'` for exactly that reason.
+# shellcheck source=/dev/null
+source "$PATH_CONTENT_ROOT/bash_scripts/cluster/jeanzay/_environment.sh"
+jeanzay_print_diagnostics   # host + python/JAX/devices, so the SLURM log is self-contained
 
 read -ra LEARNERS <<< "$LEARNERS_STR"
 read -ra CELLS    <<< "$CELLS_STR"

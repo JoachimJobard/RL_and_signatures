@@ -36,6 +36,9 @@ N_EPISODES="${N_EPISODES:-500}"
 DEBUG="${DEBUG:-false}"
 
 N_TASKS=$(( ${#LEARNERS[@]} * ${#CELLS[@]} * ${#REPS[@]} * ${#LR_SCALES[@]} ))
+# ARRAY_RANGE lets a canary submit a single task (e.g. ARRAY_RANGE=0-0) before the full grid;
+# defaults to the whole grid. The decode in the worker is absolute, so any sub-range is valid.
+ARRAY_RANGE="${ARRAY_RANGE:-0-$(( N_TASKS - 1 ))}"
 GROUP="sweep_ctrl_snr_$(date +%Y%m%d_%H%M%S)"
 EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
 SLURM_LOG_DIR="$EXPDIR/slurm"
@@ -55,7 +58,7 @@ ACCOUNT_ARG=(); [[ -n "$ACCOUNT" ]] && ACCOUNT_ARG=(--account="$ACCOUNT")
 JOB=$(sbatch --parsable \
     "${ACCOUNT_ARG[@]}" \
     --partition="$SWEEP_PARTITION" \
-    --array=0-$(( N_TASKS - 1 )) \
+    --array="$ARRAY_RANGE" \
     --ntasks=1 --cpus-per-task=4 --hint=nomultithread \
     --time="$SWEEP_TIME" \
     --output="$SLURM_LOG_DIR/slurm-%A_%a.out" --error="$SLURM_LOG_DIR/slurm-%A_%a.err" \
