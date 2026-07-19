@@ -30,16 +30,18 @@ jeanzay_print_diagnostics
 read -ra LEARNERS <<< "$LEARNERS_STR"
 read -ra SIGMAS   <<< "$SIGMAS_STR"
 read -ra TS       <<< "$TS_STR"     # entries "actor_lr:critic_lr", e.g. "1e-3:1e-2"
-NL=${#LEARNERS[@]}; NS=${#SIGMAS[@]}; NT=${#TS[@]}
+read -ra ROLLOUTS <<< "${ROLLOUTS_STR:-1}"   # rollouts_per_update K (batch size); default 1
+NL=${#LEARNERS[@]}; NS=${#SIGMAS[@]}; NT=${#TS[@]}; NK=${#ROLLOUTS[@]}
 
 i=$SLURM_ARRAY_TASK_ID
-li=$(( i / (NS*NT) ));  r=$(( i % (NS*NT) ))
-si=$(( r / NT ));       ti=$(( r % NT ))
-AGENT=${LEARNERS[$li]}; SIGMA=${SIGMAS[$si]}; PAIR=${TS[$ti]}
+li=$(( i / (NS*NT*NK) )); r=$(( i % (NS*NT*NK) ))
+si=$(( r / (NT*NK) ));    r=$(( r % (NT*NK) ))
+ti=$(( r / NK ));         ki=$(( r % NK ))
+AGENT=${LEARNERS[$li]}; SIGMA=${SIGMAS[$si]}; PAIR=${TS[$ti]}; K=${ROLLOUTS[$ki]}
 ALR=${PAIR%%:*}; CLR=${PAIR##*:}
 
 PLANT="${PLANT:-double_integrator}"   # double_integrator (unstable) or harmonic_oscillator (marginally stable)
-echo "Task $SLURM_ARRAY_TASK_ID: agent=$AGENT env=$PLANT sigma=$SIGMA actor_lr=$ALR critic_lr=$CLR (markovian, seed 42)"
+echo "Task $SLURM_ARRAY_TASK_ID: agent=$AGENT env=$PLANT sigma=$SIGMA actor_lr=$ALR critic_lr=$CLR rollouts=$K (markovian, seed 42)"
 
 # markovian representation (natural for a Markov plant), dt=0.05. PLANT selects the plant; the two LQR
 # plants differ ONLY in A (open-loop stability), isolating the instability as the cause.
@@ -51,10 +53,11 @@ python main_unified.py \
     ++agent.training.actor_lr="$ALR" ++agent.training.critic_lr="$CLR" \
     ++agent.training.monitor_snr=true \
     ++agent.noise.sigma="$SIGMA" \
+    ++agent.training.rollouts_per_update="$K" \
     agent.training.n_episodes="$N_EPISODES" agent.training.max_time=15 \
     eval.x0_test="[1.0,0.5]" eval.T_sim=15 \
     seed=42 experiment_group="$EXPERIMENT_GROUP" \
-    run_tag="${AGENT}_sigma${SIGMA}_alr${ALR}_clr${CLR}" wandb.mode=disabled
+    run_tag="${AGENT}_sigma${SIGMA}_alr${ALR}_clr${CLR}_K${K}" wandb.mode=disabled
 STATUS=$?
 echo "Task $SLURM_ARRAY_TASK_ID finished with exit code $STATUS"
 exit $STATUS

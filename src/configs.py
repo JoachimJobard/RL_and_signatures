@@ -97,6 +97,12 @@ class TrainingConfig:
     # so the actor's first real update is on a calibrated signal. Once-per-episode actors only;
     # 0 disables (default). Does NOT help the policy gradient (its actor never reads the critic).
     actor_warmup_episodes: int = 0
+    # Batch K independent rollouts per actor update (once-per-episode actors only). The averaged
+    # update applies E[g] = mean over the batch's per-step gradients; K independent episodes raise
+    # the averaged-update SNR ~K (independent samples, no OU-correlation penalty) at the SAME total
+    # episode budget -- it only groups episodes, K per optimiser step. Targets the weak-signal regime
+    # (update-SNR below 1) once the instability explosion is removed. 1 = per-episode update (default).
+    rollouts_per_update: int = 1
 
 
 @dataclass

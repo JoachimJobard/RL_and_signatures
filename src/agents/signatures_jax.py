@@ -99,6 +99,9 @@ class CTACSignatureJAX:
         # Validate algorithm.actor_target once, at construction, rather than on the hot path: an
         # unknown value must fail loudly at start-up, not silently fall through to the default.
         self._reset_monte_carlo_episode_buffer()
+        # Cross-episode accumulators for rollouts_per_update > 1: the per-episode records are appended
+        # here and one averaged actor step is taken per K episodes (see _batched_actor_step).
+        self._batch_sig, self._batch_noise, self._batch_adv = [], [], []
         if self._actor_target_is_monte_carlo:
             print(
                 "algorithm.actor_target='monte_carlo': the actor is REINFORCE with NO baseline "
@@ -924,6 +927,30 @@ class CTACSignatureJAX:
         """True while the actor is frozen for the critic warm-up (first ``actor_warmup_episodes``)."""
         return episode < int(getattr(self.training, "actor_warmup_episodes", 0))
 
+    def _batched_actor_step(self, sig_batch, noise_batch, advantage) -> jnp.ndarray:
+        """Accumulate this episode's records; take ONE averaged actor step per K episodes.
+
+        K = training.rollouts_per_update. The K episodes' per-step records are concatenated and the
+        averaged gradient E[g] = mean over all K*T steps is applied in a single step, so K independent
+        rollouts raise the averaged-update SNR ~K without an OU-correlation penalty (distinct episodes
+        draw independent noise), at the same total episode budget. K=1 recovers the per-episode update.
+        Returns the gradient norm on a step episode, 0 while still accumulating."""
+        K = max(1, int(getattr(self.training, "rollouts_per_update", 1)))
+        self._batch_sig.append(sig_batch)
+        self._batch_noise.append(noise_batch)
+        self._batch_adv.append(advantage)
+        if len(self._batch_sig) < K:
+            return jnp.array(0.0)   # still filling the batch; no optimiser step this episode
+        sig_all = jnp.concatenate(self._batch_sig)
+        noise_all = jnp.concatenate(self._batch_noise)
+        adv_all = jnp.concatenate(self._batch_adv)
+        self._batch_sig, self._batch_noise, self._batch_adv = [], [], []
+        self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
+            self.actor_params, self.actor_opt_state,
+            sig_all, noise_all, adv_all, self._sigma_effective,
+        )
+        return grad_norm
+
     def _monte_carlo_actor_update(self, episode: int = 0) -> jnp.ndarray:
         """Perform the episode's single averaged actor update. Returns the gradient norm.
 
@@ -954,11 +981,7 @@ class CTACSignatureJAX:
             self._record_actor_diag(sig_batch, noise_batch, advantage)
             if self._in_actor_warmup(episode):
                 return jnp.array(0.0)   # critic warm-up: actor frozen, critic still learned per step
-            self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
-                self.actor_params, self.actor_opt_state,
-                sig_batch, noise_batch, advantage, self._sigma_effective,
-            )
-            return grad_norm
+            return self._batched_actor_step(sig_batch, noise_batch, advantage)
 
         reward_rates = jnp.stack(
             [jnp.asarray(r).reshape(()) for r in self._mc_episode_reward_rate])
@@ -988,11 +1011,7 @@ class CTACSignatureJAX:
         self._record_actor_diag(sig_batch, noise_batch, advantage)
         if self._in_actor_warmup(episode):
             return jnp.array(0.0)   # (warm-up is an AC fix; PG's actor never reads the critic)
-        self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
-            self.actor_params, self.actor_opt_state,
-            sig_batch, noise_batch, advantage, self._sigma_effective,
-        )
-        return grad_norm
+        return self._batched_actor_step(sig_batch, noise_batch, advantage)
 
     def _update_networks(self, ctx: StepContextSignature) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Update actor and critic networks using JIT-compiled JAX autodiff."""

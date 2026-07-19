@@ -26,19 +26,20 @@ PLANT="${PLANT:-double_integrator}"                  # double_integrator (unstab
 read -ra LEARNERS <<< "${LEARNERS:-value_gradient signatures policy_gradient}"
 read -ra SIGMAS   <<< "${SIGMAS:-0.1 0.3 0.5 1.0}"
 read -ra TS       <<< "${TS:-1e-3:1e-3 1e-3:1e-2 1e-2:1e-2}"   # "actor_lr:critic_lr" (fast critic = larger critic_lr)
+read -ra ROLLOUTS <<< "${ROLLOUTS:-1}"                          # rollouts_per_update K (batch size)
 N_EPISODES="${N_EPISODES:-2000}"
 
-N_TASKS=$(( ${#LEARNERS[@]} * ${#SIGMAS[@]} * ${#TS[@]} ))
+N_TASKS=$(( ${#LEARNERS[@]} * ${#SIGMAS[@]} * ${#TS[@]} * ${#ROLLOUTS[@]} ))
 GROUP="signal_study_${PLANT}_$(date +%Y%m%d_%H%M%S)"
 EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
 SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
 
 EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP"
-EXPORTS+=",LEARNERS_STR=${LEARNERS[*]},SIGMAS_STR=${SIGMAS[*]},TS_STR=${TS[*]}"
+EXPORTS+=",LEARNERS_STR=${LEARNERS[*]},SIGMAS_STR=${SIGMAS[*]},TS_STR=${TS[*]},ROLLOUTS_STR=${ROLLOUTS[*]}"
 EXPORTS+=",N_EPISODES=$N_EPISODES,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT,PLANT=$PLANT"
 
-echo "signal study on PLANT=$PLANT: $N_TASKS tasks (learners=${#LEARNERS[@]} x sigma=${#SIGMAS[@]} x timescale=${#TS[@]})"
+echo "signal study on PLANT=$PLANT: $N_TASKS tasks (learners=${#LEARNERS[@]} x sigma=${#SIGMAS[@]} x timescale=${#TS[@]} x rollouts=${#ROLLOUTS[@]})"
 echo "partition = $SWEEP_PARTITION (non-billed) | n_episodes = $N_EPISODES | seed = 42"
 echo "group = $GROUP  ->  $EXPDIR"
 

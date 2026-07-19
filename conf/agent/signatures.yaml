@@ -65,6 +65,9 @@ training:
   # (targets the cold-critic early transient; see src/configs.py::TrainingConfig). 0 = disabled.
   # Stated explicitly rather than left to the dataclass default, so the saved config is unambiguous.
   actor_warmup_episodes: 0
+  # Batch K independent rollouts per actor update (raises the averaged-update SNR ~K at the same
+  # total episode budget; see src/configs.py::TrainingConfig). 1 = one update per episode.
+  rollouts_per_update: 1
   # Per-episode actor-signal diagnostics (update-SNR, advantage-noise coupling, adv mean/std, N_eff,
   # grad signal). Off by default -- computing the T per-step gradients is ~T extra backprops; the
   # signal studies override this to true. Explicit here so the base config carries no hidden default.
