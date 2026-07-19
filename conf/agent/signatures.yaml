@@ -61,6 +61,14 @@ training:
   # only to a noise ball.
   lr_decay_power: 0.8       # ACTOR RM, two-timescale: decays FASTER than the critic (0.6) so the actor is the slow timescale
   critic_lr_decay_power: 0.6  # CRITIC RM (fast timescale); value-function stochastic approximation
+  # Critic warm-up: freeze the actor for the first N episodes while the critic learns V per step
+  # (targets the cold-critic early transient; see src/configs.py::TrainingConfig). 0 = disabled.
+  # Stated explicitly rather than left to the dataclass default, so the saved config is unambiguous.
+  actor_warmup_episodes: 0
+  # Per-episode actor-signal diagnostics (update-SNR, advantage-noise coupling, adv mean/std, N_eff,
+  # grad signal). Off by default -- computing the T per-step gradients is ~T extra backprops; the
+  # signal studies override this to true. Explicit here so the base config carries no hidden default.
+  monitor_snr: false
 
 # =============================================================================
 # Discount (Doya continuous-time discounting)
