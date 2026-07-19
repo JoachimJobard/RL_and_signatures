@@ -920,7 +920,11 @@ class CTACSignatureJAX:
         self._mc_episode_reward_rate: list = []
         self._mc_episode_td: list = []
 
-    def _monte_carlo_actor_update(self) -> jnp.ndarray:
+    def _in_actor_warmup(self, episode: int) -> bool:
+        """True while the actor is frozen for the critic warm-up (first ``actor_warmup_episodes``)."""
+        return episode < int(getattr(self.training, "actor_warmup_episodes", 0))
+
+    def _monte_carlo_actor_update(self, episode: int = 0) -> jnp.ndarray:
         """Perform the episode's single averaged actor update. Returns the gradient norm.
 
         Handles BOTH once-per-episode actors: the Monte-Carlo policy gradient (advantage = the
@@ -928,6 +932,10 @@ class CTACSignatureJAX:
         errors delta_t). The update itself -- accumulate delta * (n/sigma^2) dA over the episode
         and take one averaged step -- is identical; only the per-step signal differs. A no-op
         (zero gradient norm) for the online TD actor, the oracle actor, or an empty episode.
+
+        During the critic warm-up (``episode < actor_warmup_episodes``) the diagnostics are still
+        recorded -- so the beginning of training is visible -- but the optimiser step is skipped:
+        the actor is frozen while the critic (updated per step, elsewhere) warms.
         """
         if not self._actor_updates_once_per_episode or self.algorithm.actor_oracle:
             return jnp.array(0.0)
@@ -944,6 +952,8 @@ class CTACSignatureJAX:
             # online form -- only the actor's update cadence changes.
             advantage = jnp.stack([jnp.asarray(d).reshape(()) for d in self._mc_episode_td])
             self._record_actor_diag(sig_batch, noise_batch, advantage)
+            if self._in_actor_warmup(episode):
+                return jnp.array(0.0)   # critic warm-up: actor frozen, critic still learned per step
             self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
                 self.actor_params, self.actor_opt_state,
                 sig_batch, noise_batch, advantage, self._sigma_effective,
@@ -976,6 +986,8 @@ class CTACSignatureJAX:
         advantage = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
 
         self._record_actor_diag(sig_batch, noise_batch, advantage)
+        if self._in_actor_warmup(episode):
+            return jnp.array(0.0)   # (warm-up is an AC fix; PG's actor never reads the critic)
         self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
             self.actor_params, self.actor_opt_state,
             sig_batch, noise_batch, advantage, self._sigma_effective,
@@ -1247,7 +1259,7 @@ class CTACSignatureJAX:
                     )
             # Once-per-episode actor (Monte-Carlo return OR averaged TD): the episode is over, so
             # the single averaged update is performed here. A no-op for the online TD actor.
-            monte_carlo_grad_norm = self._monte_carlo_actor_update()
+            monte_carlo_grad_norm = self._monte_carlo_actor_update(episode)
             if self._actor_updates_once_per_episode:
                 # One update per episode, so report its gradient norm directly rather than the
                 # per-step mean (which would be this value divided by n_steps and misleading).

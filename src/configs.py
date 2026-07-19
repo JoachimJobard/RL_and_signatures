@@ -89,6 +89,14 @@ class TrainingConfig:
     # has no baseline, so its variance is highest). Off by default: computing the T per-step
     # gradients is ~T actor backprops. The controllability sweep turns it on.
     monitor_snr: bool = False
+    # Critic warm-up: freeze the actor for the first ``actor_warmup_episodes`` episodes while the
+    # critic keeps learning V per step. Targets the cold-critic EARLY TRANSIENT -- with an untrained
+    # critic the TD-error advantage delta_t has a large calibration bias (|E[delta]| >> 0), so the
+    # actor gradient A_t (n_t/sigma^2) dA_t explodes and the first update kicks the actor into a bad
+    # region before the critic warms. Freezing the actor lets delta_t settle (E[delta] -> 0) first,
+    # so the actor's first real update is on a calibrated signal. Once-per-episode actors only;
+    # 0 disables (default). Does NOT help the policy gradient (its actor never reads the critic).
+    actor_warmup_episodes: int = 0
 
 
 @dataclass
