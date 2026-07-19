@@ -24,8 +24,8 @@ ENV="${ENV:-double_integrator}"                  # double_integrator (unstable) 
 # value_gradient included as the model-informed reference (should stabilise either plant); AC + PG
 # are the model-free learners under test.
 read -ra LEARNERS <<< "${LEARNERS:-value_gradient signatures policy_gradient}"
-SIGMAS=(0.1 0.3 0.5 1.0)
-TS=(1e-3:1e-3 1e-3:1e-2 1e-2:1e-2)               # "actor_lr:critic_lr" (fast critic = larger critic_lr)
+read -ra SIGMAS   <<< "${SIGMAS:-0.1 0.3 0.5 1.0}"
+read -ra TS       <<< "${TS:-1e-3:1e-3 1e-3:1e-2 1e-2:1e-2}"   # "actor_lr:critic_lr" (fast critic = larger critic_lr)
 N_EPISODES="${N_EPISODES:-2000}"
 
 N_TASKS=$(( ${#LEARNERS[@]} * ${#SIGMAS[@]} * ${#TS[@]} ))
