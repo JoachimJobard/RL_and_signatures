@@ -19,23 +19,26 @@ DATA_ROOT="${RL_SIGNATURES_DATA_ROOT:-${SCRATCH:?SCRATCH not set}/rl_campaigns/$
 SWEEP_PARTITION="${SWEEP_PARTITION:-visu}"       # visu: empty nodes, no queue; 4 h cap is ample
 SWEEP_TIME="${SWEEP_TIME:-03:00:00}"
 ACCOUNT="${ACCOUNT:-akz@cpu}"
+ENV="${ENV:-double_integrator}"                  # double_integrator (unstable) | harmonic_oscillator (marginally stable)
 
-LEARNERS=(signatures policy_gradient)
+# value_gradient included as the model-informed reference (should stabilise either plant); AC + PG
+# are the model-free learners under test.
+read -ra LEARNERS <<< "${LEARNERS:-value_gradient signatures policy_gradient}"
 SIGMAS=(0.1 0.3 0.5 1.0)
 TS=(1e-3:1e-3 1e-3:1e-2 1e-2:1e-2)               # "actor_lr:critic_lr" (fast critic = larger critic_lr)
 N_EPISODES="${N_EPISODES:-2000}"
 
 N_TASKS=$(( ${#LEARNERS[@]} * ${#SIGMAS[@]} * ${#TS[@]} ))
-GROUP="markovian_signal_$(date +%Y%m%d_%H%M%S)"
+GROUP="signal_study_${ENV}_$(date +%Y%m%d_%H%M%S)"
 EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
 SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
 
 EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP"
 EXPORTS+=",LEARNERS_STR=${LEARNERS[*]},SIGMAS_STR=${SIGMAS[*]},TS_STR=${TS[*]}"
-EXPORTS+=",N_EPISODES=$N_EPISODES,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT"
+EXPORTS+=",N_EPISODES=$N_EPISODES,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT,ENV=$ENV"
 
-echo "markovian signal study: $N_TASKS tasks (learners=${#LEARNERS[@]} x sigma=${#SIGMAS[@]} x timescale=${#TS[@]})"
+echo "signal study on ENV=$ENV: $N_TASKS tasks (learners=${#LEARNERS[@]} x sigma=${#SIGMAS[@]} x timescale=${#TS[@]})"
 echo "partition = $SWEEP_PARTITION (non-billed) | n_episodes = $N_EPISODES | seed = 42"
 echo "group = $GROUP  ->  $EXPDIR"
 

@@ -1,16 +1,21 @@
-# Harmonic oscillator (2D linear, no delay): dx/dt = A x + B u, A = [[0,-1],[1,0]].
-# Ported from the removed src.env.Environment API to JAXDDEEnv. The cost matrices
-# Q, R were added during the migration (defaults matching delay_jax.yaml); adjust
-# them to the intended control objective if this environment is used.
+# Marginally-stable harmonic oscillator (isolation control for the actor-explosion pathology):
+# dx/dt = [[0,-1],[1,0]] x + [[0],[1]] u, no delay. Eigenvalues +/- i (purely imaginary), so under
+# zero control the state OSCILLATES with bounded amplitude rather than diverging -- unlike the
+# double-integrator (eigenvalues 0,0), whose state grows without bound under weak control. Every
+# other field (B, Q, R, step_size, resolution) is IDENTICAL to double_integrator.yaml, so switching
+# double_integrator -> harmonic_oscillator changes ONLY open-loop stability. Purpose: test whether
+# the AC/PG advantage explosion is caused by the plant's instability (bounded here => bounded
+# advantages => the actor should be able to stabilise) or is intrinsic to the actor mechanism.
+# Controllable: [B, AB] = [[0,-1],[1,0]] has rank 2.
 environment_params:
   _target_: src.envs.env_rk_jax.JAXDDEEnv
   A:
     _target_: numpy.array
-    object: [[0, -1], [1, 0]]
+    object: [[0.0, -1.0], [1.0, 0.0]]
     dtype: float64
   B:
     _target_: numpy.array
-    object: [[0], [1]]
+    object: [[0.0], [1.0]]
     dtype: float64
   A1:
     _target_: numpy.zeros
@@ -25,9 +30,11 @@ environment_params:
   Q:
     _target_: numpy.eye
     N: 2
+  # R = 0.1, identical to double_integrator so the ONLY difference between the two plants is A
+  # (open-loop stability).
   R:
     _target_: numpy.array
     object: [[0.1]]
     dtype: float64
-  step_size: 0.01
-  resolution: 10
+  step_size: 0.05
+  resolution: 4
