@@ -57,7 +57,7 @@ python main_unified.py \
     agent.signature.window_size=10 agent.signature.force_signature_window=true \
     ++agent.training.tau_polyak=1.0 \
     ++agent.training.actor_lr="$ALR" ++agent.training.critic_lr="$CLR" \
-    ++agent.training.monitor_snr=true \
+    ++agent.training.monitor_snr="${MONITOR:-true}" \
     ++agent.noise.sigma="$SIGMA" \
     ++agent.training.rollouts_per_update="$K" \
     ++agent.training.lr_decay_power="$PDECAY" \
