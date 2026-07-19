@@ -77,8 +77,16 @@ training:
 # Discount (Doya continuous-time discounting)
 # =============================================================================
 discount:
-  discounted: false
-  tau: 1.0
+  # Infinite-horizon DISCOUNTED, matching the paper (AnonymousSubmission2027.tex l.372):
+  # V^u(x(t)) = int_t^inf e^{-gamma(s-t)} r ds, with the stationary discounted HJB gamma V = sup_u{...}.
+  # The TD error becomes delta = r + Vdot - gamma V (code: r + Vdot - V/tau), so gamma = 1/tau.
+  # discounted was 'false' only as the inherited dataclass default (initial commit a02cc92), never
+  # reconciled with the paper -- undiscounted hands the STATIONARY critic V_theta(x) a non-stationary
+  # (finite T) or unbounded (non-regulating policy) target, which is ill-posed. Discounting gives a
+  # bounded, stationary target -x'P_gamma x (shifted Riccati A -> A - gamma/2 I) and a soft horizon
+  # ~1/gamma, so episodes truncate at T ~ 3-5 tau.
+  discounted: true
+  tau: 1.0                 # gamma = 1/tau = 1  (effective horizon ~1; use T ~ 5)
   V_target: 0.0
   V_bad: -10.0
 
