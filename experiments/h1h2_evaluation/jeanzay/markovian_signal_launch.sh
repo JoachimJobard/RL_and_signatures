@@ -29,19 +29,20 @@ read -ra TS       <<< "${TS:-1e-3:1e-3 1e-3:1e-2 1e-2:1e-2}"   # "actor_lr:criti
 read -ra ROLLOUTS <<< "${ROLLOUTS:-1}"                          # rollouts_per_update K (batch size)
 read -ra DECAY    <<< "${DECAY:-0.8}"                           # actor RM decay power p (lr_decay_power)
 read -ra HORIZONS <<< "${HORIZONS:-15}"                         # episode horizon T (max_time = T_sim)
+read -ra CDECAYS  <<< "${CDECAYS:-0.6}"                         # critic RM decay power (critic_lr_decay_power)
 N_EPISODES="${N_EPISODES:-2000}"
 
-N_TASKS=$(( ${#LEARNERS[@]} * ${#SIGMAS[@]} * ${#TS[@]} * ${#ROLLOUTS[@]} * ${#DECAY[@]} * ${#HORIZONS[@]} ))
+N_TASKS=$(( ${#LEARNERS[@]} * ${#SIGMAS[@]} * ${#TS[@]} * ${#ROLLOUTS[@]} * ${#DECAY[@]} * ${#HORIZONS[@]} * ${#CDECAYS[@]} ))
 GROUP="signal_study_${PLANT}_$(date +%Y%m%d_%H%M%S)"
 EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
 SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
 
 EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP"
-EXPORTS+=",LEARNERS_STR=${LEARNERS[*]},SIGMAS_STR=${SIGMAS[*]},TS_STR=${TS[*]},ROLLOUTS_STR=${ROLLOUTS[*]},DECAY_STR=${DECAY[*]},HORIZONS_STR=${HORIZONS[*]}"
+EXPORTS+=",LEARNERS_STR=${LEARNERS[*]},SIGMAS_STR=${SIGMAS[*]},TS_STR=${TS[*]},ROLLOUTS_STR=${ROLLOUTS[*]},DECAY_STR=${DECAY[*]},HORIZONS_STR=${HORIZONS[*]},CDECAYS_STR=${CDECAYS[*]}"
 EXPORTS+=",N_EPISODES=$N_EPISODES,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT,PLANT=$PLANT"
 
-echo "signal study on PLANT=$PLANT: $N_TASKS tasks (learners=${#LEARNERS[@]} x sigma=${#SIGMAS[@]} x timescale=${#TS[@]} x rollouts=${#ROLLOUTS[@]} x decay=${#DECAY[@]} x horizon=${#HORIZONS[@]})"
+echo "signal study on PLANT=$PLANT: $N_TASKS tasks (learners=${#LEARNERS[@]} x sigma=${#SIGMAS[@]} x timescale=${#TS[@]} x rollouts=${#ROLLOUTS[@]} x decay=${#DECAY[@]} x horizon=${#HORIZONS[@]} x cdecay=${#CDECAYS[@]})"
 echo "partition = $SWEEP_PARTITION (non-billed) | n_episodes = $N_EPISODES | seed = 42"
 echo "group = $GROUP  ->  $EXPDIR"
 

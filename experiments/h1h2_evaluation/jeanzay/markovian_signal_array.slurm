@@ -33,15 +33,17 @@ read -ra TS       <<< "$TS_STR"     # entries "actor_lr:critic_lr", e.g. "1e-3:1
 read -ra ROLLOUTS <<< "${ROLLOUTS_STR:-1}"   # rollouts_per_update K (batch size); default 1
 read -ra DECAY    <<< "${DECAY_STR:-0.8}"    # actor RM decay power p (lr_decay_power); default 0.8
 read -ra HORIZONS <<< "${HORIZONS_STR:-15}"  # episode horizon T (max_time = T_sim); default 15
-NL=${#LEARNERS[@]}; NS=${#SIGMAS[@]}; NT=${#TS[@]}; NK=${#ROLLOUTS[@]}; ND=${#DECAY[@]}; NH=${#HORIZONS[@]}
+read -ra CDECAYS  <<< "${CDECAYS_STR:-0.6}"  # critic RM decay power (critic_lr_decay_power); default 0.6
+NL=${#LEARNERS[@]}; NS=${#SIGMAS[@]}; NT=${#TS[@]}; NK=${#ROLLOUTS[@]}; ND=${#DECAY[@]}; NH=${#HORIZONS[@]}; NCD=${#CDECAYS[@]}
 
 i=$SLURM_ARRAY_TASK_ID
-li=$(( i / (NS*NT*NK*ND*NH) )); r=$(( i % (NS*NT*NK*ND*NH) ))
-si=$(( r / (NT*NK*ND*NH) ));    r=$(( r % (NT*NK*ND*NH) ))
-ti=$(( r / (NK*ND*NH) ));       r=$(( r % (NK*ND*NH) ))
-ki=$(( r / (ND*NH) ));          r=$(( r % (ND*NH) ))
-di=$(( r / NH ));               hi=$(( r % NH ))
-AGENT=${LEARNERS[$li]}; SIGMA=${SIGMAS[$si]}; PAIR=${TS[$ti]}; K=${ROLLOUTS[$ki]}; PDECAY=${DECAY[$di]}; HORIZON=${HORIZONS[$hi]}
+li=$(( i / (NS*NT*NK*ND*NH*NCD) )); r=$(( i % (NS*NT*NK*ND*NH*NCD) ))
+si=$(( r / (NT*NK*ND*NH*NCD) ));    r=$(( r % (NT*NK*ND*NH*NCD) ))
+ti=$(( r / (NK*ND*NH*NCD) ));       r=$(( r % (NK*ND*NH*NCD) ))
+ki=$(( r / (ND*NH*NCD) ));          r=$(( r % (ND*NH*NCD) ))
+di=$(( r / (NH*NCD) ));             r=$(( r % (NH*NCD) ))
+hi=$(( r / NCD ));                  cdi=$(( r % NCD ))
+AGENT=${LEARNERS[$li]}; SIGMA=${SIGMAS[$si]}; PAIR=${TS[$ti]}; K=${ROLLOUTS[$ki]}; PDECAY=${DECAY[$di]}; HORIZON=${HORIZONS[$hi]}; CDECAY=${CDECAYS[$cdi]}
 ALR=${PAIR%%:*}; CLR=${PAIR##*:}
 
 PLANT="${PLANT:-double_integrator}"   # double_integrator (unstable) or harmonic_oscillator (marginally stable)
@@ -59,10 +61,11 @@ python main_unified.py \
     ++agent.noise.sigma="$SIGMA" \
     ++agent.training.rollouts_per_update="$K" \
     ++agent.training.lr_decay_power="$PDECAY" \
+    ++agent.training.critic_lr_decay_power="$CDECAY" \
     agent.training.n_episodes="$N_EPISODES" agent.training.max_time="$HORIZON" \
     eval.x0_test="[1.0,0.5]" eval.T_sim="$HORIZON" \
     seed=42 experiment_group="$EXPERIMENT_GROUP" \
-    run_tag="${AGENT}_sigma${SIGMA}_alr${ALR}_clr${CLR}_K${K}_p${PDECAY}_T${HORIZON}" wandb.mode=disabled
+    run_tag="${AGENT}_sigma${SIGMA}_alr${ALR}_clr${CLR}_K${K}_p${PDECAY}_T${HORIZON}_cd${CDECAY}" wandb.mode=disabled
 STATUS=$?
 echo "Task $SLURM_ARRAY_TASK_ID finished with exit code $STATUS"
 exit $STATUS
