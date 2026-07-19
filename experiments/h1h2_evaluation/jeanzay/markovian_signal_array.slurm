@@ -38,13 +38,13 @@ si=$(( r / NT ));       ti=$(( r % NT ))
 AGENT=${LEARNERS[$li]}; SIGMA=${SIGMAS[$si]}; PAIR=${TS[$ti]}
 ALR=${PAIR%%:*}; CLR=${PAIR##*:}
 
-ENV="${ENV:-double_integrator}"   # double_integrator (unstable) or harmonic_oscillator (marginally stable)
-echo "Task $SLURM_ARRAY_TASK_ID: agent=$AGENT env=$ENV sigma=$SIGMA actor_lr=$ALR critic_lr=$CLR (markovian, seed 42)"
+PLANT="${PLANT:-double_integrator}"   # double_integrator (unstable) or harmonic_oscillator (marginally stable)
+echo "Task $SLURM_ARRAY_TASK_ID: agent=$AGENT env=$PLANT sigma=$SIGMA actor_lr=$ALR critic_lr=$CLR (markovian, seed 42)"
 
-# markovian representation (natural for a Markov plant), dt=0.05. ENV selects the plant; the two LQR
+# markovian representation (natural for a Markov plant), dt=0.05. PLANT selects the plant; the two LQR
 # plants differ ONLY in A (open-loop stability), isolating the instability as the cause.
 python main_unified.py \
-    agent="$AGENT" env="$ENV" \
+    agent="$AGENT" env="$PLANT" \
     agent.signature.kind=markovian agent.signature.degree=2 \
     agent.signature.window_size=10 agent.signature.force_signature_window=true \
     ++agent.training.tau_polyak=1.0 \
