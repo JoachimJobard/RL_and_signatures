@@ -36,7 +36,7 @@ class TrainableAgent(Protocol):
     wrapper: Any
     training: Any
     algorithm: Any
-    sliding_signature: Any
+    representation_buffer: Any
     signature_conf: Any
     
     def train(self) -> dict:

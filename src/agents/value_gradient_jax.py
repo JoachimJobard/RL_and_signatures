@@ -96,7 +96,7 @@ class ContinuousValueGradient:
             origin_augmentation=self.signature_conf.origin_augmentation,
             bias=self.signature_conf.bias,
         )
-        self.sliding_signature = RepresentationBuffer(
+        self.representation_buffer = RepresentationBuffer(
             representation, window_length=window_length, n_state=self.env.N,
         )
         self.critic = self._build_network()
@@ -111,8 +111,8 @@ class ContinuousValueGradient:
             decay_power=float(getattr(self.training, "critic_lr_decay_power", 0.0)))
 
         key_critic, key_target, self.key = jax.random.split(self.key, 3)
-        self.critic_params = self.critic.init(key_critic, jnp.zeros((self.sliding_signature.signature_size,)))
-        self.target_params = self.target.init(key_target, jnp.zeros((self.sliding_signature.signature_size,)))
+        self.critic_params = self.critic.init(key_critic, jnp.zeros((self.representation_buffer.signature_size,)))
+        self.target_params = self.target.init(key_target, jnp.zeros((self.representation_buffer.signature_size,)))
         self.critic_opt_state = self.optimizer.init(self.critic_params)
 
         self._gradient_value_fn = self.get_gradient_value_fn()
@@ -123,7 +123,7 @@ class ContinuousValueGradient:
         # point E[phi*delta]=0; solved directly each episode end (see _on_episode_end).
         self._lstd = bool(getattr(self.algorithm, "lstd", False))
         if self._lstd:
-            d = int(self.sliding_signature.signature_size)
+            d = int(self.representation_buffer.signature_size)
             self._lstd_M = np.zeros((d, d))
             self._lstd_b = np.zeros(d)
             self._lstd_mu = np.zeros(d)        # running feature mean (centring vector)
@@ -155,14 +155,14 @@ class ContinuousValueGradient:
         IMPORTANT: This ensures the buffer is always at window_size+1 to avoid
         JAX recompilation due to shape changes.
         """
-        self.sliding_signature.reset()
+        self.representation_buffer.reset()
         if self.wrapper.state is not None:
             _, history_data = self.wrapper.initial_conditions
             # Subsample by resolution
             subsampled = history_data[::self.env.resolution]
             
             # Ensure we fill the buffer completely (window_size + 1 elements)
-            target_len = self.sliding_signature.window_size + 1
+            target_len = self.representation_buffer.window_size + 1
             # float64, not float32 (finding F-E1, commits 07b8d4a/7b1153e moved the buffers to
             # float64 and missed this path). The pipeline runs under jax_enable_x64
             # (main_unified.py:63), and the buffer's own dtype is float64, so the previous float32
@@ -176,23 +176,23 @@ class ContinuousValueGradient:
             if len(subsampled) >= target_len:
                 # Use the last target_len elements
                 for x in subsampled[-target_len:]:
-                    self.sliding_signature.buffer.append(np.asarray(x/self.training.scale, dtype=np.float64)) #type: ignore
+                    self.representation_buffer.buffer.append(np.asarray(x/self.training.scale, dtype=np.float64)) #type: ignore
             else:
                 # Pad with first element to reach target_len
                 first_val = np.asarray(subsampled[0]/self.training.scale, dtype=np.float64)
                 padding_needed = target_len - len(subsampled)
                 for _ in range(padding_needed):
-                    self.sliding_signature.buffer.append(first_val) #type: ignore
+                    self.representation_buffer.buffer.append(first_val) #type: ignore
                 for x in subsampled:
-                    self.sliding_signature.buffer.append(np.asarray(x/self.training.scale, dtype=np.float64)) #type: ignore
+                    self.representation_buffer.buffer.append(np.asarray(x/self.training.scale, dtype=np.float64)) #type: ignore
             
-            self.sliding_signature.current_signature = self.sliding_signature.compute_signature()
+            self.representation_buffer.current_signature = self.representation_buffer.compute_signature()
         self._path_data_dirty = True  # Invalidate cache
     
     
     def get_gradient_value_fn(self):
         critic = self.critic
-        sig_fn = self.sliding_signature._jit_compute_sig
+        sig_fn = self.representation_buffer._jit_compute_sig
         @jax.jit
         def grad_V_fn_wrt_path(critic_params, path_data):
             def value_from_path(p):
@@ -225,7 +225,7 @@ class ContinuousValueGradient:
     def _get_path_data(self) -> jnp.ndarray:
         """Get path data as JAX array, using cached version if available."""
         if self._cached_path_data is None or self._path_data_dirty:
-            self._cached_path_data = jnp.array(self.sliding_signature.buffer.to_array())
+            self._cached_path_data = jnp.array(self.representation_buffer.buffer.to_array())
             self._path_data_dirty = False
         return self._cached_path_data
     
@@ -233,7 +233,7 @@ class ContinuousValueGradient:
         # --- Compute effective noise level based on schedule ---
         if self.noise.schedule == 'adaptive':
             # Adaptive: scale sigma based on V(current) relative to running stats
-            V_t = self._compute_value_function(self.sliding_signature.current_signature)
+            V_t = self._compute_value_function(self.representation_buffer.current_signature)
             V_TARGET = self.discount.V_target
             V_BAD = self.discount.V_bad
             noise_scale = jnp.clip((V_TARGET - V_t) / (V_TARGET - V_BAD + 1e-6), 0.1, 1.0)
@@ -273,17 +273,17 @@ class ContinuousValueGradient:
         tau = self.discount.tau
         tau_polyak = self.training.tau_polyak
         
-        def critic_loss(critic_params, target_params, sig_t, sig_next, reward, dt):
-            V_t = critic.apply(critic_params, sig_t).squeeze() # type: ignore
-            V_next = critic.apply(jax.lax.stop_gradient(target_params), sig_next).squeeze() # type: ignore
+        def critic_loss(critic_params, target_params, features_t, features_next, reward, dt):
+            V_t = critic.apply(critic_params, features_t).squeeze() # type: ignore
+            V_next = critic.apply(jax.lax.stop_gradient(target_params), features_next).squeeze() # type: ignore
             td_error = reward + (V_next - V_t) / dt
             if discounted:
                 td_error = td_error - V_t / tau
             return 0.5 * td_error ** 2 * dt, td_error
         @jax.jit
-        def update_fn(critic_params, target_params, opt_state, sig_t, sig_next, reward, dt):
+        def update_fn(critic_params, target_params, opt_state, features_t, features_next, reward, dt):
             (loss, td_error), grads = jax.value_and_grad(critic_loss, has_aux=True)(
-                critic_params, target_params, sig_t, sig_next, reward, dt
+                critic_params, target_params, features_t, features_next, reward, dt
             )
             # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, critic_params)
@@ -299,9 +299,9 @@ class ContinuousValueGradient:
     def _update_networks(self, ctx: StepContextSignature) -> tuple:
         """Update actor and critic networks using JIT-compiled JAX autodiff."""
         self.step_counter += 1
-        # Signatures are already JAX arrays from sliding_signature
-        sig_t = ctx.sig_t
-        sig_next = ctx.sig_next
+        # Signatures are already JAX arrays from representation_buffer
+        features_t = ctx.features_t
+        features_next = ctx.features_next
         reward = ctx.reward
         dt = ctx.dt
         if getattr(self, "_lstd", False):
@@ -319,8 +319,8 @@ class ContinuousValueGradient:
             # affine span, so the Arribas density property is preserved. The value-gradient
             # control uses d/dx (theta^T phi_c) = theta^T dphi/dx (mu is constant), so the
             # kernel solved here drives the control unchanged.
-            phi_t = np.asarray(sig_t, dtype=np.float64).reshape(-1)
-            phi_n = np.asarray(sig_next, dtype=np.float64).reshape(-1)
+            phi_t = np.asarray(features_t, dtype=np.float64).reshape(-1)
+            phi_n = np.asarray(features_next, dtype=np.float64).reshape(-1)
             phi_c = phi_t - self._lstd_mu                          # centred test feature
             diff = (phi_n - phi_t) / float(dt) - phi_c / float(self.discount.tau)
             self._lstd_M += np.outer(phi_c, diff)
@@ -334,7 +334,7 @@ class ContinuousValueGradient:
         self.critic_params, self.target_params, self.critic_opt_state, c_loss, td_error, critic_grad_norm = \
             self._jit_critic_update(
                 self.critic_params, self.target_params, self.critic_opt_state,
-                sig_t, sig_next, reward, dt)
+                features_t, features_next, reward, dt)
         # Return JAX arrays - defer float() to episode end
         return c_loss, critic_grad_norm
     
@@ -364,10 +364,10 @@ class ContinuousValueGradient:
         dt = self.env.step_size
         if dt <= 1e-9:
             dt = 1e-4  # Avoid division by zero
-        sig_t = self.sliding_signature.current_signature
-        self.sliding_signature.append(x_next_scaled)
+        features_t = self.representation_buffer.current_signature
+        self.representation_buffer.append(x_next_scaled)
         self._path_data_dirty = True  # Invalidate cache after append
-        sig_next = self.sliding_signature.current_signature
+        features_next = self.representation_buffer.current_signature
         # Note: V_t and V_next computation removed - not needed for training
         # They are computed inside the JIT-compiled critic update
         
@@ -384,8 +384,8 @@ class ContinuousValueGradient:
             time_series=t, # type: ignore
             V_t=0.0,  # Not needed for training
             V_next=0.0,  # Not needed for training
-            sig_t=sig_t,
-            sig_next=sig_next
+            features_t=features_t,
+            features_next=features_next
         )
         
         # Compute reward
@@ -474,12 +474,12 @@ class ContinuousValueGradient:
             self.episode_noise_trajectory = gp_sample
     
     def update_buffer(self, x: np.ndarray) -> None:
-        self.sliding_signature.append(x / self.training.scale)
+        self.representation_buffer.append(x / self.training.scale)
         if hasattr(self, '_path_data_dirty'):
             setattr(self, '_path_data_dirty', True)
             
     def get_eval_action(self, x_scaled: jnp.ndarray) -> jnp.ndarray:
-        data_path = jnp.array(self.sliding_signature.buffer.to_array())
+        data_path = jnp.array(self.representation_buffer.buffer.to_array())
         assert self.wrapper.state is not None
         assert self.critic_params is not None
         action, _ = self._select_action_jit(self.critic_params, data_path, self.env.R, self.wrapper.state.x)
@@ -562,7 +562,7 @@ class ContinuousValueGradient:
                 # Log detailed metrics less frequently to avoid overhead
                 if episode % 200 == 0 and n_steps % 10 == 0:
                     metrics_history['signature_weights'].append(
-                        np.asarray(ctx.sig_t).flatten()
+                        np.asarray(ctx.features_t).flatten()
                     )
                     metrics_history['noise'].append(
                         np.asarray(ctx.noise).flatten()
@@ -732,8 +732,8 @@ class ContinuousValueGradient:
         # training-time window exactly (the previous code restored a detached copy
         # and left the training buffer in the post-eval state — a latent bug).
         saved_state = self.wrapper.state
-        saved_buffer = self.sliding_signature.buffer
-        saved_sig = self.sliding_signature.current_signature
+        saved_buffer = self.representation_buffer.buffer
+        saved_sig = self.representation_buffer.current_signature
         saved_dirty = self._path_data_dirty
         saved_cached = self._cached_path_data
         
@@ -754,15 +754,15 @@ class ContinuousValueGradient:
             _, x_next, reward = self.wrapper.step(self.wrapper.state, mu)
             if x_next.ndim == 0:
                 x_next = x_next.reshape(1)
-            self.sliding_signature.append(x_next / self.training.scale)
+            self.representation_buffer.append(x_next / self.training.scale)
             self._path_data_dirty = True
             total_cost += float(reward) * self.env.step_size
             x_t = x_next
         
         # Restore state (reassign the saved training-time buffer object).
         self.wrapper.state = saved_state
-        self.sliding_signature.buffer = saved_buffer
-        self.sliding_signature.current_signature = saved_sig
+        self.representation_buffer.buffer = saved_buffer
+        self.representation_buffer.current_signature = saved_sig
         self._path_data_dirty = saved_dirty
         self._cached_path_data = saved_cached
         
@@ -850,5 +850,5 @@ class ContinuousValueGradient:
 
     def get_value(self) -> float:
         """Compute value function for a current state."""
-        sig = self.sliding_signature.current_signature
+        sig = self.representation_buffer.current_signature
         return float(jnp.asarray(self.critic.apply(self.critic_params, sig)).squeeze()) # type: ignore

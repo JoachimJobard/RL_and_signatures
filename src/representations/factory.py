@@ -81,10 +81,10 @@ class RepresentationBuffer:
         self.actor_representation = actor_representation
         if actor_representation is not None:
             self.actor_feature_dim = int(actor_representation.feature_dim)
-            self._jit_compute_actor_sig = jax.jit(actor_representation.feature_fn)
+            self._jit_compute_actor_features = jax.jit(actor_representation.feature_fn)
         else:
             self.actor_feature_dim = self.signature_size
-            self._jit_compute_actor_sig = self._jit_compute_sig
+            self._jit_compute_actor_features = self._jit_compute_sig
         self._empty_sig = jnp.zeros(self.signature_size)
         self._current_signature = self._empty_sig
         self._signature_dirty = True
@@ -122,7 +122,7 @@ class RepresentationBuffer:
             return self.current_signature
         if len(self.buffer) < 1:
             return jnp.zeros(self.actor_feature_dim)
-        return self._jit_compute_actor_sig(self._full_window())
+        return self._jit_compute_actor_features(self._full_window())
 
     def _full_window(self) -> jnp.ndarray:
         """The window as a fixed-size ``(window_length, n_state)`` array (front-padded

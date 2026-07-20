@@ -233,7 +233,7 @@ def test_positive_advantage_moves_the_actor_TOWARD_the_sampled_action():
     # a linear actor's gradient with respect to its weights is proportional to its input, so a zero
     # input gives an identically zero gradient and the actor cannot move at all -- the test would
     # then pass or fail for a reason unrelated to the estimator's sign.
-    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    d = int(np.asarray(agent.representation_buffer.current_signature).shape[0])
     sig = jnp.asarray(np.random.default_rng(0).normal(size=(d,)))
     m = int(agent.env.B.shape[1])
     sigma = 0.1
@@ -261,7 +261,7 @@ def test_negative_advantage_moves_the_actor_AWAY_from_the_sampled_action():
     negation nor a one-sided defect can survive.
     """
     agent = _build()
-    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    d = int(np.asarray(agent.representation_buffer.current_signature).shape[0])
     sig = jnp.asarray(np.random.default_rng(0).normal(size=(d,)))
     m = int(agent.env.B.shape[1])
     sigma = 0.1
@@ -295,7 +295,7 @@ def test_the_shipped_estimator_recovers_the_analytic_policy_gradient():
     repeatedly with A_t = r must therefore carry the actor's mean towards u_star.
     """
     agent = _build()
-    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    d = int(np.asarray(agent.representation_buffer.current_signature).shape[0])
     rng = np.random.default_rng(0)
     sig = jnp.asarray(rng.normal(size=(d,)))   # non-zero: see the note in the directional test
     m = int(agent.env.B.shape[1])
@@ -324,7 +324,7 @@ def test_the_shipped_estimator_recovers_the_analytic_policy_gradient():
 def test_zero_advantage_gives_exactly_zero_actor_gradient():
     """A vanishing advantage must give a vanishing update: no signal manufactured from nothing."""
     agent = _build()
-    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    d = int(np.asarray(agent.representation_buffer.current_signature).shape[0])
     m = int(agent.env.B.shape[1])
     T = 8
     rng = np.random.default_rng(0)
@@ -340,7 +340,7 @@ def test_zero_advantage_gives_exactly_zero_actor_gradient():
 def test_nonzero_advantage_gives_a_nonzero_actor_gradient():
     """The converse of the previous check: a real advantage must actually move the actor."""
     agent = _build()
-    d = int(np.asarray(agent.sliding_signature.current_signature).shape[0])
+    d = int(np.asarray(agent.representation_buffer.current_signature).shape[0])
     m = int(agent.env.B.shape[1])
     T = 8
     rng = np.random.default_rng(0)
@@ -361,11 +361,11 @@ def test_episode_buffer_is_emptied_between_episodes():
     to another's actions.
     """
     agent = _build()
-    agent._mc_episode_sig.append(jnp.zeros(3))
+    agent._mc_episode_features.append(jnp.zeros(3))
     agent._mc_episode_reward_rate.append(jnp.asarray(1.0))
-    assert len(agent._mc_episode_sig) == 1
+    assert len(agent._mc_episode_features) == 1
     agent._on_episode_start(0, np.zeros(2))
-    assert agent._mc_episode_sig == []
+    assert agent._mc_episode_features == []
     assert agent._mc_episode_reward_rate == []
 
 

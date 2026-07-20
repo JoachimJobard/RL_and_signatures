@@ -64,8 +64,8 @@ class CTACJAX(ContinuousTimeActorCritic):
         # State dimension: N if no delay, 2*N if delayed (current + delayed state)
         state_dim = self.env.N * 2 if self.algorithm.delayed_state else self.env.N
         if self.algorithm.whole_state_delay:
-            # Use sliding_signature buffer size (agent step resolution), not env.buffer_size (solver resolution)
-            state_dim = self.sliding_signature.buffer.size * self.env.N
+            # Use representation_buffer buffer size (agent step resolution), not env.buffer_size (solver resolution)
+            state_dim = self.representation_buffer.buffer.size * self.env.N
         dummy_state = jnp.zeros((state_dim,))
         # Override critic with quadratic features (like base.py)
         self.critic = CriticFlaxQuadratic()
@@ -211,7 +211,7 @@ class CTACJAX(ContinuousTimeActorCritic):
         x_scaled = x_t / self.training.scale
         if self.algorithm.whole_state_delay:
             # Use the full buffer path (already scaled) as feature vector
-            buf = self.sliding_signature.buffer
+            buf = self.representation_buffer.buffer
             x_scaled = jnp.array(buf.to_array()).flatten()
             x_t = x_scaled * self.training.scale  # unscaled version for logging
         elif self.algorithm.delayed_state:
@@ -229,8 +229,8 @@ class CTACJAX(ContinuousTimeActorCritic):
             x_next = jnp.array(x_next)
         # Update buffer with new state (before building x_next_scaled)
         if self.algorithm.whole_state_delay:
-            self.sliding_signature.append(x_next / self.training.scale)
-            buf = self.sliding_signature.buffer
+            self.representation_buffer.append(x_next / self.training.scale)
+            buf = self.representation_buffer.buffer
             x_next_scaled = jnp.array(buf.to_array()).flatten()
         else:
             x_next_scaled = x_next / self.training.scale
@@ -258,8 +258,8 @@ class CTACJAX(ContinuousTimeActorCritic):
             time_series=t, # type: ignore
             V_t=V_t,
             V_next=V_next,
-            sig_t = jnp.zeros(1),  # unused
-            sig_next = jnp.zeros(1),  # unused
+            features_t = jnp.zeros(1),  # unused
+            features_next = jnp.zeros(1),  # unused
         )
         
         # Compute reward
@@ -338,7 +338,7 @@ class CTACJAX(ContinuousTimeActorCritic):
         
         # Save state
         saved_state = self.wrapper.state
-        buf = self.sliding_signature.buffer
+        buf = self.representation_buffer.buffer
         saved_buf: Any  # tuple (JAXCircularBuffer state) or deque (DequeBuffer), per branch below
         if hasattr(buf, '_data'):
             saved_buf = (buf._data.copy(), buf._count, buf._head)  # type: ignore[union-attr]
@@ -354,12 +354,12 @@ class CTACJAX(ContinuousTimeActorCritic):
         for _ in range(self.algorithm.burning_steps):
             action = jnp.zeros(self.env.B.shape[1])
             _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-            self.sliding_signature.append(x_t / self.training.scale)
+            self.representation_buffer.append(x_t / self.training.scale)
         if self.algorithm.preheat:
-            for _ in range(self.sliding_signature.window_size):
+            for _ in range(self.representation_buffer.window_size):
                 action = jnp.zeros(self.env.B.shape[1])
                 _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-                self.sliding_signature.append(x_t / self.training.scale)
+                self.representation_buffer.append(x_t / self.training.scale)
         
         total_reward = 0.0
         
@@ -377,7 +377,7 @@ class CTACJAX(ContinuousTimeActorCritic):
                     mu = self.actor.apply(self.actor_params, x_augmented) # type: ignore
                 elif self.algorithm.whole_state_delay:
                     # Whole state delay agents — buffer already contains scaled states
-                    buf = self.sliding_signature.buffer
+                    buf = self.representation_buffer.buffer
                     x_augmented = jnp.array(buf.to_array()).flatten()
                     mu = self.actor.apply(self.actor_params, x_augmented) # type: ignore
                 else:
@@ -388,7 +388,7 @@ class CTACJAX(ContinuousTimeActorCritic):
             _, x_next, reward = self.wrapper.step(self.wrapper.state, mu) 
             if x_next.ndim == 0:
                 x_next = jnp.array([x_next])
-            self.sliding_signature.append(x_next / self.training.scale)
+            self.representation_buffer.append(x_next / self.training.scale)
             total_reward += float(reward) * self.env.step_size
             x_t = x_next
         
@@ -410,7 +410,7 @@ class CTACJAX(ContinuousTimeActorCritic):
         else:
             assert self.actor_params is not None
             if getattr(self.algorithm, 'whole_state_delay', False):
-                buf = self.sliding_signature.buffer
+                buf = self.representation_buffer.buffer
                 x_augmented = jnp.array(buf.to_array()).flatten()
                 action = self.actor.apply(self.actor_params, x_augmented)
             elif getattr(self.algorithm, 'delayed_state', False):
@@ -433,7 +433,7 @@ class CTACJAX(ContinuousTimeActorCritic):
             
         assert self.critic_params is not None
         if getattr(self.algorithm, 'whole_state_delay', False):
-            buf = self.sliding_signature.buffer
+            buf = self.representation_buffer.buffer
             x_augmented = jnp.array(buf.to_array()).flatten()
             V_raw = self.critic.apply(self.critic_params, x_augmented)
         elif getattr(self.algorithm, 'delayed_state', False):

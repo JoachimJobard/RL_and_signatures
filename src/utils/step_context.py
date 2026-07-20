@@ -54,8 +54,8 @@ class StepContextSignature:
     x_scaled: np.ndarray | jnp.ndarray      # Current position (scaled)
     x_next: np.ndarray | jnp.ndarray        # Next position (original scale)
     x_next_scaled: np.ndarray | jnp.ndarray # Next position (scaled)
-    sig_t: jnp.ndarray        # Current signature
-    sig_next: jnp.ndarray     # Next signature
+    features_t: jnp.ndarray        # Current signature
+    features_next: jnp.ndarray     # Next signature
     
     # Action information
     mu: np.ndarray | jnp.ndarray            # Policy mean (deterministic part)

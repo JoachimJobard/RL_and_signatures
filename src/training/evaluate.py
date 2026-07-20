@@ -38,7 +38,7 @@ class EvaluableAgent(Protocol):
     wrapper: Any
     training: Any
     algorithm: Any  
-    sliding_signature: SlidingSignature
+    representation_buffer: SlidingSignature
     signature_conf: Any
     
     def _fill_buffer_initial(self) -> None: ...
@@ -230,8 +230,8 @@ def simulate_trajectory(
     n_steps = int(T_sim / env.step_size)
     
     # Reset agent state
-    if hasattr(agent, 'sliding_signature'):
-        agent.sliding_signature.reset() 
+    if hasattr(agent, 'representation_buffer'):
+        agent.representation_buffer.reset() 
     
     key = jax.random.PRNGKey(seed)
     x_t = agent.wrapper.reset(key, x0=x0, t0=0.0)
@@ -284,8 +284,8 @@ def simulate_uncontrolled_trajectory(
     action_dim = env.B.shape[1]
     
     # Reset agent state
-    if hasattr(agent, 'sliding_signature'):
-        agent.sliding_signature.reset() 
+    if hasattr(agent, 'representation_buffer'):
+        agent.representation_buffer.reset() 
     
     key = jax.random.PRNGKey(seed)
     x_t = agent.wrapper.reset(key, x0=x0, t0=0.0)

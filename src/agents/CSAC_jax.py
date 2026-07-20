@@ -214,7 +214,7 @@ class CSAC:
         max_delay = float(jnp.max(self.env.delay)) if self.env.delay is not None else 0
         window_size_delay = (int(np.ceil(max_delay / self.env.step_size)) + 1) * 4 if max_delay > 0 else 50
         print("Using window_size =", window_size_delay, "for signature computation.")
-        self.sliding_signature = SlidingSignatureJAX(
+        self.representation_buffer = SlidingSignatureJAX(
             depth=self.depth, window_size=window_size_delay, d=env.N,
             time_augmentation=self.time_augmentation,
             origin_augmentation=self.origin_augmentation,
@@ -234,13 +234,13 @@ class CSAC:
         self.critic_target = self._build_critic()
         key_a, key_c, key_tc = jax.random.split(self.key, 3)
         if self.state_augmentation:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
-            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
-            self.target_critic_params = self.critic_target.init(key_tc, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.representation_buffer.signature_size + self.env.N))
+            self.critic_params = self.critic.init(key_c, jnp.zeros(self.representation_buffer.signature_size + self.env.N))
+            self.target_critic_params = self.critic_target.init(key_tc, jnp.zeros(self.representation_buffer.signature_size + self.env.N))
         else:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size))
-            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size))
-            self.target_critic_params = self.critic_target.init(key_tc, jnp.zeros(self.sliding_signature.signature_size))
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.representation_buffer.signature_size))
+            self.critic_params = self.critic.init(key_c, jnp.zeros(self.representation_buffer.signature_size))
+            self.target_critic_params = self.critic_target.init(key_tc, jnp.zeros(self.representation_buffer.signature_size))
         # Entropy
         self.target_entropy = -float(self.env.B.shape[1]) 
         self.alpha_model = AlphaModel()
@@ -280,12 +280,12 @@ class CSAC:
 
         # Replay buffer
         dummy_transition = Transition(
-                s=jnp.zeros((self.sliding_signature.signature_size + (self.env.N if self.state_augmentation else 0),)),
+                s=jnp.zeros((self.representation_buffer.signature_size + (self.env.N if self.state_augmentation else 0),)),
                 a=jnp.zeros((self.env.B.shape[1],)),
                 mu=jnp.zeros((self.env.B.shape[1],)),
                 log_pi=jnp.zeros(()),
                 r=0.0,
-                s_next=jnp.zeros((self.sliding_signature.signature_size + (self.env.N if self.state_augmentation else 0),)),
+                s_next=jnp.zeros((self.representation_buffer.signature_size + (self.env.N if self.state_augmentation else 0),)),
                 done=False,
                 x_t=jnp.zeros((self.env.N,)),
                 x_next=jnp.zeros((self.env.N,)),
@@ -318,13 +318,13 @@ class CSAC:
     
     def _fill_buffer_initial(self):
         """Fill the signature buffer with initial states from wrapper."""
-        self.sliding_signature.reset()
+        self.representation_buffer.reset()
         if self.wrapper.state is not None:
             _, history_data = self.wrapper.initial_conditions
             # Subsample by resolution to match window size
             for x in history_data[::self.env.resolution]:
-                self.sliding_signature.buffer.append(np.asarray(x, dtype=np.float32))
-            self.sliding_signature.current_signature = self.sliding_signature.compute_signature()
+                self.representation_buffer.buffer.append(np.asarray(x, dtype=np.float32))
+            self.representation_buffer.current_signature = self.representation_buffer.compute_signature()
 
     def _make_action_jit_fn(self):
         actor = self.actor
@@ -502,18 +502,18 @@ class CSAC:
         env_state = self.wrapper.state # type: ignore
         x_scaled = x_t / self.scale if self.normalize_entries else x_t
         if self.state_augmentation:
-            sig_state = jnp.concatenate([self.sliding_signature.current_signature, x_scaled])
+            sig_state = jnp.concatenate([self.representation_buffer.current_signature, x_scaled])
         else:
-            sig_state = self.sliding_signature.current_signature
+            sig_state = self.representation_buffer.current_signature
         action, mu, log_pi = self._select_action(sig_state)
         t_next, x_next, reward = self.wrapper.step(env_state, action) #type: ignore
         x_next_scaled = x_next / self.scale if self.normalize_entries else x_next
         done = self._is_done(t_next, x_next)
-        self.sliding_signature.append(x_next_scaled)
+        self.representation_buffer.append(x_next_scaled)
         if self.state_augmentation:
-            sig_state_next = jnp.concatenate([self.sliding_signature.current_signature, x_next_scaled])
+            sig_state_next = jnp.concatenate([self.representation_buffer.current_signature, x_next_scaled])
         else:
-            sig_state_next = self.sliding_signature.current_signature
+            sig_state_next = self.representation_buffer.current_signature
         # Store transition in replay buffer
         transition = Transition(
             s=sig_state,
@@ -531,7 +531,7 @@ class CSAC:
         return x_next, reward, done
 
     def update_buffer(self, x: np.ndarray) -> None:
-        self.sliding_signature.append(x / self.training.scale)
+        self.representation_buffer.append(x / self.training.scale)
         if hasattr(self, '_path_data_dirty'):
             setattr(self, '_path_data_dirty', True)
 
@@ -539,12 +539,12 @@ class CSAC:
         if getattr(self, 'actor_oracle', False) or getattr(self.algorithm, 'actor_oracle', False):
             return jnp.array(-self.optimal_K @ jnp.array(self.wrapper.state.x))
             
-        sig = self.sliding_signature.current_signature
+        sig = self.representation_buffer.current_signature
         if getattr(self.signature_conf, 'state_augmentation', False):
-            sig_input = jnp.concatenate([sig, x_scaled])
+            features_input = jnp.concatenate([sig, x_scaled])
         else:
-            sig_input = sig
-        mu, _ = self.actor.apply(self.actor_params, sig_input)
+            features_input = sig
+        mu, _ = self.actor.apply(self.actor_params, features_input)
         return jnp.array(mu * getattr(self.training, 'clip_action', 1.0))
 
     def train(self) -> dict:
@@ -580,7 +580,7 @@ class CSAC:
                     reward_per_episode = 0.0
                     self._on_episode_start()
                 x_next, reward, done = self._fill_replay_buffer()
-                signature_coeffs = self.sliding_signature.current_signature
+                signature_coeffs = self.representation_buffer.current_signature
                 all_metrics['signature_coefficients'].append(signature_coeffs)
                 reward_per_episode += reward * self.dt
             
@@ -647,14 +647,14 @@ class CSAC:
         self._fill_buffer_initial()
         self.step_counter = 0
         if self.preheat:
-            for _ in range(self.sliding_signature.window_size):
+            for _ in range(self.representation_buffer.window_size):
                 if self.state_augmentation:
-                    sig_state = jnp.concatenate([self.sliding_signature.current_signature, self.wrapper.state.x / self.scale if self.normalize_entries else self.wrapper.state.x]) # type: ignore
+                    sig_state = jnp.concatenate([self.representation_buffer.current_signature, self.wrapper.state.x / self.scale if self.normalize_entries else self.wrapper.state.x]) # type: ignore
                 else:
-                    sig_state = self.sliding_signature.current_signature
+                    sig_state = self.representation_buffer.current_signature
                 action, mu, log_pi = self._select_action(sig_state)
                 _, next_state, _ = self.wrapper.step(self.wrapper.state, action)
-                self.sliding_signature.append(next_state / self.scale if self.normalize_entries else next_state)
+                self.representation_buffer.append(next_state / self.scale if self.normalize_entries else next_state)
     
 
 

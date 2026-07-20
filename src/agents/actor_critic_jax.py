@@ -224,7 +224,7 @@ class ContinuousTimeActorCritic:
                 actor_representation = make_representation(
                     "raw_history", window_length=window_length, n_state=self.env.N, degree=1)
             # kind == "signature": leave actor_representation = None -> the actor takes the signature.
-        self.sliding_signature = RepresentationBuffer(
+        self.representation_buffer = RepresentationBuffer(
             representation, window_length=window_length, n_state=self.env.N,
             actor_representation=actor_representation,
         )
@@ -237,11 +237,11 @@ class ContinuousTimeActorCritic:
         self.critic: CriticFlax | CriticFlaxLayerNorm | CriticFlaxQuadratic = self._build_critic()
         key_a, key_c = jax.random.split(self.key)
         if self.signature_conf.state_augmentation:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.actor_feature_dim + self.env.N))
-            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.representation_buffer.actor_feature_dim + self.env.N))
+            self.critic_params = self.critic.init(key_c, jnp.zeros(self.representation_buffer.signature_size + self.env.N))
         else:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.actor_feature_dim))
-            self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size))
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.representation_buffer.actor_feature_dim))
+            self.critic_params = self.critic.init(key_c, jnp.zeros(self.representation_buffer.signature_size))
 
         #optimizers — absorb dt into learning rate for correct continuous-time scaling.
         # Gradient clipping is opt-in via training.clip_gradient (global-norm, off by default).
@@ -339,29 +339,29 @@ class ContinuousTimeActorCritic:
         follow-up that makes the two agents load phi bit-identically; it is deferred because the
         existing five-seed value-gradient results must stay bit-reproducible.
         """
-        self.sliding_signature.reset()
+        self.representation_buffer.reset()
         if self.wrapper.state is None:
             return
         _, history_data = self.wrapper.initial_conditions
         subsampled = history_data[::self.env.resolution]
-        target_len = self.sliding_signature.window_size + 1
+        target_len = self.representation_buffer.window_size + 1
         if len(subsampled) >= target_len:
             initial_path = list(subsampled[-target_len:])
         else:
             earliest = subsampled[0]
             initial_path = [earliest] * (target_len - len(subsampled)) + list(subsampled)
         for state_on_initial_path in initial_path:
-            self.sliding_signature.append(state_on_initial_path / self.training.scale)
+            self.representation_buffer.append(state_on_initial_path / self.training.scale)
         # Assigned eagerly rather than left to the lazy dirty-flag path so that the agent's
         # internal state immediately after the fill — window AND cached feature — is identical
         # to ContinuousValueGradient's at the same point.
-        self.sliding_signature.current_signature = self.sliding_signature.compute_signature()
+        self.representation_buffer.current_signature = self.representation_buffer.compute_signature()
 
     def _zero_control_burn_in_steps(self) -> int:
         """Number of zero-control steps taken after the reset, before the first controlled step."""
         steps = int(self.algorithm.burning_steps)
         if self.algorithm.preheat:
-            steps += int(self.sliding_signature.window_size)
+            steps += int(self.representation_buffer.window_size)
         return steps
 
     def _announce_zero_control_burn_in(self) -> None:
@@ -390,7 +390,7 @@ class ContinuousTimeActorCritic:
         warnings.warn(
             f"Zero-control burn-in active (preheat={self.algorithm.preheat}, "
             f"burning_steps={self.algorithm.burning_steps}, window_size="
-            f"{self.sliding_signature.window_size}): {steps} zero-control steps run after each "
+            f"{self.representation_buffer.window_size}): {steps} zero-control steps run after each "
             f"reset. The initial path phi loaded by _fill_buffer_initial is overwritten by the "
             f"uncontrolled evolution, so the episode does not start from the delay differential "
             f"equation's initial condition; and the first controlled step occurs at "
@@ -451,9 +451,9 @@ class ContinuousTimeActorCritic:
         critic = self.critic
         
         @jax.jit
-        def compute_values_fn(critic_params, sig_t, sig_next):
-            V_t = critic.apply(critic_params, sig_t).squeeze() # type: ignore
-            V_next = critic.apply(critic_params, sig_next).squeeze() # type: ignore
+        def compute_values_fn(critic_params, features_t, features_next):
+            V_t = critic.apply(critic_params, features_t).squeeze() # type: ignore
+            V_next = critic.apply(critic_params, features_next).squeeze() # type: ignore
             return V_t, V_next
         
         return compute_values_fn
@@ -466,7 +466,7 @@ class ContinuousTimeActorCritic:
         
         # --- Compute effective noise level based on schedule ---
         if self.noise.schedule == 'adaptive':
-            V_t = self._compute_value_function(self.sliding_signature.current_signature)
+            V_t = self._compute_value_function(self.representation_buffer.current_signature)
             V_TARGET = self.discount.V_target
             V_BAD = self.discount.V_bad
             noise_scale = jnp.clip((V_TARGET - V_t) / (V_TARGET - V_BAD + 1e-6), 0.1, 1.0)
@@ -600,9 +600,9 @@ class ContinuousTimeActorCritic:
         if getattr(self, "_delayed_oracle", False):
             self._oracle_xi_t = self._delayed_oracle_window()
         if self.signature_conf.state_augmentation:
-            state = jnp.concatenate([self.sliding_signature.current_actor_features, x_scaled])  # type: ignore
+            state = jnp.concatenate([self.representation_buffer.current_actor_features, x_scaled])  # type: ignore
         else:
-            state = self.sliding_signature.current_actor_features
+            state = self.representation_buffer.current_actor_features
         # Capture the actor's features at t (before the env-step append) for the once-per-episode
         # actor recording and the online-TD update, mirroring self._oracle_xi_t.
         self._actor_features_t = state
@@ -621,12 +621,12 @@ class ContinuousTimeActorCritic:
         dt = self.env.step_size
         if dt <= 1e-9:
             dt = 1e-4  # Avoid division by zero
-        sig_t = self.sliding_signature.current_signature
-        self.sliding_signature.append(x_next_scaled)
-        sig_next = self.sliding_signature.current_signature
+        features_t = self.representation_buffer.current_signature
+        self.representation_buffer.append(x_next_scaled)
+        features_next = self.representation_buffer.current_signature
         if self.signature_conf.state_augmentation:
-            sig_t = jnp.concatenate([sig_t, x_scaled])  # type: ignore
-            sig_next = jnp.concatenate([sig_next, x_next_scaled])  # type: ignore
+            features_t = jnp.concatenate([features_t, x_scaled])  # type: ignore
+            features_next = jnp.concatenate([features_next, x_next_scaled])  # type: ignore
         # Value function evaluations (JIT-compiled, no float() sync)
         if self.algorithm.critic_oracle:
             # Value = expected discounted reward (reward = -(x'Qx + u'Ru)), so the LQR
@@ -641,7 +641,7 @@ class ContinuousTimeActorCritic:
                 V_t = -x_t.T @ self.P @ x_t
                 V_next = -x_next.T @ self.P @ x_next
         else:
-            V_t, V_next = self._jit_compute_values(self.critic_params, sig_t, sig_next)
+            V_t, V_next = self._jit_compute_values(self.critic_params, features_t, features_next)
         
         # Build context
         ctx = StepContextSignature(
@@ -656,8 +656,8 @@ class ContinuousTimeActorCritic:
             time_series=t, # type: ignore
             V_t=V_t,# type: ignore
             V_next=V_next,# type: ignore
-            sig_t=sig_t,
-            sig_next=sig_next
+            features_t=features_t,
+            features_next=features_next
         )
         
         # Compute reward
@@ -691,18 +691,18 @@ class ContinuousTimeActorCritic:
         discounted = self.discount.discounted
         tau = self.discount.tau
         
-        def critic_loss(critic_params, sig_t, sig_next, reward, dt):
-            V_t = critic.apply(critic_params, sig_t).squeeze() # type: ignore
-            V_next = critic.apply(jax.lax.stop_gradient(critic_params), sig_next).squeeze() # type: ignore
+        def critic_loss(critic_params, features_t, features_next, reward, dt):
+            V_t = critic.apply(critic_params, features_t).squeeze() # type: ignore
+            V_next = critic.apply(jax.lax.stop_gradient(critic_params), features_next).squeeze() # type: ignore
             td_error = reward + (V_next - V_t) / dt
             if discounted:
                 td_error = td_error - V_t / tau
             return 0.5 * td_error ** 2 * dt, td_error
         
         @jax.jit
-        def update_fn(critic_params, opt_state, sig_t, sig_next, reward, dt):
+        def update_fn(critic_params, opt_state, features_t, features_next, reward, dt):
             (loss, td_error), grads = jax.value_and_grad(critic_loss, has_aux=True)(
-                critic_params, sig_t, sig_next, reward, dt
+                critic_params, features_t, features_next, reward, dt
             )
             # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, critic_params)
@@ -718,14 +718,14 @@ class ContinuousTimeActorCritic:
         actor = self.actor
         optimizer = self.actor_optimizer
         
-        def actor_loss(actor_params, sig_t, noise, td_error, sigma):
-            mu = actor.apply(actor_params, sig_t)
+        def actor_loss(actor_params, features_t, noise, td_error, sigma):
+            mu = actor.apply(actor_params, features_t)
             log_prob_grad = noise / (sigma ** 2 + 1e-8)
             return -td_error * jnp.dot(log_prob_grad, mu) # type: ignore
         
         @jax.jit
-        def update_fn(actor_params, opt_state, sig_t, noise, td_error, sigma, dt):
-            grads = jax.grad(actor_loss)(actor_params, sig_t, noise, td_error, sigma)
+        def update_fn(actor_params, opt_state, features_t, noise, td_error, sigma, dt):
+            grads = jax.grad(actor_loss)(actor_params, features_t, noise, td_error, sigma)
             # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, actor_params)
 
@@ -780,18 +780,18 @@ class ContinuousTimeActorCritic:
         actor = self.actor
         optimizer = self.actor_optimizer
 
-        def actor_loss(actor_params, sig_batch, noise_batch, advantage_batch, sigma):
+        def actor_loss(actor_params, features_batch, noise_batch, advantage_batch, sigma):
             # vmap rather than relying on the network broadcasting over a leading batch axis, so
             # the estimator is correct for any actor architecture.
-            mu = jax.vmap(lambda s: actor.apply(actor_params, s))(sig_batch)       # (T, m)
+            mu = jax.vmap(lambda s: actor.apply(actor_params, s))(features_batch)       # (T, m)
             log_prob_grad = noise_batch / (sigma ** 2 + 1e-8)                      # (T, m)
             per_step = -advantage_batch * jnp.sum(log_prob_grad * mu, axis=-1)     # (T,)
             return jnp.mean(per_step)
 
         @jax.jit
-        def update_fn(actor_params, opt_state, sig_batch, noise_batch, advantage_batch, sigma):
+        def update_fn(actor_params, opt_state, features_batch, noise_batch, advantage_batch, sigma):
             grads = jax.grad(actor_loss)(
-                actor_params, sig_batch, noise_batch, advantage_batch, sigma)
+                actor_params, features_batch, noise_batch, advantage_batch, sigma)
             updates, new_opt_state = optimizer.update(grads, opt_state, actor_params)
             new_params = optax.apply_updates(actor_params, updates)
             grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
@@ -819,10 +819,10 @@ class ContinuousTimeActorCritic:
             return -a * jnp.sum((n / (sigma ** 2 + 1e-8)) * mu)
 
         @jax.jit
-        def snr_fn(actor_params, sig_batch, noise_batch, advantage_batch, sigma):
+        def snr_fn(actor_params, features_batch, noise_batch, advantage_batch, sigma):
             per_step_grad = jax.vmap(
                 lambda s, n, a: jax.grad(per_step_loss)(actor_params, s, n, a, sigma)
-            )(sig_batch, noise_batch, advantage_batch)
+            )(features_batch, noise_batch, advantage_batch)
             flat = jax.vmap(lambda g: jnp.concatenate(
                 [jnp.ravel(x) for x in jax.tree_util.tree_leaves(g)]))(per_step_grad)   # (T, P)
             mean = jnp.mean(flat, axis=0)
@@ -859,10 +859,10 @@ class ContinuousTimeActorCritic:
             return -a * jnp.sum((n / (sigma ** 2 + 1e-8)) * mu)
 
         @jax.jit
-        def diag_fn(actor_params, sig_batch, noise_batch, advantage_batch, sigma):
+        def diag_fn(actor_params, features_batch, noise_batch, advantage_batch, sigma):
             per_step_grad = jax.vmap(
                 lambda s, n, a: jax.grad(per_step_loss)(actor_params, s, n, a, sigma)
-            )(sig_batch, noise_batch, advantage_batch)
+            )(features_batch, noise_batch, advantage_batch)
             flat = jax.vmap(lambda g: jnp.concatenate(
                 [jnp.ravel(x) for x in jax.tree_util.tree_leaves(g)]))(per_step_grad)   # (T, P)
             T = flat.shape[0]
@@ -888,7 +888,7 @@ class ContinuousTimeActorCritic:
 
         return diag_fn
 
-    def _record_actor_diag(self, sig_batch, noise_batch, advantage) -> None:
+    def _record_actor_diag(self, features_batch, noise_batch, advantage) -> None:
         """Run the diagnostic function on one episode's records and cache the scalars.
 
         Sets ``_last_actor_snr`` (per-step, for backward compatibility with the SNR monitor) and
@@ -896,7 +896,7 @@ class ContinuousTimeActorCritic:
         if self._jit_actor_diag is None:
             return
         vals = self._jit_actor_diag(
-            self.actor_params, sig_batch, noise_batch, advantage, self._sigma_effective)
+            self.actor_params, features_batch, noise_batch, advantage, self._sigma_effective)
         update_snr, perstep_snr, n_eff, coupling, adv_mean, adv_std, grad_signal = (float(v) for v in vals)
         self._last_actor_snr = perstep_snr
         self._last_actor_diag = {
@@ -942,7 +942,7 @@ class ContinuousTimeActorCritic:
         """Discard the previous episode's recorded steps. Called at every episode start."""
         # Per-step records for the once-per-episode actor update. reward_rate feeds the Monte-Carlo
         # return R_t; td_error feeds the averaged TD actor-critic. Only the one in use is filled.
-        self._mc_episode_sig: list = []
+        self._mc_episode_features: list = []
         self._mc_episode_noise: list = []
         self._mc_episode_reward_rate: list = []
         self._mc_episode_td: list = []
@@ -951,7 +951,7 @@ class ContinuousTimeActorCritic:
         """True while the actor is frozen for the critic warm-up (first ``actor_warmup_episodes``)."""
         return episode < int(getattr(self.training, "actor_warmup_episodes", 0))
 
-    def _batched_actor_step(self, sig_batch, noise_batch, advantage) -> jnp.ndarray:
+    def _batched_actor_step(self, features_batch, noise_batch, advantage) -> jnp.ndarray:
         """Accumulate this episode's records; take ONE averaged actor step per K episodes.
 
         K = training.rollouts_per_update. The K episodes' per-step records are concatenated and the
@@ -960,18 +960,18 @@ class ContinuousTimeActorCritic:
         draw independent noise), at the same total episode budget. K=1 recovers the per-episode update.
         Returns the gradient norm on a step episode, 0 while still accumulating."""
         K = max(1, int(getattr(self.training, "rollouts_per_update", 1)))
-        self._batch_sig.append(sig_batch)
+        self._batch_sig.append(features_batch)
         self._batch_noise.append(noise_batch)
         self._batch_adv.append(advantage)
         if len(self._batch_sig) < K:
             return jnp.array(0.0)   # still filling the batch; no optimiser step this episode
-        sig_all = jnp.concatenate(self._batch_sig)
+        features_all = jnp.concatenate(self._batch_sig)
         noise_all = jnp.concatenate(self._batch_noise)
         adv_all = jnp.concatenate(self._batch_adv)
         self._batch_sig, self._batch_noise, self._batch_adv = [], [], []
         self.actor_params, self.actor_opt_state, grad_norm = self._jit_monte_carlo_actor_update(
             self.actor_params, self.actor_opt_state,
-            sig_all, noise_all, adv_all, self._sigma_effective,
+            features_all, noise_all, adv_all, self._sigma_effective,
         )
         return grad_norm
 
@@ -990,10 +990,10 @@ class ContinuousTimeActorCritic:
         """
         if not self._actor_updates_once_per_episode or self.algorithm.actor_oracle:
             return jnp.array(0.0)
-        if not getattr(self, "_mc_episode_sig", None):
+        if not getattr(self, "_mc_episode_features", None):
             return jnp.array(0.0)
 
-        sig_batch = jnp.stack([jnp.asarray(s) for s in self._mc_episode_sig])
+        features_batch = jnp.stack([jnp.asarray(s) for s in self._mc_episode_features])
         noise_batch = jnp.stack([jnp.atleast_1d(jnp.asarray(n)) for n in self._mc_episode_noise])
 
         if not self._actor_target_is_monte_carlo:
@@ -1002,10 +1002,10 @@ class ContinuousTimeActorCritic:
             # critic still learns per step and enters only through delta_t, exactly as in the
             # online form -- only the actor's update cadence changes.
             advantage = jnp.stack([jnp.asarray(d).reshape(()) for d in self._mc_episode_td])
-            self._record_actor_diag(sig_batch, noise_batch, advantage)
+            self._record_actor_diag(features_batch, noise_batch, advantage)
             if self._in_actor_warmup(episode):
                 return jnp.array(0.0)   # critic warm-up: actor frozen, critic still learned per step
-            return self._batched_actor_step(sig_batch, noise_batch, advantage)
+            return self._batched_actor_step(features_batch, noise_batch, advantage)
 
         reward_rates = jnp.stack(
             [jnp.asarray(r).reshape(()) for r in self._mc_episode_reward_rate])
@@ -1032,17 +1032,17 @@ class ContinuousTimeActorCritic:
         # the gradient.
         advantage = self.monte_carlo_returns(reward_rates, float(self.env.step_size))
 
-        self._record_actor_diag(sig_batch, noise_batch, advantage)
+        self._record_actor_diag(features_batch, noise_batch, advantage)
         if self._in_actor_warmup(episode):
             return jnp.array(0.0)   # (warm-up is an AC fix; PG's actor never reads the critic)
-        return self._batched_actor_step(sig_batch, noise_batch, advantage)
+        return self._batched_actor_step(features_batch, noise_batch, advantage)
 
     def _update_networks(self, ctx: StepContextSignature) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Update actor and critic networks using JIT-compiled JAX autodiff."""
         step = self.step_counter
         self.step_counter += 1
-        sig_t = ctx.sig_t
-        sig_next = ctx.sig_next
+        features_t = ctx.features_t
+        features_next = ctx.features_next
         noise = ctx.noise
         reward = ctx.reward
         dt = ctx.dt
@@ -1056,7 +1056,7 @@ class ContinuousTimeActorCritic:
             self.critic_params, self.critic_opt_state, c_loss, td_error, critic_grad_norm = \
                 self._jit_critic_update(
                     self.critic_params, self.critic_opt_state, 
-                    sig_t, sig_next, reward, dt
+                    features_t, features_next, reward, dt
                 )
         
         # Actor update (JIT-compiled)
@@ -1068,7 +1068,7 @@ class ContinuousTimeActorCritic:
                 # needs the whole episode); averaged TD records the TD error delta_t, which is
                 # already known this step. Every step is recorded; actor_update_frequency is
                 # ignored in this mode.
-                self._mc_episode_sig.append(self._actor_features_t)
+                self._mc_episode_features.append(self._actor_features_t)
                 self._mc_episode_noise.append(noise)
                 if self._actor_target_is_monte_carlo:
                     self._mc_episode_reward_rate.append(reward)
@@ -1173,7 +1173,7 @@ class ContinuousTimeActorCritic:
         )
 
     def update_buffer(self, x: np.ndarray) -> None:
-        self.sliding_signature.append(x / self.training.scale)
+        self.representation_buffer.append(x / self.training.scale)
         if hasattr(self, '_path_data_dirty'):
             setattr(self, '_path_data_dirty', True)
             
@@ -1186,7 +1186,7 @@ class ContinuousTimeActorCritic:
             else:
                 action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
         else:
-            sig = self.sliding_signature.current_actor_features
+            sig = self.representation_buffer.current_actor_features
             assert self.actor_params is not None
             action = self.actor.apply(self.actor_params, sig)
 
@@ -1206,7 +1206,7 @@ class ContinuousTimeActorCritic:
             x_val = jnp.array(self.wrapper.state.x)
             return float(-x_val.T @ self.P @ x_val)
             
-        sig = self.sliding_signature.current_signature
+        sig = self.representation_buffer.current_signature
         
         assert self.critic_params is not None
         V_raw = self.critic.apply(self.critic_params, sig)
@@ -1259,17 +1259,17 @@ class ContinuousTimeActorCritic:
             for _ in range(self.algorithm.burning_steps):
                 action = jnp.zeros(self.env.B.shape[1]) #burning with zero action
                 t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
-                self.sliding_signature.append(x_t / self.training.scale)
+                self.representation_buffer.append(x_t / self.training.scale)
             if self.algorithm.preheat:
-                for _ in range(self.sliding_signature.window_size):
+                for _ in range(self.representation_buffer.window_size):
                     if self.signature_conf.state_augmentation:
-                        _ = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.training.scale])  # type: ignore
+                        _ = jnp.concatenate([self.representation_buffer.current_signature, x_t / self.training.scale])  # type: ignore
                     else:
-                        _ = self.sliding_signature.current_signature
+                        _ = self.representation_buffer.current_signature
                     # action, _, _ = self._select_action(state, self.env.step_size)
                     action = jnp.zeros(self.env.B.shape[1]) #preheat with zero action
                     t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
-                    self.sliding_signature.append(x_t / self.training.scale)
+                    self.representation_buffer.append(x_t / self.training.scale)
             # Episode accumulators (as JAX arrays to avoid sync)
             episode_loss = jnp.array(0.0)
             episode_cost = jnp.array(0.0)
@@ -1295,7 +1295,7 @@ class ContinuousTimeActorCritic:
                 # Only log signatures occasionally to avoid slowdown
                 if episode % 200 == 0 and n_steps % 10 == 0:
                     metrics_history['signature_weights'].append(
-                        np.asarray(ctx.sig_t).flatten()
+                        np.asarray(ctx.features_t).flatten()
                     )
                     metrics_history['noise'].append(
                         np.asarray(ctx.noise).flatten()
@@ -1414,7 +1414,7 @@ class ContinuousTimeActorCritic:
         
         # Save state
         saved_state = self.wrapper.state
-        buf = self.sliding_signature.buffer
+        buf = self.representation_buffer.buffer
         saved_buf: Any  # tuple (JAXCircularBuffer state) or deque (DequeBuffer), per branch below
         if hasattr(buf, '_data'):
             saved_buf = (buf._data.copy(), buf._count, buf._head)  # type: ignore[union-attr]
@@ -1422,7 +1422,7 @@ class ContinuousTimeActorCritic:
             from collections import deque
             assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
             saved_buf = deque(buf.buffer, maxlen=buf.size)
-        saved_sig = self.sliding_signature.current_signature
+        saved_sig = self.representation_buffer.current_signature
         
         self.key, subkey = jax.random.split(self.key)
         x_t = self.wrapper.reset(subkey, x0=np.array(x_init), t0=0.0)
@@ -1432,20 +1432,20 @@ class ContinuousTimeActorCritic:
         for _ in range(self.algorithm.burning_steps):
             action = jnp.zeros(self.env.B.shape[1])
             _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-            self.sliding_signature.append(x_t / self.training.scale)
+            self.representation_buffer.append(x_t / self.training.scale)
         if self.algorithm.preheat:
-            for _ in range(self.sliding_signature.window_size):
+            for _ in range(self.representation_buffer.window_size):
                 action = jnp.zeros(self.env.B.shape[1])  # zero action, consistent with training
                 _, x_t, _ = self.wrapper.step(self.wrapper.state, action)  # type: ignore
-                self.sliding_signature.append(x_t / self.training.scale)
+                self.representation_buffer.append(x_t / self.training.scale)
         
         total_reward = 0.0
         
         while not self._is_episode_done(x_t, time_only=True):
             if self.signature_conf.state_augmentation:
-                sig_input = jnp.concatenate([self.sliding_signature.current_actor_features, x_t / self.training.scale])
+                features_input = jnp.concatenate([self.representation_buffer.current_actor_features, x_t / self.training.scale])
             else:
-                sig_input = self.sliding_signature.current_actor_features
+                features_input = self.representation_buffer.current_actor_features
             
             if self.algorithm.actor_oracle:
                 if getattr(self, "_delayed_oracle", False):
@@ -1453,7 +1453,7 @@ class ContinuousTimeActorCritic:
                 else:
                     mu = -self.optimal_K @ jnp.array(self.wrapper.state.x)  # type: ignore
             else:
-                mu = self.actor.apply(self.actor_params, sig_input) #type: ignore
+                mu = self.actor.apply(self.actor_params, features_input) #type: ignore
             # Opt-in, as in _make_select_action_fn: null/<=0 means no clipping.
             if self.training.clip_action is not None and self.training.clip_action > 0:
                 mu = jnp.clip(mu, -self.training.clip_action, self.training.clip_action)
@@ -1461,7 +1461,7 @@ class ContinuousTimeActorCritic:
             _, x_next, reward = self.wrapper.step(self.wrapper.state, mu)  # type: ignore
             if x_next.ndim == 0:
                 x_next = jnp.array([x_next])
-            self.sliding_signature.append(x_next / self.training.scale)
+            self.representation_buffer.append(x_next / self.training.scale)
             total_reward += float(reward) * self.env.step_size
             x_t = x_next
         
@@ -1472,7 +1472,7 @@ class ContinuousTimeActorCritic:
         else:
             assert isinstance(buf, DequeBuffer)  # the non-_data branch is the deque buffer
             buf.buffer = saved_buf
-        self.sliding_signature.current_signature = saved_sig
+        self.representation_buffer.current_signature = saved_sig
 
         return total_reward
 

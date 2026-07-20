@@ -69,4 +69,4 @@ def test_value_gradient_trains_with_each_representation(kind):
 
     assert agent is not None and isinstance(metrics, dict) and len(metrics) > 0
     # The representation drives the feature dimension consumed by the linear critic.
-    assert agent.sliding_signature.signature_size > 0
+    assert agent.representation_buffer.signature_size > 0

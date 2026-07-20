@@ -50,20 +50,20 @@ class CriticOracle:
         return -x.T @ self.P @ x
 
 class CriticSignature:
-    def __init__(self, input_dim: int, sliding_signature: SlidingSignature, rng: Optional[np.random.Generator] = None) -> None:
+    def __init__(self, input_dim: int, representation_buffer: SlidingSignature, rng: Optional[np.random.Generator] = None) -> None:
         self.input_dim = input_dim
-        self.sliding_signature = sliding_signature
+        self.representation_buffer = representation_buffer
         self.rng = rng if rng is not None else np.random.default_rng()
-        self.W = self.rng.standard_normal(self.sliding_signature.signature_size)*0.01
+        self.W = self.rng.standard_normal(self.representation_buffer.signature_size)*0.01
     def __call__(self, signature): 
         return np.dot(self.W, signature)
     
 class ActorSignature:
-    def __init__(self, output_dim: int, sliding_signature: SlidingSignature, rng: Optional[np.random.Generator] = None) -> None:
+    def __init__(self, output_dim: int, representation_buffer: SlidingSignature, rng: Optional[np.random.Generator] = None) -> None:
         self.output_dim = output_dim
-        self.sliding_signature = sliding_signature
+        self.representation_buffer = representation_buffer
         self.rng = rng if rng is not None else np.random.default_rng()
-        self.W = self.rng.standard_normal((self.sliding_signature.signature_size, output_dim))*0.01
+        self.W = self.rng.standard_normal((self.representation_buffer.signature_size, output_dim))*0.01
     def __call__(self, signature): 
         return self.W.T @ signature
     
