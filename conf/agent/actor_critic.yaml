@@ -20,6 +20,8 @@ training:
   # from the critic's vertical derivative instead.
   critic_lr: 1e-3
   optimizer: adam           # 'adam' (RM-scheduled diagonal preconditioner) or 'sgd' (plain continuous-time gradient, Doya 2000)
+  actor_optimizer: null     # per-role override; null -> use `optimizer`. Actor is a TRUE gradient (Adam applies)
+  critic_optimizer: null    # per-role override; null -> use `optimizer`. Critic is semi-gradient TD ('sgd' = classical RM-TD)
   scale: 1.0
   clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
   # null/<=0: no action clipping. Matched to conf/agent/value_gradient.yaml:14 so that both

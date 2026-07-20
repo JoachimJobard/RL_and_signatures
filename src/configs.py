@@ -38,6 +38,13 @@ class TrainingConfig:
     # (lr_decay_power) modulates the base rate of either; 'sgd' isolates how much of the behaviour is
     # Adam's diagonal preconditioning.
     optimizer: str = "adam"
+    # Per-role optimiser override (takes precedence over `optimizer` when set; else both roles fall
+    # back to it). The actor is a TRUE stochastic gradient (Adam applies); the critic is a
+    # semi-gradient TD fixed point, where Adam preconditions a non-gradient and breaks the RM
+    # conditions, so 'sgd' there is classical RM-TD. Enables e.g. actor_optimizer='adam' +
+    # critic_optimizer='sgd'.
+    actor_optimizer: str | None = None
+    critic_optimizer: str | None = None
     scale: float = 1.0
     clip_gradient: float | None = None  # None/<=0: no gradient clipping (default); else global-norm bound
     clip_action: float | None = None  # None/<=0: no action clipping (default); else bound |u|

@@ -250,9 +250,11 @@ class ContinuousTimeActorCritic:
         # k is the episode index and this is a per-episode RM schedule; with the online actor it is
         # per-step. lr_decay_power = 0 (default) is a constant rate. The critic is left constant
         # (per-step decay would be far more aggressive; see robbins_monro_schedule).
-        opt_name = getattr(self.training, "optimizer", "adam")
+        shared_opt = getattr(self.training, "optimizer", "adam")
+        actor_opt = getattr(self.training, "actor_optimizer", None) or shared_opt
+        critic_opt = getattr(self.training, "critic_optimizer", None) or shared_opt
         self.actor_optimizer = build_optimizer(
-            opt_name,
+            actor_opt,
             self.training.actor_lr * self.env.step_size,
             clip_gradient=self.training.clip_gradient, b1=0.1,
             decay_power=float(getattr(self.training, "lr_decay_power", 0.0)))
@@ -260,7 +262,7 @@ class ContinuousTimeActorCritic:
         # count. lr_decay_power (actor) > critic_lr_decay_power (critic) plus the actor's
         # once-per-episode cadence puts the actor on the slower timescale.
         self.critic_optimizer = build_optimizer(
-            opt_name,
+            critic_opt,
             self.training.critic_lr * self.env.step_size,
             clip_gradient=self.training.clip_gradient,
             decay_power=float(getattr(self.training, "critic_lr_decay_power", 0.0)))
