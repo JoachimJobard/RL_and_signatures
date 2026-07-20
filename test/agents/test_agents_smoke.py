@@ -14,7 +14,7 @@ from src.training.train import train
 from src.utils.run_context import find_repo_root
 
 CONF_DIR = str(find_repo_root(__file__) / "conf")
-SUPPORTED_AGENTS = ["signatures", "base_jax", "value_gradient"]
+SUPPORTED_AGENTS = ["actor_critic", "base_jax", "value_gradient"]
 
 
 @pytest.mark.parametrize("agent_name", SUPPORTED_AGENTS)

@@ -1,5 +1,5 @@
 # filepath: /home/joachim/Documents/workspace/Reinforcement_Learning/conf/agent/CTAC_sig_jax.yaml
-_target_: src.agents.signatures_jax.CTACSignatureJAX
+_target_: src.agents.actor_critic_jax.ContinuousTimeActorCritic
 
 # =============================================================================
 # Environment & Setup

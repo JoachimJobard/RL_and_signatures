@@ -2,7 +2,7 @@
 # Unified Configuration for Continuous-Time RL Experiments
 # =============================================================================
 # Usage:
-#   python main.py                           # Default: signatures agent + delay env
+#   python main.py                           # Default: actor_critic agent + delay env
 #   python main.py agent=base_jax            # Use vanilla CTAC
 #   python main.py agent=csac                # Use Soft Actor-Critic
 #   python main.py agent=value_gradient      # Use Value Gradient
@@ -10,7 +10,7 @@
 #   python main.py agent.depth=4 agent.training_params.n_episodes=5000
 
 defaults:
-  - agent: signatures       # Options: signatures, base_jax, csac, value_gradient
+  - agent: actor_critic       # Options: actor_critic, base_jax, csac, value_gradient
   - env: delay_jax          # Options: delay_jax, mackey_glass, stable_2d, etc.
   - launcher: local         # Options: local, slurm
   - _self_

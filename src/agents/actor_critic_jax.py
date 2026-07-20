@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 from src.utils.dynamic_signature import SlidingSignatureJAX, DequeBuffer
 from src.representations.factory import make_representation, RepresentationBuffer
-from src.utils.optim import build_adam
+from src.utils.optim import build_optimizer
 from src.networks.LQR_actor_critics import (
     ActorFlax, ActorFlaxLayerNorm, CriticFlax, CriticFlaxLayerNorm, CriticFlaxQuadratic,
 )
@@ -34,7 +34,7 @@ import scipy
 from src.envs.env_rk_jax import JAXDDEEnv, JAXEnvWrapper
 
 
-class CTACSignatureJAX:
+class ContinuousTimeActorCritic:
   
     def __init__(
         self,
@@ -207,8 +207,26 @@ class CTACSignatureJAX:
             origin_augmentation=self.signature_conf.origin_augmentation,
             bias=self.signature_conf.bias,
         )
+        # Actor feature map (agent.signature.actor_feature_map). 'raw' (default) strips the
+        # polynomial LIFT from the actor's input, leaving the underlying representation the actor
+        # network maps directly: the raw state (markovian) or the raw path (raw_history). That lift
+        # is a value-function device for the linear-in-features critic; the linear control on a
+        # linear plant is a linear functional of the path. The SIGNATURE is itself the representation
+        # (linear functionals of it are universal), NOT a polynomial lift -- so the signature actor
+        # takes the SIGNATURE (actor_representation left None => reuse the critic's signature map).
+        # 'same': actor reuses the critic's feature map for every kind.
+        actor_representation = None
+        if str(getattr(self.signature_conf, "actor_feature_map", "raw")).lower() == "raw":
+            if self.signature_conf.kind == "markovian":
+                actor_representation = make_representation(
+                    "markovian", window_length=window_length, n_state=self.env.N, degree=1)
+            elif self.signature_conf.kind == "raw_history":
+                actor_representation = make_representation(
+                    "raw_history", window_length=window_length, n_state=self.env.N, degree=1)
+            # kind == "signature": leave actor_representation = None -> the actor takes the signature.
         self.sliding_signature = RepresentationBuffer(
             representation, window_length=window_length, n_state=self.env.N,
+            actor_representation=actor_representation,
         )
         self._sigma_effective: float | jax.Array = self.noise.sigma
 
@@ -219,10 +237,10 @@ class CTACSignatureJAX:
         self.critic: CriticFlax | CriticFlaxLayerNorm | CriticFlaxQuadratic = self._build_critic()
         key_a, key_c = jax.random.split(self.key)
         if self.signature_conf.state_augmentation:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.actor_feature_dim + self.env.N))
             self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size + self.env.N))
         else:
-            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.signature_size))
+            self.actor_params = self.actor.init(key_a, jnp.zeros(self.sliding_signature.actor_feature_dim))
             self.critic_params = self.critic.init(key_c, jnp.zeros(self.sliding_signature.signature_size))
 
         #optimizers — absorb dt into learning rate for correct continuous-time scaling.
@@ -232,14 +250,17 @@ class CTACSignatureJAX:
         # k is the episode index and this is a per-episode RM schedule; with the online actor it is
         # per-step. lr_decay_power = 0 (default) is a constant rate. The critic is left constant
         # (per-step decay would be far more aggressive; see robbins_monro_schedule).
-        self.actor_optimizer = build_adam(
+        opt_name = getattr(self.training, "optimizer", "adam")
+        self.actor_optimizer = build_optimizer(
+            opt_name,
             self.training.actor_lr * self.env.step_size,
             clip_gradient=self.training.clip_gradient, b1=0.1,
             decay_power=float(getattr(self.training, "lr_decay_power", 0.0)))
         # Two-timescale (actor-critic): the critic also carries an RM schedule, on its per-step
         # count. lr_decay_power (actor) > critic_lr_decay_power (critic) plus the actor's
         # once-per-episode cadence puts the actor on the slower timescale.
-        self.critic_optimizer = build_adam(
+        self.critic_optimizer = build_optimizer(
+            opt_name,
             self.training.critic_lr * self.env.step_size,
             clip_gradient=self.training.clip_gradient,
             decay_power=float(getattr(self.training, "critic_lr_decay_power", 0.0)))
@@ -526,7 +547,7 @@ class CTACSignatureJAX:
             n_inf = int(jnp.sum(jnp.isinf(x)))
             report_clamp_activation(
                 "nonfinite_state_termination/actor_critic",
-                code_location="src/agents/signatures_jax.py:_is_episode_done",
+                code_location="src/agents/actor_critic_jax.py:_is_episode_done",
                 bound_description="the state must be finite (no NaN, no inf component)",
                 most_extreme_raw_value=float("nan") if n_nan else float("inf"),
                 number_of_affected_elements=n_nan + n_inf,
@@ -545,7 +566,7 @@ class CTACSignatureJAX:
         if bound is not None and bound > 0 and float(state_norm) > bound:
             report_clamp_activation(
                 "divergence_threshold/actor_critic",
-                code_location="src/agents/signatures_jax.py:_is_episode_done",
+                code_location="src/agents/actor_critic_jax.py:_is_episode_done",
                 bound_description=f"||x|| <= {bound}",
                 most_extreme_raw_value=float(state_norm),
                 additional_context=(
@@ -579,9 +600,12 @@ class CTACSignatureJAX:
         if getattr(self, "_delayed_oracle", False):
             self._oracle_xi_t = self._delayed_oracle_window()
         if self.signature_conf.state_augmentation:
-            state = jnp.concatenate([self.sliding_signature.current_signature, x_scaled])  # type: ignore
+            state = jnp.concatenate([self.sliding_signature.current_actor_features, x_scaled])  # type: ignore
         else:
-            state = self.sliding_signature.current_signature
+            state = self.sliding_signature.current_actor_features
+        # Capture the actor's features at t (before the env-step append) for the once-per-episode
+        # actor recording and the online-TD update, mirroring self._oracle_xi_t.
+        self._actor_features_t = state
         # Action selection
         dt = self.env.step_size
         action, mu, noise = self._select_action(state, dt)
@@ -1044,7 +1068,7 @@ class CTACSignatureJAX:
                 # needs the whole episode); averaged TD records the TD error delta_t, which is
                 # already known this step. Every step is recorded; actor_update_frequency is
                 # ignored in this mode.
-                self._mc_episode_sig.append(sig_t)
+                self._mc_episode_sig.append(self._actor_features_t)
                 self._mc_episode_noise.append(noise)
                 if self._actor_target_is_monte_carlo:
                     self._mc_episode_reward_rate.append(reward)
@@ -1055,7 +1079,7 @@ class CTACSignatureJAX:
                 self.actor_params, self.actor_opt_state, actor_grad_norm = \
                     self._jit_actor_update(
                         self.actor_params, self.actor_opt_state,
-                        sig_t, noise, td_error, sigma, dt
+                        self._actor_features_t, noise, td_error, sigma, dt
                     )
         
         # Return JAX arrays - defer float() sync to episode end
@@ -1162,7 +1186,7 @@ class CTACSignatureJAX:
             else:
                 action = -self.optimal_K @ jnp.array(self.wrapper.state.x)
         else:
-            sig = self.sliding_signature.current_signature
+            sig = self.sliding_signature.current_actor_features
             assert self.actor_params is not None
             action = self.actor.apply(self.actor_params, sig)
 
@@ -1419,9 +1443,9 @@ class CTACSignatureJAX:
         
         while not self._is_episode_done(x_t, time_only=True):
             if self.signature_conf.state_augmentation:
-                sig_input = jnp.concatenate([self.sliding_signature.current_signature, x_t / self.training.scale])
+                sig_input = jnp.concatenate([self.sliding_signature.current_actor_features, x_t / self.training.scale])
             else:
-                sig_input = self.sliding_signature.current_signature
+                sig_input = self.sliding_signature.current_actor_features
             
             if self.algorithm.actor_oracle:
                 if getattr(self, "_delayed_oracle", False):

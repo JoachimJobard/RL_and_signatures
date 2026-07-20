@@ -7,7 +7,7 @@
 # nothing downstream matters. The per-episode diagnostics (monitor_snr=true) resolve the BEGINNING of
 # training, where the pathology lives: a cold critic emits exploding TD-error advantages that kick
 # the actor before it warms. Axes therefore target that transient + exploration:
-#   learner  in {signatures (AC), policy_gradient (PG)}
+#   learner  in {actor_critic (AC), policy_gradient (PG)}
 #   sigma    in {0.1, 0.3, 0.5, 1.0}                     -- exploration strength (advantage coupling)
 #   (actor_lr, critic_lr) in {(1e-3,1e-3),(1e-3,1e-2),(1e-2,1e-2)}  -- two-timescale (fast critic)
 # = 2 x 4 x 3 = 24 tasks. 2000 episodes (longer than the campaign's 1000, to see convergence once

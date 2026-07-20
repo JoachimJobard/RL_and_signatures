@@ -5,7 +5,7 @@ This replaces: main.py, main_signatures.py, main_base_jax.py, main_CSAC.py
 
 Usage:
     python main_unified.py                                    # Default config
-    python main_unified.py agent=signatures                   # Signature-based CTAC
+    python main_unified.py agent=actor_critic                   # continuous-time actor-critic
     python main_unified.py agent=base_jax                     # Vanilla CTAC
     python main_unified.py agent=value_gradient               # Value Gradient
     python main_unified.py agent.depth=4 env=mackey_glass     # Custom params

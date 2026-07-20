@@ -45,9 +45,30 @@ def build_adam(learning_rate, clip_gradient=None, decay_power=0.0, **adam_kwargs
     Returns:
         An ``optax.GradientTransformation``.
     """
+    return build_optimizer("adam", learning_rate, clip_gradient=clip_gradient,
+                           decay_power=decay_power, **adam_kwargs)
+
+
+def build_optimizer(name, learning_rate, clip_gradient=None, decay_power=0.0, **kwargs):
+    """Build the actor/critic optimiser by name, with the optional Robbins-Monro schedule and
+    global-norm gradient clipping.
+
+    ``name='adam'`` is the adaptive, diagonally-preconditioned update (accepts ``b1``/``b2`` via
+    ``kwargs``); ``name='sgd'`` is the plain gradient update -- the standard continuous-time
+    actor-critic / value-gradient formula (Doya 2000), with no preconditioning; Adam-only kwargs
+    (``b1``, ``b2``) are ignored for it. The Robbins-Monro schedule (``decay_power > 0``) modulates
+    the BASE learning rate of either optimiser; clipping, when enabled, is applied
+    (direction-preserving, global-norm) before the update.
+    """
     lr = robbins_monro_schedule(learning_rate, decay_power) if (decay_power and decay_power > 0) \
         else learning_rate
-    adam = optax.adam(lr, **adam_kwargs)
+    name = str(name).lower()
+    if name == "adam":
+        core = optax.adam(lr, **kwargs)
+    elif name in ("sgd", "standard", "gradient"):
+        core = optax.sgd(lr, momentum=kwargs.get("momentum"))
+    else:
+        raise ValueError(f"Unknown optimizer {name!r} (expected 'adam' or 'sgd').")
     if clip_gradient is not None and clip_gradient > 0:
-        return optax.chain(optax.clip_by_global_norm(clip_gradient), adam)
-    return adam
+        return optax.chain(optax.clip_by_global_norm(clip_gradient), core)
+    return core

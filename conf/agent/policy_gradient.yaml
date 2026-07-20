@@ -1,11 +1,11 @@
 # Monte-Carlo policy gradient (REINFORCE, NO baseline) on the shared representations.
 #
 # The THIRD learner of the campaign, alongside conf/agent/value_gradient.yaml (analytic control
-# extraction from the critic's vertical derivative) and conf/agent/signatures.yaml (the continuous
-# actor-critic, Doya 2000 Equation 20). It reuses CTACSignatureJAX unchanged and differs from the
+# extraction from the critic's vertical derivative) and conf/agent/actor_critic.yaml (the continuous
+# actor-critic, Doya 2000 Equation 20). It reuses ContinuousTimeActorCritic unchanged and differs from the
 # actor-critic in exactly ONE respect, algorithm.actor_target:
 #
-#   signatures.yaml      actor_target: td           -- the actor regresses the score function
+#   actor_critic.yaml      actor_target: td           -- the actor regresses the score function
 #                                                      against the instantaneous temporal-difference
 #                                                      error, wdot^A = eta^A delta(t) n(t) dA/dw.
 #                                                      The signal is BOOTSTRAPPED through the critic.
@@ -27,12 +27,12 @@
 # actually flew. An H1 verdict that survives this learner is a statement about the REPRESENTATION,
 # which is a strictly stronger claim than one resting on two value-based learners.
 #
-# INHERITANCE. Composed from conf/agent/signatures.yaml so that every parameter matched to the
+# INHERITANCE. Composed from conf/agent/actor_critic.yaml so that every parameter matched to the
 # value gradient -- clip_action (null), critic_lr (1e-3), noise.length_scale (0.002), noise.sigma,
 # noise.schedule, discount.tau (1.0), divergence_threshold -- is inherited rather than copied, and
 # cannot drift out of step with it. Only actor_target is overridden.
 defaults:
-  - signatures
+  - actor_critic
   - _self_
 
 algorithm:

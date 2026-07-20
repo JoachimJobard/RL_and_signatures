@@ -11,7 +11,7 @@
 #
 # Example:
 #   bash bash_scripts/cluster/jeanzay/python/python_script_launcher.sh \
-#       --args "agent=signatures env=MG_1D agent.training.n_episodes=2000 wandb.mode=offline"
+#       --args "agent=actor_critic env=MG_1D agent.training.n_episodes=2000 wandb.mode=offline"
 # =============================================================================
 
 set -euo pipefail

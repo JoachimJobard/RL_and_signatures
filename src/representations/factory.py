@@ -63,6 +63,7 @@ class RepresentationBuffer:
         window_length: int,
         n_state: int,
         dtype: DTypeLike = np.float64,
+        actor_representation: Representation | None = None,
     ) -> None:
         self.representation = representation
         self.window_length = window_length
@@ -73,6 +74,17 @@ class RepresentationBuffer:
         self.buffer = DequeBuffer(size=window_length, dtype=dtype)
         # Pure, differentiable feature map (jitted) — what the control law differentiates.
         self._jit_compute_sig = jax.jit(representation.feature_fn)
+        # Optional SEPARATE actor feature map on the SAME window. The actor network eats the raw
+        # path/state directly (no polynomial/signature lift): the lift is a value-function device
+        # for the linear-in-features critic, whereas the linear control on a linear plant is a
+        # linear functional of the path. None => the actor reuses the critic's feature map.
+        self.actor_representation = actor_representation
+        if actor_representation is not None:
+            self.actor_feature_dim = int(actor_representation.feature_dim)
+            self._jit_compute_actor_sig = jax.jit(actor_representation.feature_fn)
+        else:
+            self.actor_feature_dim = self.signature_size
+            self._jit_compute_actor_sig = self._jit_compute_sig
         self._empty_sig = jnp.zeros(self.signature_size)
         self._current_signature = self._empty_sig
         self._signature_dirty = True
@@ -100,6 +112,17 @@ class RepresentationBuffer:
     def current_signature(self, value: jnp.ndarray) -> None:
         self._current_signature = value
         self._signature_dirty = False
+
+    @property
+    def current_actor_features(self) -> jnp.ndarray:
+        """Actor-side features from the SAME window. With a separate ``actor_representation`` (the
+        'raw'/no-feature-map actor) this is the raw path/state fed straight to the actor network;
+        otherwise it equals :attr:`current_signature`."""
+        if self.actor_representation is None:
+            return self.current_signature
+        if len(self.buffer) < 1:
+            return jnp.zeros(self.actor_feature_dim)
+        return self._jit_compute_actor_sig(self._full_window())
 
     def _full_window(self) -> jnp.ndarray:
         """The window as a fixed-size ``(window_length, n_state)`` array (front-padded

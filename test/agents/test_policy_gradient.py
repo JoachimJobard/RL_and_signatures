@@ -379,7 +379,7 @@ def test_unknown_actor_target_fails_loudly():
 
 def test_actor_target_defaults_to_td_and_signatures_is_unchanged():
     """The actor-critic must be untouched by this feature: its target stays the TD error."""
-    ac = _build(agent_name="signatures")
+    ac = _build(agent_name="actor_critic")
     assert ac._actor_target_is_monte_carlo is False
     pg = _build(agent_name="policy_gradient")
     assert pg._actor_target_is_monte_carlo is True

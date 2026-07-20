@@ -1,7 +1,7 @@
-# CTACSignatureJAX Agent Configuration (env-specific: Mackey-Glass 1D)
+# ContinuousTimeActorCritic Agent Configuration (env-specific: Mackey-Glass 1D)
 # Continuous-Time Actor-Critic with Path Signatures for Delayed Systems
 
-_target_: src.agents.signatures_jax.CTACSignatureJAX
+_target_: src.agents.actor_critic_jax.ContinuousTimeActorCritic
 
 # =============================================================================
 # Training

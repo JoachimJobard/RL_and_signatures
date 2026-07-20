@@ -1,7 +1,7 @@
-# CTACSignatureJAX Agent Configuration
+# ContinuousTimeActorCritic Agent Configuration
 # Continuous-Time Actor-Critic with Path Signatures for Delayed Systems
 
-_target_: src.agents.signatures_jax.CTACSignatureJAX
+_target_: src.agents.actor_critic_jax.ContinuousTimeActorCritic
 
 # =============================================================================
 # Training (optimization, episodes, logging)
@@ -19,6 +19,7 @@ training:
   # matched and cannot be: the value gradient has no actor, extracting its control analytically
   # from the critic's vertical derivative instead.
   critic_lr: 1e-3
+  optimizer: adam           # 'adam' (RM-scheduled diagonal preconditioner) or 'sgd' (plain continuous-time gradient, Doya 2000)
   scale: 1.0
   clip_gradient: null   # opt-in global-norm clipping; null = no clipping (default)
   # null/<=0: no action clipping. Matched to conf/agent/value_gradient.yaml:14 so that both
@@ -35,7 +36,7 @@ training:
   # terminated episodes on state excursions the value gradient was allowed to complete, which is a
   # confound in any actor-critic-versus-value-gradient comparison at fixed representation.
   # The bound is INERT with respect to the state scaling only while network.normalize_entries is
-  # false: signatures_jax.py:93 sets training.scale = training.divergence_threshold when
+  # false: actor_critic_jax.py:93 sets training.scale = training.divergence_threshold when
   # normalize_entries is true, so a study enabling that flag changes its normalisation constant
   # from 50 to 100 along with this value.
   # null/<=0: NO trimming, matched to conf/agent/value_gradient.yaml. See the note there.
@@ -121,7 +122,8 @@ noise:
 # =============================================================================
 signature:
   kind: signature       # representation: signature | raw_history | markovian
-  depth: 3              # signature truncation depth (kind=signature)
+  actor_feature_map: raw  # 'raw': strip the poly lift -> actor eats raw state (markovian) / raw path (raw_history) / the signature (signature); 'same': actor reuses the critic map
+  depth: 2              # signature truncation depth (kind=signature); matched to value_gradient.yaml (was 3 -> confound: AC ran depth-3 signatures vs VG depth-2)
   degree: 2             # polynomial degree (kind=raw_history / markovian)
   window_size: 40
   time_augmentation: true

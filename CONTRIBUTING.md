@@ -18,7 +18,7 @@ pipeline runs in double precision.
 ```
 src/                         # importable library (unit-tested, depended upon)
     agents/
-        signatures_jax.py    # CTACSignatureJAX: continuous-time actor-critic over signatures
+        actor_critic_jax.py    # ContinuousTimeActorCritic: continuous-time actor-critic over signatures
         base_jax.py          # CTACJAX: vanilla (state-based) continuous-time actor-critic
         value_gradient_jax.py# value-gradient / HJB agent (target network)
         CSAC_jax.py          # QUARANTINED, unsupported (outside thesis scope)

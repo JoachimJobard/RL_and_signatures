@@ -1,5 +1,5 @@
 # Oracle-ladder study (methodology §3 rung 2) — error decomposition on a delayed cell.
-# Actor-critic agent (CTACSignatureJAX, signature representation), env in --common
+# Actor-critic agent (ContinuousTimeActorCritic, signature representation), env in --common
 # (a LINEAR delayed cell, so the delayed-LQR oracle K*/V* exists; wired into the agent
 # via agent.algorithm.{actor_oracle,critic_oracle}). Fixed representation (signature
 # depth3); the axis is which component is replaced by the analytic optimum.

@@ -93,7 +93,7 @@ def build_agent(cfg: DictConfig, env: JAXDDEEnv) -> TrainableAgent:
     Returns
     -------
     TrainableAgent
-        Initialized agent (CTACSignatureJAX, CTACJAX, CSAC, etc.)
+        Initialized agent (ContinuousTimeActorCritic, CTACJAX, CSAC, etc.)
     """
     agent_cfg = cfg.agent
 

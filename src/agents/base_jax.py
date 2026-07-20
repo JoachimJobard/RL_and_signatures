@@ -6,7 +6,7 @@ from typing import Any, Callable
 import jax
 from jax.numpy import ndarray
 import numpy as np
-from src.agents.signatures_jax import CTACSignatureJAX
+from src.agents.actor_critic_jax import ContinuousTimeActorCritic
 from src.networks.LQR_actor_critics import CriticFlaxQuadratic
 from src.utils.dynamic_signature import DequeBuffer
 from src.utils.step_metrics import StepMetrics
@@ -22,7 +22,7 @@ import scipy
 from src.envs.env_rk_jax import JAXDDEEnv
 
 
-class CTACJAX(CTACSignatureJAX):
+class CTACJAX(ContinuousTimeActorCritic):
     """Continuous-Time Actor-Critic - Modular Implementation.
     
     All variants controlled via configuration flags:

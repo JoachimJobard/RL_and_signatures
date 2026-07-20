@@ -11,7 +11,7 @@
 # oracle harness (double_integrator / linear_dde_scalar / platoon_h1h2 / MG cells).
 #
 # AGENT selects the learner: `value_gradient` (ContinuousValueGradient, no actor; the
-# default and the agent behind data/main_unified) or `signatures` (CTACSignatureJAX, the
+# default and the agent behind data/main_unified) or `actor_critic` (ContinuousTimeActorCritic, the
 # continuous-time actor-critic). Both consume the SAME feature maps through the SAME
 # `make_representation` factory, so an actor-critic-versus-value-gradient comparison at
 # fixed representation is not confounded by two implementations of the representation.
@@ -55,7 +55,7 @@ CELL=${CELLS[$ci]}; REP=${REPS[$ri]}; SEED=${SEEDS[$si]}
 # `agent.signature.force_signature_window=true` on the python invocation. Without that flag the
 # window_size passed here was DISCARDED by both agents, each deriving its own from the delay by a
 # DIFFERENT formula -- ContinuousValueGradient._compute_window_size (value_gradient_jax.py:56-61)
-# adds 3, CTACSignatureJAX._init_signatures (signatures_jax.py:161-166) adds 1 -- so the two agents
+# adds 3, ContinuousTimeActorCritic._init_signatures (actor_critic_jax.py:161-166) adds 1 -- so the two agents
 # ran on different histories (measured, WIN -> VG/AC: markovian 10/10, linear_dde 8/6, platoon 7/6,
 # mg_limit_cycle 27/25, mg_chaotic 71/69). On kind=signature that divergence leaves NO trace in any
 # recorded dimension (the signature dim depends only on channel count and depth), so it is
@@ -121,7 +121,7 @@ sleep "$(( SLURM_ARRAY_TASK_ID * 3 ))"   # stagger starts
 
 # DIVERGENCE THRESHOLD is passed explicitly so that BOTH agents cut episodes at the SAME state
 # norm. Relying on the per-agent defaults would compare two different episode-termination rules:
-# conf/agent/value_gradient.yaml sets 100.0 while conf/agent/signatures.yaml sets 50.0. Measured on
+# conf/agent/value_gradient.yaml sets 100.0 while conf/agent/actor_critic.yaml sets 50.0. Measured on
 # mg_chaotic/raw_history seed 0, that mismatch cut ALL THREE actor-critic episodes at ||x||>50
 # (first at episode 0, ||x||=50.75, peak 97.46) against a single cut at >100 for the value gradient,
 # i.e. the actor-critic was charged for excursions the value gradient was allowed to complete.

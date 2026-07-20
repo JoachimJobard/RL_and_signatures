@@ -10,7 +10,7 @@
 #
 # Variants file format (see python/variants_example.txt):
 #   - one Hydra-override string per line, e.g.:
-#         agent=signatures env=MG_1D run_tag=depth2 agent.signature.depth=2
+#         agent=actor_critic env=MG_1D run_tag=depth2 agent.signature.depth=2
 #   - blank lines and lines starting with '#' are ignored.
 #   - all tasks are grouped under data/main_unified/<experiment-group>/ and each
 #     task's folder is labelled by its run_tag.

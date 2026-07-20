@@ -2,7 +2,7 @@
 Configuration dataclasses for CTAC agents.
 
 Groups the ~30 scattered parameters into logical, documented units.
-Used by CTACSignatureJAX and (eventually) all JAX-based agents.
+Used by ContinuousTimeActorCritic and (eventually) all JAX-based agents.
 
 The old interface (training_params dict + individual kwargs) is supported
 via `from_legacy_params()` for backward compatibility with CTACJAX etc.
@@ -33,6 +33,11 @@ class TrainingConfig:
     max_time: float = 20.0
     actor_lr: float = 1e-3
     critic_lr: float = 1e-3
+    # Actor/critic optimiser: 'adam' (RM-scheduled adaptive diagonal preconditioner) or 'sgd' (plain
+    # continuous-time gradient, the standard Doya 2000 update, no preconditioning). RM decay
+    # (lr_decay_power) modulates the base rate of either; 'sgd' isolates how much of the behaviour is
+    # Adam's diagonal preconditioning.
+    optimizer: str = "adam"
     scale: float = 1.0
     clip_gradient: float | None = None  # None/<=0: no gradient clipping (default); else global-norm bound
     clip_action: float | None = None  # None/<=0: no action clipping (default); else bound |u|
@@ -148,6 +153,13 @@ class SignatureConfig:
     swept in the H2 fairness sweep.
     """
     kind: str = "signature"
+    # Actor feature map: 'raw' (default) strips the polynomial LIFT from the actor's input, leaving
+    # the underlying representation -- raw state (markovian) or raw path (raw_history) -- which the
+    # actor network maps directly; the lift is a value-function device for the linear-in-features
+    # critic. The signature is itself the representation (linear functionals of it are universal, not
+    # a lift), so the signature actor takes the signature. 'same' reuses the critic's feature map for
+    # the actor (legacy). Critic-side is unchanged either way.
+    actor_feature_map: str = "raw"
     degree: int = 2
     depth: int = 2
     window_size: int = 10

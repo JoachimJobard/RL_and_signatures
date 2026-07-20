@@ -28,7 +28,7 @@ SWEEP_PARTITION="${SWEEP_PARTITION:-prepost}"
 SWEEP_TIME="${SWEEP_TIME:-08:00:00}"
 ACCOUNT="${ACCOUNT:-}"                       # optional on non-billed partitions
 
-LEARNERS=(value_gradient signatures policy_gradient)
+LEARNERS=(value_gradient actor_critic policy_gradient)
 CELLS=(markovian linear_dde hopfield_nonlinear mg_chaotic platoon)
 REPS=(markovian raw_history signature)
 LR_SCALES=(0.1 1.0 10.0)                      # alpha_0 in {1e-4, 1e-3, 1e-2}

@@ -10,15 +10,15 @@
 # (cell, rep) at a given seed uses the same derived per-role seeds). The smoke run pins a
 # single fixed seed (0).
 #
-# AGENT selects the learner (default `value_gradient`; `signatures` = the continuous-time
-# actor-critic CTACSignatureJAX). Both agents build their features through the same
+# AGENT selects the learner (default `value_gradient`; `actor_critic` = the continuous-time
+# actor-critic ContinuousTimeActorCritic). Both agents build their features through the same
 # `make_representation` factory, so the three representations are the same objects in both.
 #
 # Usage (Jean Zay login node, after git pull + uv sync):
 #   ACCOUNT=<projid>@cpu bash experiments/h1h2_evaluation/jeanzay/rl_launch.sh                    # value-gradient, full
 #   ACCOUNT=<projid>@cpu bash experiments/h1h2_evaluation/jeanzay/rl_launch.sh --smoke            # 2 cells x 3 reps x seed 0
-#   ACCOUNT=<projid>@cpu AGENT=signatures bash .../rl_launch.sh                                   # actor-critic, full
-#   ACCOUNT=<projid>@cpu AGENT=signatures bash .../rl_launch.sh --smoke                           # actor-critic smoke
+#   ACCOUNT=<projid>@cpu AGENT=actor_critic bash .../rl_launch.sh                                   # actor-critic, full
+#   ACCOUNT=<projid>@cpu AGENT=actor_critic bash .../rl_launch.sh --smoke                           # actor-critic smoke
 #
 # Partition / QoS (see ~/.claude/CLAUDE.md): cpu_p1 + qos_cpu-t3 (billed CPU); smoke uses
 # qos_cpu-dev. Replotting/aggregation of the saved eval.pkl is a separate prepost step.
@@ -41,8 +41,8 @@ AGENT="${AGENT:-value_gradient}"
 # abstract-evidence audit, which observed that "three algorithms work" could not be a measurement
 # over three algorithms when the launcher rejects one of them.
 case "$AGENT" in
-    value_gradient|signatures|policy_gradient) ;;
-    *) echo "Error: AGENT must be 'value_gradient', 'signatures' or 'policy_gradient' (got '$AGENT')" >&2; exit 1 ;;
+    value_gradient|actor_critic|policy_gradient) ;;
+    *) echo "Error: AGENT must be 'value_gradient', 'actor_critic' or 'policy_gradient' (got '$AGENT')" >&2; exit 1 ;;
 esac
 # Runs go to $SCRATCH; only the slurm logs stay beside the repo-independent group dir.
 DATA_ROOT="${RL_SIGNATURES_DATA_ROOT:-${SCRATCH:?SCRATCH not set — are you on Jean Zay?}/rl_campaigns/$NAME_PROJECT}"
@@ -95,7 +95,7 @@ else
     # carry an H1 claim). All remain dispatchable in rl_array.slurm.
     #
     # Task count: this launcher submits ONE learner per invocation, so 5 cells x 3 reps x 5 seeds
-    # = 75 tasks per learner; the full three-learner study (value_gradient + signatures +
+    # = 75 tasks per learner; the full three-learner study (value_gradient + actor_critic +
     # policy_gradient) is 225 tasks across three submissions.
     CELLS=(markovian mg_chaotic hopfield_nonlinear linear_dde platoon); SEEDS=(0 1 2 3 4); N_EPISODES=1000
     QOS="qos_cpu-t3"; TIME="04:00:00"; DEBUG="false"
