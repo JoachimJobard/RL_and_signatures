@@ -26,7 +26,9 @@ NGRID=$(( NL*NK*NR ))
 # Env is parameterised (oscillator defaults preserved). For a DDE the reference optimum is
 # NOT -K_gamma x (state feedback) but the delayed-LQR oracle -- run once as the last array index.
 PLANT="${PLANT:-harmonic_oscillator}"; MAX_TIME="${MAX_TIME:-5.0}"; T_SIM="${T_SIM:-5.0}"; TAU="${TAU:-1.0}"
-X0ARG=""; [ -n "${X0_TEST:-}" ] && X0ARG="eval.x0_test=$X0_TEST"
+# x0 is passed WITHOUT commas (sbatch --export splits on commas): underscore-separated,
+# optional brackets; rebuild the hydra list here. e.g. X0_TEST=0.8_0.0 -> eval.x0_test=[0.8,0.0]
+X0ARG=""; [ -n "${X0_TEST:-}" ] && X0ARG="eval.x0_test=[$(echo "$X0_TEST" | tr -d '[]' | tr '_' ',')]"
 FWARG="";  [ "${FORCE_WINDOW:-false}" = "true" ] && FWARG="agent.signature.force_signature_window=true"
 
 # Oracle reference (last index): delayed-LQR optimum, representation-agnostic, seed 42.
