@@ -137,7 +137,13 @@ class ContinuousTimeActorCritic:
                              and float(self.env.max_delay) > 0)
         if is_linear_delayed:
             from src.solvers.oracle_agent import delayed_lqr_for_env
-            self.lqr = delayed_lqr_for_env(self.env)
+            # Same-objective oracle: match the agent's continuous-time discount gamma = 1/tau via
+            # the per-step factor beta = exp(-gamma dt) = exp(-dt/tau). Undiscounted (beta=1) when
+            # the agent is undiscounted, so the oracle is optimal for the SAME cost the agent minimises.
+            beta = float(np.exp(-float(self.env.step_size) / self.discount.tau)) if self.discount.discounted else 1.0
+            self.lqr = delayed_lqr_for_env(self.env, discount_beta=beta)
+            if self.discount.discounted:
+                print(f"[oracle] discounted delayed-LQR: tau={self.discount.tau}, beta={beta:.4f}")
             self.K_aug = jnp.array(self.lqr.gain)
             self.P_aug = jnp.array(self.lqr.P)
             self.k_taps = int(self.lqr.k_taps)

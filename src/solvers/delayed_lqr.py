@@ -85,6 +85,7 @@ def augmented_discrete_lqr(
     R: np.ndarray,
     delay: float,
     dt: float,
+    discount_beta: float = 1.0,
 ) -> DelayedLQR:
     """Synthesise the delayed-LQR feedback via the augmented finite-dimensional LQR.
 
@@ -93,6 +94,11 @@ def augmented_discrete_lqr(
         Q, R: quadratic-cost weights (``Q`` symmetric PSD, ``R`` symmetric PD).
         delay: time lag ``tau >= 0`` (``delay = 0`` gives ordinary LQR).
         dt: control time step; ``K = round(delay/dt)`` history taps are used.
+        discount_beta: per-step discount ``beta in (0, 1]`` for the DISCOUNTED
+            objective ``J = sum_k beta^k (x_k' Q x_k + u_k' R u_k) dt``; use
+            ``beta = exp(-gamma dt) = exp(-dt/tau)`` to match the agents'
+            continuous-time discount rate ``gamma = 1/tau``. Default ``1.0`` is the
+            undiscounted infinite-horizon oracle (unchanged behaviour).
 
     Returns:
         A :class:`DelayedLQR` with the feedback gain and the augmented system.
@@ -129,8 +135,15 @@ def augmented_discrete_lqr(
     Qaug = np.zeros((big, big))
     Qaug[0:n, 0:n] = Q
 
-    P = solve_discrete_are(Aaug, Baug, Qaug, R)
-    gain = np.linalg.solve(R + Baug.T @ P @ Baug, Baug.T @ P @ Aaug)
+    # Discounted objective J = sum_k beta^k (x'Qx + u'Ru) dt: a discounted discrete LQR equals the
+    # UNDISCOUNTED one on the scaled pair (sqrt(beta) Aaug, sqrt(beta) Baug) with Q, R unchanged
+    # (substitute Abar = sqrt(beta) Aaug into the Bellman equation). Solve the DARE and read the
+    # gain on the scaled system; the gain is the discounted-optimal feedback for the TRUE dynamics.
+    # beta = 1 recovers the standard undiscounted synthesis exactly.
+    sb = float(np.sqrt(discount_beta))
+    Aaug_s, Baug_s = sb * Aaug, sb * Baug
+    P = solve_discrete_are(Aaug_s, Baug_s, Qaug, R)
+    gain = np.linalg.solve(R + Baug_s.T @ P @ Baug_s, Baug_s.T @ P @ Aaug_s)
 
     return DelayedLQR(
         gain=gain, n_state=n, n_control=m, k_taps=k_taps, dt=float(dt),
