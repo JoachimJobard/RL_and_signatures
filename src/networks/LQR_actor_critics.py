@@ -71,7 +71,7 @@ class ActorSignature:
 # float32 REGARDLESS of jax_enable_x64, so without this the network weights are float32 even though
 # the data pipeline (buffers, env, signatures, gradients) runs in float64 under main_unified.py:63.
 # The study measures conditioning of the gradient extraction d_x V, which on the high-dimensional
-# platoon cell passes through a near-singular readout where float32 weights can change the answer;
+# platoon cell passes through a near-singular linear functional where float32 weights can change the answer;
 # full float64 is therefore the deliberate, consistent choice. Applied to every campaign module
 # (ActorFlax, CriticFlax and their LayerNorm variants). Changes all three learners symmetrically,
 # so it adds no confound between them; it does change absolute results against the pre-2026-07-17

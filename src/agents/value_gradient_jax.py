@@ -83,7 +83,7 @@ class ContinuousValueGradient:
     def _init_networks(self) -> None:
         # Representation backbone: signature / raw_history / markovian, behind a
         # window buffer with a SlidingSignatureJAX-compatible surface so the rest of
-        # this agent is unchanged. The feature map is the linear-readout input and
+        # this agent is unchanged. The feature map is the linear functional's input and
         # the function the value-gradient control law differentiates (dV/dx(t)).
         window_length = self.signature_conf.window_size + 1
         representation = make_representation(

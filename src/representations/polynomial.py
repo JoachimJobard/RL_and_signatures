@@ -1,7 +1,7 @@
 """Polynomial representations: Markovian (current state) and raw-history.
 
-These are the non-signature representations of the H2 comparison. The readout is
-linear, so degree-m polynomial monomials of the input span the degree-m functionals
+These are the non-signature representations of the H2 comparison. The functional fitted
+on the features is linear, so degree-m polynomial monomials of the input span the degree-m functionals
 of (the current state / the discretised history). Degree 2 of the raw history spans
 the quadratic functionals of the path — exactly the delayed-LQR value class
 (Kolmanovskii eq. 2.4) and the fair match to a depth-2 signature. Sweeping the
@@ -73,7 +73,7 @@ class RawHistoryRepresentation(_PolynomialFeatureMap):
     """Phi(x_t) = polynomial monomials (degrees 1..m) of the flattened discretised
     history window (x(t), x(t-dt), ..., x(t-(L-1)dt)).
 
-    Degree 1 is the flat window (linear readout = linear functional of the history,
+    Degree 1 is the flat window (linear functional of the history,
     the delayed-LQR control class); degree 2 adds pairwise products (the delayed-LQR
     value class). This is the non-signature history representation for H2.
     """

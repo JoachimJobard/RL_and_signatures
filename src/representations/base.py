@@ -1,7 +1,7 @@
 """Representation interface for the history-dependent control study.
 
 A *representation* maps a windowed state history to a feature vector that a LINEAR
-readout (critic / actor) consumes. Keeping the readout linear is what ties the
+functional (critic / actor) consumes. Keeping that functional linear is what ties the
 study to the Arribas linear-approximation theorem (Thm 4.2) and isolates the effect
 of the representation (see documents/methodology/experimental_design.md).
 
@@ -28,7 +28,7 @@ import jax.numpy as jnp
 
 @runtime_checkable
 class Representation(Protocol):
-    """A feature map from a windowed history to a feature vector for a linear readout."""
+    """A feature map from a windowed history to a feature vector for a linear functional."""
 
     #: Dimension of the feature vector returned by ``feature_fn``.
     feature_dim: int

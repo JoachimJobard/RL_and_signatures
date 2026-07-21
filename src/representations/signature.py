@@ -3,7 +3,7 @@
 Wraps the existing ``SlidingSignatureJAX`` augmentation/compute (Arribas 2018,
 Definition p.5) as a pure ``feature_fn(window) -> signature`` so it shares the
 representation interface with the polynomial baselines. The signature features feed
-a LINEAR readout, instantiating Arribas Thm 4.2 (linear functionals of the signature
+a LINEAR functional, instantiating Arribas Thm 4.2 (linear functionals of the signature
 are dense in the continuous functionals of the path).
 """
 
