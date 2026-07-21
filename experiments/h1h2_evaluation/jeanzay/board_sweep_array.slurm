@@ -41,7 +41,7 @@ if [ "$SLURM_ARRAY_TASK_ID" -ge "$NGRID" ]; then
     ++agent.algorithm.actor_oracle=true ++agent.discount.discounted=true ++agent.discount.tau=$TAU \
     agent.training.n_episodes=20 agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM $X0ARG \
     ++agent.training.monitor_snr=false seed=42 experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled \
-    run_tag="oracle_reference"
+    debug=true run_tag="oracle_reference"
   ST=$?; echo "Task $SLURM_ARRAY_TASK_ID (oracle) finished with exit code $ST"; exit $ST
 fi
 
