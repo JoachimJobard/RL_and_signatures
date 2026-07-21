@@ -19,7 +19,12 @@ ACCOUNT="${ACCOUNT:-akz@cpu}"
 read -ra LEARNERS <<< "${LEARNERS:-actor_critic policy_gradient value_gradient}"
 read -ra KINDS    <<< "${KINDS:-markovian signature raw_history}"
 N_EPISODES="${N_EPISODES:-600}"
-N_TASKS=$(( ${#LEARNERS[@]} * ${#KINDS[@]} * 5 ))     # 5 = per-learner lr grid size (fixed in the worker)
+# Env-specific block (oscillator defaults). For the linear DDE the history is dynamically
+# necessary; the reference optimum is the delayed-LQR oracle, run as one extra final task.
+PLANT="${PLANT:-harmonic_oscillator}"; MAX_TIME="${MAX_TIME:-5.0}"; T_SIM="${T_SIM:-5.0}"
+X0_TEST="${X0_TEST:-}"; FORCE_WINDOW="${FORCE_WINDOW:-false}"
+N_GRID=$(( ${#LEARNERS[@]} * ${#KINDS[@]} * 5 ))      # 5 = per-learner lr grid size (fixed in the worker)
+N_TASKS=$(( N_GRID + 1 ))                             # + 1 = delayed-LQR oracle reference (last index)
 
 GROUP="board_sweep_$(date +%Y%m%d_%H%M%S)"
 EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
@@ -28,9 +33,10 @@ mkdir -p "$SLURM_LOG_DIR"
 
 EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT"
 EXPORTS+=",LEARNERS_STR=${LEARNERS[*]},KINDS_STR=${KINDS[*]},N_EPISODES=$N_EPISODES"
+EXPORTS+=",PLANT=$PLANT,MAX_TIME=$MAX_TIME,T_SIM=$T_SIM,X0_TEST=$X0_TEST,FORCE_WINDOW=$FORCE_WINDOW"
 
-echo "board sweep: $N_TASKS tasks (learners=${#LEARNERS[@]} x kinds=${#KINDS[@]} x lr=5)"
-echo "partition = $SWEEP_PARTITION (non-billed) | n_episodes = $N_EPISODES | seed = 42 | group = $GROUP"
+echo "board sweep: $N_GRID grid tasks + 1 oracle = $N_TASKS (learners=${#LEARNERS[@]} x kinds=${#KINDS[@]} x lr=5)"
+echo "env = $PLANT | horizon = $MAX_TIME | partition = $SWEEP_PARTITION (non-billed) | n_episodes = $N_EPISODES | seed = 42 | group = $GROUP"
 
 JOB=$(sbatch --parsable \
     --account="$ACCOUNT" --partition="$SWEEP_PARTITION" \

@@ -21,17 +21,36 @@ jeanzay_print_diagnostics
 read -ra LEARNERS <<< "$LEARNERS_STR"
 read -ra KINDS    <<< "$KINDS_STR"
 NL=${#LEARNERS[@]}; NK=${#KINDS[@]}; NR=5
+NGRID=$(( NL*NK*NR ))
+
+# Env is parameterised (oscillator defaults preserved). For a DDE the reference optimum is
+# NOT -K_gamma x (state feedback) but the delayed-LQR oracle -- run once as the last array index.
+PLANT="${PLANT:-harmonic_oscillator}"; MAX_TIME="${MAX_TIME:-5.0}"; T_SIM="${T_SIM:-5.0}"
+X0ARG=""; [ -n "${X0_TEST:-}" ] && X0ARG="eval.x0_test=$X0_TEST"
+FWARG="";  [ "${FORCE_WINDOW:-false}" = "true" ] && FWARG="agent.signature.force_signature_window=true"
+
+# Oracle reference (last index): delayed-LQR optimum, representation-agnostic, seed 42.
+if [ "$SLURM_ARRAY_TASK_ID" -ge "$NGRID" ]; then
+  echo "Task $SLURM_ARRAY_TASK_ID: ORACLE reference (delayed-LQR optimum) on env=$PLANT"
+  python main_unified.py agent=actor_critic env=$PLANT agent.signature.kind=markovian \
+    ++agent.algorithm.actor_oracle=true ++agent.discount.discounted=true ++agent.discount.tau=1.0 \
+    agent.training.n_episodes=20 agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM $X0ARG \
+    ++agent.training.monitor_snr=false seed=42 experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled \
+    run_tag="oracle_reference"
+  ST=$?; echo "Task $SLURM_ARRAY_TASK_ID (oracle) finished with exit code $ST"; exit $ST
+fi
+
 i=$SLURM_ARRAY_TASK_ID
 li=$(( i / (NK*NR) )); r=$(( i % (NK*NR) )); ki=$(( r / NR )); ri=$(( r % NR ))
 LEARNER=${LEARNERS[$li]}; KIND=${KINDS[$ki]}
 if [ "$LEARNER" = "value_gradient" ]; then LRVALS=(0.001 0.01 0.1 1 10); else LRVALS=(1 3 10 30 100); fi
 LR=${LRVALS[$ri]}
 
-echo "Task $SLURM_ARRAY_TASK_ID: learner=$LEARNER kind=$KIND lr=$LR (oscillator, discounted gamma=1, seed 42)"
+echo "Task $SLURM_ARRAY_TASK_ID: learner=$LEARNER kind=$KIND lr=$LR (env=$PLANT, discounted gamma=1, seed 42)"
 
-COMMON="agent=$LEARNER env=harmonic_oscillator agent.signature.kind=$KIND \
+COMMON="agent=$LEARNER env=$PLANT agent.signature.kind=$KIND $FWARG \
   ++agent.noise.sigma=0.5 ++agent.discount.discounted=true ++agent.discount.tau=1.0 \
-  agent.training.n_episodes=$N_EPISODES agent.training.max_time=5.0 eval.T_sim=5.0 \
+  agent.training.n_episodes=$N_EPISODES agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM $X0ARG \
   ++agent.training.monitor_snr=false seed=42 experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
 case $LEARNER in
   actor_critic)    EXTRA="++agent.training.actor_optimizer=adam ++agent.training.critic_optimizer=sgd ++agent.training.actor_lr=$LR ++agent.training.critic_lr=1e-2 ++agent.training.lr_decay_power=0.8 ++agent.training.critic_lr_decay_power=0.6";;
