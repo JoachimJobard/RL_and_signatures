@@ -58,7 +58,7 @@ echo "Task $SLURM_ARRAY_TASK_ID: learner=$LEARNER kind=$KIND lr=$LR (env=$PLANT,
 COMMON="agent=$LEARNER env=$PLANT agent.signature.kind=$KIND $FWARG \
   ++agent.noise.sigma=0.5 ++agent.discount.discounted=true ++agent.discount.tau=$TAU \
   agent.training.n_episodes=$N_EPISODES agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM $X0ARG \
-  ++agent.training.monitor_snr=false seed=42 experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
+  ++agent.training.monitor_snr=false ++agent.training.rollouts_per_update=${ROLLOUTS:-1} seed=42 experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
 case $LEARNER in
   actor_critic)
     _CLR="${CRITIC_LR:-1e-2}"; [ "${TIE_CRITIC_LR:-0}" = "1" ] && _CLR="$LR"   # x=y: critic_lr = actor_lr (single alpha0)
