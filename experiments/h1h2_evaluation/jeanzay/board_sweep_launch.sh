@@ -23,7 +23,9 @@ N_EPISODES="${N_EPISODES:-600}"
 # necessary; the reference optimum is the delayed-LQR oracle, run as one extra final task.
 PLANT="${PLANT:-harmonic_oscillator}"; MAX_TIME="${MAX_TIME:-5.0}"; T_SIM="${T_SIM:-5.0}"
 X0_TEST="${X0_TEST:-}"; FORCE_WINDOW="${FORCE_WINDOW:-false}"; TAU="${TAU:-1.0}"   # gamma = 1/tau
-N_GRID=$(( ${#LEARNERS[@]} * ${#KINDS[@]} * 5 ))      # 5 = per-learner lr grid size (fixed in the worker)
+# lr-grid size: LR_GRID (space-separated, custom) overrides the per-learner default of 5.
+if [ -n "${LR_GRID:-}" ]; then read -ra _LRG <<< "$LR_GRID"; NR=${#_LRG[@]}; else NR=5; fi
+N_GRID=$(( ${#LEARNERS[@]} * ${#KINDS[@]} * NR ))
 N_TASKS=$(( N_GRID + 1 ))                             # + 1 = delayed-LQR oracle reference (last index)
 
 GROUP="board_sweep_$(date +%Y%m%d_%H%M%S)"

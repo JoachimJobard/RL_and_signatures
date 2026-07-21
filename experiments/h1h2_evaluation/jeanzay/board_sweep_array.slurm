@@ -20,7 +20,10 @@ jeanzay_print_diagnostics
 
 read -ra LEARNERS <<< "$LEARNERS_STR"
 read -ra KINDS    <<< "$KINDS_STR"
-NL=${#LEARNERS[@]}; NK=${#KINDS[@]}; NR=5
+NL=${#LEARNERS[@]}; NK=${#KINDS[@]}
+# NR = lr-grid size. LR_GRID (space-separated, propagated via --export=ALL) overrides the
+# per-learner defaults below with a common custom grid (e.g. small lr to probe a stable band).
+if [ -n "${LR_GRID:-}" ]; then read -ra _LRG <<< "$LR_GRID"; NR=${#_LRG[@]}; else NR=5; fi
 NGRID=$(( NL*NK*NR ))
 
 # Env is parameterised (oscillator defaults preserved). For a DDE the reference optimum is
@@ -45,7 +48,9 @@ fi
 i=$SLURM_ARRAY_TASK_ID
 li=$(( i / (NK*NR) )); r=$(( i % (NK*NR) )); ki=$(( r / NR )); ri=$(( r % NR ))
 LEARNER=${LEARNERS[$li]}; KIND=${KINDS[$ki]}
-if [ "$LEARNER" = "value_gradient" ]; then LRVALS=(0.001 0.01 0.1 1 10); else LRVALS=(1 3 10 30 100); fi
+if [ -n "${LR_GRID:-}" ]; then read -ra LRVALS <<< "$LR_GRID"
+elif [ "$LEARNER" = "value_gradient" ]; then LRVALS=(0.001 0.01 0.1 1 10)
+else LRVALS=(1 3 10 30 100); fi
 LR=${LRVALS[$ri]}
 
 echo "Task $SLURM_ARRAY_TASK_ID: learner=$LEARNER kind=$KIND lr=$LR (env=$PLANT, discounted tau=$TAU (gamma=1/tau), seed 42)"
