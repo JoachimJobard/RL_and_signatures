@@ -151,11 +151,18 @@ class ContinuousTimeActorCritic:
             print(f"[oracle] delayed-LQR: {self.k_taps} taps, "
                   f"closed-loop spectral radius {self.lqr.closed_loop_spectral_radius():.4f}")
         else:
-            P = scipy.linalg.solve_continuous_are(
-                self.env.A, self.env.B, self.env.Q, self.env.R)
+            # Same-objective (discounted) non-delayed oracle: the discounted LQR is the ordinary LQR
+            # of the shifted system A - (gamma/2) I with gamma = 1/tau, i.e. P_gamma = CARE(A - gamma/2 I,
+            # B, Q, R), matching the agent's discounted cost. gamma=0 (undiscounted) leaves A unchanged.
+            A_np = np.array(self.env.A); B_np = np.array(self.env.B)
+            Q_np = np.array(self.env.Q); R_np = np.array(self.env.R)
+            gamma_half = (0.5 / self.discount.tau) if self.discount.discounted else 0.0
+            A_shift = A_np - gamma_half * np.eye(A_np.shape[0])
+            P = scipy.linalg.solve_continuous_are(A_shift, B_np, Q_np, R_np)
             self.P = jnp.array(P)
-            self.optimal_K = jnp.array(np.linalg.inv(self.env.R) @ self.env.B.T @ P)
-            print("[oracle] non-delayed continuous ARE.")
+            self.optimal_K = jnp.array(np.linalg.inv(R_np) @ B_np.T @ P)
+            print(f"[oracle] {'discounted' if self.discount.discounted else 'undiscounted'} non-delayed ARE"
+                  + (f' (A - gamma/2 I, gamma/2={gamma_half:.4f})' if self.discount.discounted else '') + '.')
 
     def _delayed_oracle_window(self) -> jnp.ndarray:
         """Unscaled newest-first history window xi = [x(t), x(t-dt), ..., x(t-K dt)]
