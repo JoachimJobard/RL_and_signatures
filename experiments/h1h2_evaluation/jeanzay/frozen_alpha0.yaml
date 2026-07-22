@@ -1,0 +1,61 @@
+# Frozen alpha0 per cell x learner x representation -- selected by %opt on the seed-42
+# selection sweep (2026-07-22). VG: the swept lr IS critic_lr (no actor). PG: actor_lr.
+# AC: actor_lr (swept) + critic_lr (group axis). Used to fix the learning rate for the
+# 5-seed final runs. Failing cells (MG markovian/raw diverge) keep their least-bad lr; the
+# run still fails there -- that failure is the H1 result, not a tuning artefact.
+
+harmonic_oscillator:
+  value_gradient:
+    markovian: {critic_lr: 0.3}   # cost_red=87.4%  %opt=100%
+    raw_history: {critic_lr: 0.1}   # cost_red=87.3%  %opt=100%
+    signature: {critic_lr: 0.03}   # cost_red=67.0%  %opt=77%
+  policy_gradient:
+    markovian: {actor_lr: 3}   # cost_red=57.9%  %opt=66%
+    raw_history: {actor_lr: 0.3}   # cost_red=33.8%  %opt=39%
+    signature: {actor_lr: 1}   # cost_red=13.2%  %opt=15%
+  actor_critic:
+    markovian: {actor_lr: 30, critic_lr: 1}   # cost_red=87.5%  %opt=100%
+    raw_history: {actor_lr: 0.3, critic_lr: 0.1}   # cost_red=83.6%  %opt=96%
+    signature: {actor_lr: 3, critic_lr: 1}   # cost_red=86.0%  %opt=98%
+
+linear_dde_scalar:
+  value_gradient:
+    markovian: {critic_lr: 1}   # cost_red=89.7%  %opt=95%
+    raw_history: {critic_lr: 0.1}   # cost_red=93.8%  %opt=100%
+    signature: {critic_lr: 1}   # cost_red=93.7%  %opt=100%
+  policy_gradient:
+    markovian: {actor_lr: 30}   # cost_red=89.2%  %opt=95%
+    raw_history: {actor_lr: 3}   # cost_red=89.7%  %opt=95%
+    signature: {actor_lr: 3}   # cost_red=92.7%  %opt=99%
+  actor_critic:
+    markovian: {actor_lr: 10, critic_lr: 1}   # cost_red=89.1%  %opt=95%
+    raw_history: {actor_lr: 1, critic_lr: 0.01}   # cost_red=91.9%  %opt=98%
+    signature: {actor_lr: 10, critic_lr: 0.01}   # cost_red=93.4%  %opt=99%
+
+MG_1D_limit_cycle:
+  value_gradient:
+    markovian: {critic_lr: 0.01}   # cost_red=-2460.7%  %opt=-2601%
+    raw_history: {critic_lr: 0.3}   # cost_red=-664.5%  %opt=-702%
+    signature: {critic_lr: 1}   # cost_red=93.9%  %opt=99%
+  policy_gradient:
+    markovian: {actor_lr: 0.01}   # cost_red=8.4%  %opt=9%
+    raw_history: {actor_lr: 0.01}   # cost_red=-185.4%  %opt=-196%
+    signature: {actor_lr: 1}   # cost_red=73.6%  %opt=78%
+  actor_critic:
+    markovian: {actor_lr: 0.01, critic_lr: 0.1}   # cost_red=8.7%  %opt=9%
+    raw_history: {actor_lr: 0.01, critic_lr: 0.01}   # cost_red=-185.4%  %opt=-196%
+    signature: {actor_lr: 10, critic_lr: 0.01}   # cost_red=96.5%  %opt=102%
+
+MG_1D_chaotic:
+  value_gradient:
+    markovian: {critic_lr: 0.01}   # cost_red=-770.6%  %opt=-790%
+    raw_history: {critic_lr: 1}   # cost_red=-1253.4%  %opt=-1286%
+    signature: {critic_lr: 0.3}   # cost_red=75.2%  %opt=77%
+  policy_gradient:
+    markovian: {actor_lr: 0.1}   # cost_red=34.7%  %opt=36%
+    raw_history: {actor_lr: 0.01}   # cost_red=-371.2%  %opt=-381%
+    signature: {actor_lr: 30}   # cost_red=93.4%  %opt=96%
+  actor_critic:
+    markovian: {actor_lr: 0.1, critic_lr: 1}   # cost_red=37.0%  %opt=38%
+    raw_history: {actor_lr: 0.01, critic_lr: 0.01}   # cost_red=49.2%  %opt=50%
+    signature: {actor_lr: 3, critic_lr: 0.01}   # cost_red=87.3%  %opt=90%
