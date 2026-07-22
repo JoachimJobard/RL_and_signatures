@@ -7,6 +7,7 @@ the TrainableAgent protocol.
 This replaces: evaluate_signatures.py, evaluate_base_jax.py, evaluate_CSAC.py
 """
 
+import warnings
 from collections import defaultdict
 import numpy as np
 import jax
@@ -788,7 +789,19 @@ def conform_initial_state(x0: Any, env_dim: int | None) -> np.ndarray:
     """
     x0 = np.atleast_1d(np.asarray(x0, dtype=float))
     if env_dim is not None and x0.shape[0] != env_dim:
+        original = x0
         x0 = np.resize(x0, env_dim)
+        # Never coerce the initial condition silently: np.resize TILES cyclically (it does NOT
+        # zero-pad), so a dimension mismatch produces a plausible-but-unintended x0 that both
+        # training and evaluation then run on. Surface it at WARNING (shown once per call site by
+        # the default filter) so a config/env mismatch cannot pass unnoticed.
+        warnings.warn(
+            f"conform_initial_state: eval x0 of dimension {original.shape[0]} does not match the "
+            f"environment state dimension {env_dim}; np.resize TILES cyclically (not zero-pad), so "
+            f"{original.tolist()} -> {x0.tolist()}. Set eval.x0_test to the full {env_dim}-vector "
+            f"explicitly to control the initial condition.",
+            stacklevel=2,
+        )
     return x0
 
 
