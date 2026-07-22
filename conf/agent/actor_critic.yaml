@@ -7,7 +7,7 @@ _target_: src.agents.actor_critic_jax.ContinuousTimeActorCritic
 # Training (optimization, episodes, logging)
 # =============================================================================
 training:
-  n_episodes: 2000
+  n_episodes: 1000   # uniform training duration across AC/PG/VG (PG inherits this; VG set to match)
   max_time: 15.0
   actor_lr: 1e-3
   # Matched to conf/agent/value_gradient.yaml (1e-3). Both learners fit a critic to the same

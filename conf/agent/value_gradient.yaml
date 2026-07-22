@@ -7,7 +7,7 @@ _target_: src.agents.value_gradient_jax.ContinuousValueGradient
 # Training
 # =============================================================================
 training:
-  n_episodes: 500
+  n_episodes: 1000   # uniform training duration across AC/PG/VG (matches actor_critic.yaml)
   max_time: 15.0
   critic_lr: 1e-3
   scale: 1.0
