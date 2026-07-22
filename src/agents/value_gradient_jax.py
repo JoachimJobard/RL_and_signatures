@@ -66,6 +66,8 @@ class ContinuousValueGradient:
 
     def _init_episode_state(self) -> None:
         self.episode = 0
+        self._diverged = False        # run-abort flag: set when ||x|| exceeds diverge_abort_threshold
+        self._diverge_reason = ""
         self.step_counter = 0
         self._sigma_effective: float | jax.Array = self.noise.sigma
         self.episode_noise_trajectory: jax.Array | None = None
@@ -587,7 +589,12 @@ class ContinuousValueGradient:
             }
             
             self._on_episode_end(episode, episode_metrics)
-            
+
+            # --- DIVERGENCE ABORT: ||x|| blew past diverge_abort_threshold this episode ---
+            if self._diverged:
+                print(f"\n[DIVERGED] run aborted at episode {episode}: {self._diverge_reason}")
+                break
+
             # --- NaN detection: stop training and restore best checkpoint ---
             if (np.isnan(episode_metrics['loss']) or np.isnan(episode_metrics['cost'])
                     or any(jnp.any(jnp.isnan(p)) for p in jax.tree_util.tree_leaves(self.critic_params))):
@@ -646,7 +653,9 @@ class ContinuousValueGradient:
                   f"delta={-improvement:+.1f}%)")
             self.critic_params = self._best_critic_params
             self.target_params = self._best_target_params
-        
+
+        metrics_history['diverged'] = self._diverged
+        metrics_history['diverge_reason'] = self._diverge_reason
         return metrics_history
 
 
@@ -682,6 +691,26 @@ class ContinuousValueGradient:
                     alters_the_value=False,  # a detector, not an intervention
                 )
                 return True
+            # RUN-ABORT on divergence (distinct from the episode-trim below). Controlled ||x|| is
+            # O(1); once it blows past diverge_abort_threshold the run is beyond recovery, so abort
+            # the WHOLE run to stop wasting compute -- LOUDLY, and MARK it diverged (its cost is not
+            # reported as valid). It does NOT trim or edit a valid episode's objective.
+            abort = getattr(self.training, "diverge_abort_threshold", None)
+            if abort is not None and abort > 0 and not self._diverged:
+                state_norm = float(jnp.linalg.norm(x))
+                if state_norm > abort:
+                    self._diverged = True
+                    self._diverge_reason = f"||x||={state_norm:.3e} > {abort:.1e} at t={t:.3f}"
+                    report_clamp_activation(
+                        "diverge_abort/value_gradient",
+                        code_location="src/agents/value_gradient_jax.py:_is_episode_done",
+                        bound_description=f"run aborts when ||x|| exceeds {abort:.1e}",
+                        most_extreme_raw_value=state_norm,
+                        number_of_affected_elements=1,
+                        additional_context=f"the plant is diverging ({self._diverge_reason}); aborting the run.",
+                        alters_the_value=False,
+                    )
+                    return True
             # DIVERGENCE BOUND -- OPT-IN, and off by default. None/<=0 means the episode runs to
             # its horizon whatever ||x|| does. A cut episode's accumulated cost is not the cost of
             # a completed one, so this bound edits the objective it is meant to measure; and a run

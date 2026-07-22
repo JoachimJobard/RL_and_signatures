@@ -67,6 +67,11 @@ class TrainingConfig:
     # Runs predating this change carry `divergence_threshold: 100.0` (or 50.0) in their own saved
     # config.yaml and remain reproducible by re-running at that value.
     divergence_threshold: float | None = None
+    # RUN-ABORT threshold, distinct from divergence_threshold's episode-trim: if ||x|| exceeds this,
+    # the WHOLE run aborts, LOUDLY, and is MARKED diverged -- a compute guard against exploding runs
+    # that would otherwise burn the full episode budget. None = off. It does NOT trim or edit a
+    # valid episode's cost (it stops and flags a doomed run, it does not rescue one).
+    diverge_abort_threshold: float | None = None
     eval_interval: int = 50
     eval_start_episode: int = 0
     patience: int = 0               # 0 = no early stopping
@@ -296,6 +301,7 @@ def from_legacy_params(
         clip_gradient=tp.get('clip_gradient', None),
         clip_action=tp.get('clip_action', None),
         divergence_threshold=tp.get('divergence_threshold', 50.0),
+        diverge_abort_threshold=tp.get('diverge_abort_threshold', None),
         eval_interval=tp.get('eval_interval', 50),
         eval_start_episode=tp.get('eval_start_episode', 0),
         patience=tp.get('patience', 0),

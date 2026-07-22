@@ -28,6 +28,10 @@ training:
   # The existing five-seed studies carry `divergence_threshold: 100.0` in their own saved
   # config.yaml and stay reproducible by re-running at that value.
   divergence_threshold: null
+  # Run-abort guard (all experiments): if ||x|| exceeds this the run stops and is marked diverged
+  # (controlled ||x|| is O(1), so 1e4 is a clear blow-up, no false positives). Distinct from
+  # divergence_threshold above (which stays null: no episode-trim, no objective editing).
+  diverge_abort_threshold: 1.0e4
   eval_interval: 20
   # No target network: bootstrap V_next off the ONLINE critic, identical to the actor-critic (no
   # stabilising trick). 0 < tau_polyak < 1 re-enables the Polyak target (the old 5-seed runs used

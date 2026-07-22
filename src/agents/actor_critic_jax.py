@@ -114,6 +114,8 @@ class ContinuousTimeActorCritic:
         self.env = env
         self.wrapper = JAXEnvWrapper(env, rng_key=jax.random.PRNGKey(rng_key))
         self.episode = 0
+        self._diverged = False        # run-abort flag: set when ||x|| exceeds diverge_abort_threshold
+        self._diverge_reason = ""
         if self.network.normalize_entries:
             self.training.scale = self.training.divergence_threshold
             print("normalize_entries is True: scaling states by ", self.training.scale)
@@ -584,6 +586,23 @@ class ContinuousTimeActorCritic:
                     f"truncation. Every number this episode reports downstream is meaningless."
                 ),
                 alters_the_value=False,  # a detector, not an intervention
+            )
+            return True
+        # RUN-ABORT on divergence (distinct from the episode-trim below). Once ||x|| blows past
+        # diverge_abort_threshold the run is beyond recovery; abort the WHOLE run to stop wasting
+        # compute, LOUDLY, and MARK it diverged. Does NOT trim or edit a valid episode's objective.
+        abort = getattr(self.training, "diverge_abort_threshold", None)
+        if abort is not None and abort > 0 and not self._diverged and float(state_norm) > abort:
+            self._diverged = True
+            self._diverge_reason = f"||x||={float(state_norm):.3e} > {abort:.1e} at t={float(self.wrapper.state.t):.3f}"
+            report_clamp_activation(
+                "diverge_abort/actor_critic",
+                code_location="src/agents/actor_critic_jax.py:_is_episode_done",
+                bound_description=f"run aborts when ||x|| exceeds {abort:.1e}",
+                most_extreme_raw_value=float(state_norm),
+                number_of_affected_elements=1,
+                additional_context=f"the plant is diverging ({self._diverge_reason}); aborting the run.",
+                alters_the_value=False,
             )
             return True
         # DIVERGENCE BOUND -- OPT-IN, off by default. See the note in configs.DiscountConfig's
@@ -1368,7 +1387,12 @@ class ContinuousTimeActorCritic:
                 break
             
             self._on_episode_end(episode, episode_metrics)
-            
+
+            # --- DIVERGENCE ABORT: ||x|| blew past diverge_abort_threshold this episode ---
+            if self._diverged:
+                print(f"\n[DIVERGED] run aborted at episode {episode}: {self._diverge_reason}")
+                break
+
             # Periodic trajectory evaluation (wandb slider)
             if hasattr(self, 'eval_callback') and self.eval_callback is not None:
                 self.eval_callback(self, episode)
@@ -1429,6 +1453,8 @@ class ContinuousTimeActorCritic:
         elif self._nan_detected:
             print("\n[Warning] NaN detected but no best checkpoint available!")
         metrics_history['state_counts'] = self.state_counter #type: ignore
+        metrics_history['diverged'] = self._diverged
+        metrics_history['diverge_reason'] = self._diverge_reason
         return metrics_history
 
     def _evaluate_noiseless(self) -> float:
