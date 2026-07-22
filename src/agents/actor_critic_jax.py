@@ -794,13 +794,19 @@ class ContinuousTimeActorCritic:
         """
         actor = self.actor
         optimizer = self.actor_optimizer
+        # DIAGNOSTIC: PG_BASELINE=mean subtracts the batch-mean return as a CONSTANT baseline
+        # (variance reduction, still REINFORCE) to test whether PG's ceiling is the no-baseline
+        # variance floor. Default 'none' = the shipped no-baseline REINFORCE (A_t = R_t).
+        import os as _os
+        _use_mean_baseline = _os.environ.get("PG_BASELINE", "none").lower() == "mean"
 
         def actor_loss(actor_params, features_batch, noise_batch, advantage_batch, sigma):
             # vmap rather than relying on the network broadcasting over a leading batch axis, so
             # the estimator is correct for any actor architecture.
+            adv = advantage_batch - jnp.mean(advantage_batch) if _use_mean_baseline else advantage_batch
             mu = jax.vmap(lambda s: actor.apply(actor_params, s))(features_batch)       # (T, m)
             log_prob_grad = noise_batch / (sigma ** 2 + 1e-8)                      # (T, m)
-            per_step = -advantage_batch * jnp.sum(log_prob_grad * mu, axis=-1)     # (T,)
+            per_step = -adv * jnp.sum(log_prob_grad * mu, axis=-1)                 # (T,)
             return jnp.mean(per_step)
 
         @jax.jit
