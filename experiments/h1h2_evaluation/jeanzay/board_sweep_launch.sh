@@ -28,7 +28,12 @@ if [ -n "${LR_GRID:-}" ]; then read -ra _LRG <<< "$LR_GRID"; NR=${#_LRG[@]}; els
 N_GRID=$(( ${#LEARNERS[@]} * ${#KINDS[@]} * NR ))
 N_TASKS=$(( N_GRID + 1 ))                             # + 1 = delayed-LQR oracle reference (last index)
 
-GROUP="board_sweep_$(date +%Y%m%d_%H%M%S)"
+# GROUP override lets a caller pin a DISTINCT group per invocation. Necessary because the
+# second-resolution timestamp COLLIDES when several launches fire within one second (a tight
+# per-cell/per-critic_lr loop), which silently merged different cells into one dir and let their
+# run_tags (learner_kind_lr, no cell/critic_lr) overwrite each other. The default now also carries
+# the plant so distinct cells never collide even without an override.
+GROUP="${GROUP:-board_sweep_${PLANT}_$(date +%Y%m%d_%H%M%S)}"
 EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
 SLURM_LOG_DIR="$EXPDIR/slurm"
 mkdir -p "$SLURM_LOG_DIR"
