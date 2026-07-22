@@ -1,0 +1,6 @@
+actor_critic	signature	0.3	0.1	4
+actor_critic	signature	0.3	0.3	4
+actor_critic	signature	0.3	1	4
+actor_critic	signature	1	0.1	4
+actor_critic	signature	1	0.3	4
+actor_critic	signature	1	1	4
