@@ -18,11 +18,11 @@ ACCOUNT="${ACCOUNT:-akz@cpu}"
 
 read -ra LEARNERS <<< "${LEARNERS:-actor_critic policy_gradient value_gradient}"
 read -ra KINDS    <<< "${KINDS:-markovian signature raw_history}"
-N_EPISODES="${N_EPISODES:-600}"
+N_EPISODES="${N_EPISODES:-1000}"
 # Env-specific block (oscillator defaults). For the linear DDE the history is dynamically
 # necessary; the reference optimum is the delayed-LQR oracle, run as one extra final task.
-PLANT="${PLANT:-harmonic_oscillator}"; MAX_TIME="${MAX_TIME:-5.0}"; T_SIM="${T_SIM:-5.0}"
-X0_TEST="${X0_TEST:-}"; FORCE_WINDOW="${FORCE_WINDOW:-false}"; TAU="${TAU:-1.0}"   # gamma = 1/tau
+PLANT="${PLANT:-harmonic_oscillator}"; MAX_TIME="${MAX_TIME:-10.0}"; T_SIM="${T_SIM:-10.0}"
+X0_TEST="${X0_TEST:-}"; FORCE_WINDOW="${FORCE_WINDOW:-false}"; TAU="${TAU:-2.0}"   # gamma = 1/tau
 # lr-grid size: LR_GRID (space-separated, custom) overrides the per-learner default of 5.
 if [ -n "${LR_GRID:-}" ]; then read -ra _LRG <<< "$LR_GRID"; NR=${#_LRG[@]}; else NR=5; fi
 N_GRID=$(( ${#LEARNERS[@]} * ${#KINDS[@]} * NR ))
