@@ -1,0 +1,16 @@
+actor_critic	raw_history	0.03	0.01	1
+actor_critic	raw_history	0.1	0.01	1
+actor_critic	raw_history	0.3	0.01	1
+actor_critic	raw_history	1.0	0.01	1
+actor_critic	signature	0.03	0.01	1
+actor_critic	signature	0.1	0.01	1
+actor_critic	signature	0.3	0.01	1
+actor_critic	signature	1.0	0.01	1
+policy_gradient	raw_history	0.003	na	1
+policy_gradient	raw_history	0.01	na	1
+policy_gradient	raw_history	0.03	na	1
+policy_gradient	raw_history	0.1	na	1
+policy_gradient	signature	0.003	na	1
+policy_gradient	signature	0.01	na	1
+policy_gradient	signature	0.03	na	1
+policy_gradient	signature	0.1	na	1

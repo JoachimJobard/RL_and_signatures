@@ -1,0 +1,16 @@
+value_gradient	raw_history	na	0.003	1
+value_gradient	raw_history	na	0.01	1
+value_gradient	raw_history	na	0.03	1
+value_gradient	raw_history	na	0.1	1
+value_gradient	signature	na	0.003	1
+value_gradient	signature	na	0.01	1
+value_gradient	signature	na	0.03	1
+value_gradient	signature	na	0.1	1
+policy_gradient	raw_history	0.003	na	1
+policy_gradient	raw_history	0.01	na	1
+policy_gradient	raw_history	0.03	na	1
+policy_gradient	raw_history	0.1	na	1
+policy_gradient	signature	0.003	na	1
+policy_gradient	signature	0.01	na	1
+policy_gradient	signature	0.03	na	1
+policy_gradient	signature	0.1	na	1

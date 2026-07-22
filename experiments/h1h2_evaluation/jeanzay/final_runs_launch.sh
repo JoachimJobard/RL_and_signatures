@@ -25,8 +25,12 @@ NAME_PROJECT="${NAME_PROJECT:-RL_and_signatures}"
 PATH_CONTENT_ROOT="${PATH_CONTENT_ROOT:-${WORK:?WORK not set -- are you on Jean Zay?}/git_repositories/$NAME_PROJECT}"
 DATA_ROOT="${RL_SIGNATURES_DATA_ROOT:-${SCRATCH:?SCRATCH not set}/rl_campaigns/$NAME_PROJECT}"
 ACCOUNT="${ACCOUNT:-akz@cpu}"
-SEEDS="${SEEDS:-0 1 2 3 4}"             # 5 fresh seeds, disjoint from the seed-42 selection
+SEEDS="${SEEDS:-0 1 2 3 4}"             # informational echo; the actual seeds live in the manifest
 DRYRUN="${DRYRUN:-0}"
+# Manifest family: "final" (5-seed final runs) or "stability" (conservative-lr search on the hard
+# seed). Selects <MANIFEST_TAG>_tasks_<cell>.tsv and names the run group <GROUP_PREFIX>_<cell>_<ts>.
+MANIFEST_TAG="${MANIFEST_TAG:-final}"
+GROUP_PREFIX="${GROUP_PREFIX:-final}"
 JZ_DIR="$PATH_CONTENT_ROOT/experiments/h1h2_evaluation/jeanzay"
 TS=$(date +%Y%m%d_%H%M%S)
 
@@ -41,10 +45,10 @@ CELLS=(
 echo "5-seed FINAL runs | seeds = [$SEEDS] | n_episodes=1000 | visu (non-billed) + cpu_p1 (billed) | frozen alpha0"
 for spec in "${CELLS[@]}"; do
   read -r PLANT MAX_TIME T_SIM GAMMA N_EPISODES WALLTIME CELL_PART CELL_QOS <<< "$spec"
-  SRC="$JZ_DIR/final_tasks_${PLANT}.tsv"
-  [ -f "$SRC" ] || { echo "MISSING manifest $SRC -- run final_runs_manifest.py first"; exit 1; }
+  SRC="$JZ_DIR/${MANIFEST_TAG}_tasks_${PLANT}.tsv"
+  [ -f "$SRC" ] || { echo "MISSING manifest $SRC"; exit 1; }
 
-  GROUP="final_${PLANT}_${TS}"
+  GROUP="${GROUP_PREFIX}_${PLANT}_${TS}"
   EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
   SLURM_LOG_DIR="$EXPDIR/slurm"; mkdir -p "$SLURM_LOG_DIR"
   MANIFEST="$EXPDIR/tasks.tsv"; cp "$SRC" "$MANIFEST"     # copy into run dir for provenance
