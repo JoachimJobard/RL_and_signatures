@@ -234,7 +234,7 @@ class AlgorithmConfig:
     #   FORM delta*n*dA; batching it per episode is a variance/comparability choice, stated as such.
     # Ignored when actor_target is monte_carlo (which is inherently once-per-episode).
     actor_averaged: bool = False
-    preheat: bool = True
+    preheat: bool = False    # zero-control burn-in: OFF by default (the campaign learners all start control at t=0 from phi; True was a foot-gun -- any config omitting the override burnt in only the actor-critic, shifting its clock vs the value gradient)
     burning_steps: int = 0
     fix_initial_state: bool = False
     # CTACJAX-specific (Markov baseline with delayed state)
@@ -271,7 +271,7 @@ def from_legacy_params(
     bias: bool = True,
     actor_oracle: bool = False,
     critic_oracle: bool = False,
-    preheat: bool = True,
+    preheat: bool = False,
     actor_update_frequency: int = 1,
     window_size: int = 10,
     smooth_noise: bool = False,

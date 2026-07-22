@@ -141,7 +141,7 @@ signature:
 network:
   std_init: 0.01
   normalize_entries: false
-  normalize_sigs: false
+  normalize_layers: false   # LayerNorm flag, unified with value_gradient (was normalize_sigs); off (no trick)
 
 # =============================================================================
 # Algorithm (variant flags)

@@ -299,7 +299,7 @@ class ContinuousTimeActorCritic:
         """Build the actor network."""
         output_dim = self.env.B.shape[1]
         actor: ActorFlax | ActorFlaxLayerNorm
-        if self.network.normalize_sigs:
+        if self.network.normalize_layers:
             actor = ActorFlaxLayerNorm(output_dim=output_dim, stddev=self.network.std_init/10)
         else:
             actor = ActorFlax(output_dim=output_dim, stddev=self.network.std_init/10)
@@ -308,7 +308,7 @@ class ContinuousTimeActorCritic:
     def _build_critic(self) -> CriticFlax | CriticFlaxLayerNorm:
         """Build the critic network."""
         critic: CriticFlax | CriticFlaxLayerNorm
-        if self.network.normalize_sigs:
+        if self.network.normalize_layers:
             critic = CriticFlaxLayerNorm(stddev=self.network.std_init)
         else:
             critic = CriticFlax(stddev=self.network.std_init)
@@ -497,6 +497,8 @@ class ContinuousTimeActorCritic:
             noise_scale = jnp.clip((V_TARGET - V_t) / (V_TARGET - V_BAD + 1e-6), 0.1, 1.0)
             self._sigma_effective = self.noise.sigma * noise_scale
         elif self.noise.schedule == 'linear_decay':
+            # Floor 0.05 unified with the value gradient (minimum end-of-training exploration).
+            # Inert on the campaign (schedule: constant), so this branch never runs.
             progress = min(self.episode / max(self.training.n_episodes, 1), 1.0)
             self._sigma_effective = self.noise.sigma * max(0.05, 1.0 - 0.9 * progress)
         else:

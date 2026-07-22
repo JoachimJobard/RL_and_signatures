@@ -29,7 +29,10 @@ training:
   # config.yaml and stay reproducible by re-running at that value.
   divergence_threshold: null
   eval_interval: 20
-  tau_polyak: 0.01
+  # No target network: bootstrap V_next off the ONLINE critic, identical to the actor-critic (no
+  # stabilising trick). 0 < tau_polyak < 1 re-enables the Polyak target (the old 5-seed runs used
+  # 0.01 and stay reproducible via their saved config). See value_gradient_jax._make_critic_update_fn.
+  tau_polyak: 0.0
   log_interval: 10
   init_log_interval: 50
   memory_clear_interval: 1000

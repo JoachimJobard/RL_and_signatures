@@ -241,9 +241,11 @@ class ContinuousValueGradient:
             noise_scale = jnp.clip((V_TARGET - V_t) / (V_TARGET - V_BAD + 1e-6), 0.1, 1.0)
             self._sigma_effective = self.noise.sigma * noise_scale
         elif self.noise.schedule == 'linear_decay':
-            # Linear decay from sigma to sigma_min over training
+            # Linear decay from sigma to sigma_min over training. Floor 0.05 = minimum exploration
+            # retained at the end (unified with the actor-critic; was 0.2). Inert on the campaign,
+            # which uses schedule: constant, so this branch never runs.
             progress = min(self.episode / max(self.training.n_episodes, 1), 1.0)
-            self._sigma_effective = self.noise.sigma * max(0.2, 1.0 - 0.9 * progress)
+            self._sigma_effective = self.noise.sigma * max(0.05, 1.0 - 0.9 * progress)
         else:
             # 'constant' - fixed sigma throughout
             self._sigma_effective = self.noise.sigma
@@ -274,10 +276,16 @@ class ContinuousValueGradient:
         discounted = self.discount.discounted
         gamma = self.discount.gamma
         tau_polyak = self.training.tau_polyak
-        
+        # Target network active only for a Polyak rate in (0, 1). tau_polyak <= 0 (the campaign
+        # default) bootstraps V_next off the ONLINE critic -- exactly the actor-critic's rule, with
+        # no stabilising target-network trick (the "no tricks in the experiments" decision). Old
+        # runs (tau_polyak=0.01) keep the lagged target and stay bit-reproducible.
+        use_target = 0.0 < tau_polyak < 1.0
+
         def critic_loss(critic_params, target_params, features_t, features_next, reward, dt):
             V_t = critic.apply(critic_params, features_t).squeeze() # type: ignore
-            V_next = critic.apply(jax.lax.stop_gradient(target_params), features_next).squeeze() # type: ignore
+            boot_params = target_params if use_target else critic_params
+            V_next = critic.apply(jax.lax.stop_gradient(boot_params), features_next).squeeze() # type: ignore
             td_error = reward + (V_next - V_t) / dt
             if discounted:
                 td_error = td_error - V_t * gamma
@@ -289,10 +297,10 @@ class ContinuousValueGradient:
             )
             # Gradient clipping (if enabled) is handled by the optimizer (global-norm).
             updates, new_opt_state = optimizer.update(grads, opt_state, critic_params)
-            
+
             new_params_critic = optax.apply_updates(critic_params, updates)
-            new_params_target = optax.incremental_update(
-                new_params_critic, target_params, step_size=tau_polyak)
+            new_params_target = (optax.incremental_update(new_params_critic, target_params, step_size=tau_polyak)
+                                 if use_target else new_params_critic)
             grad_norm = jnp.sqrt(sum(jnp.sum(g**2) for g in jax.tree_util.tree_leaves(grads)))
             return new_params_critic, new_params_target, new_opt_state, loss, td_error, grad_norm
         return update_fn
