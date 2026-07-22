@@ -46,7 +46,9 @@ echo "5-seed FINAL runs | seeds = [$SEEDS] | n_episodes=1000 | visu (non-billed)
 for spec in "${CELLS[@]}"; do
   read -r PLANT MAX_TIME T_SIM GAMMA N_EPISODES WALLTIME CELL_PART CELL_QOS <<< "$spec"
   SRC="$JZ_DIR/${MANIFEST_TAG}_tasks_${PLANT}.tsv"
-  [ -f "$SRC" ] || { echo "MISSING manifest $SRC"; exit 1; }
+  # Skip a cell that has no (or an empty) manifest for this family -- lets a partial search or fix
+  # target only a subset of cells without failing on the others.
+  [ -s "$SRC" ] || { echo "skip $PLANT (no/empty $MANIFEST_TAG manifest)"; continue; }
 
   GROUP="${GROUP_PREFIX}_${PLANT}_${TS}"
   EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
