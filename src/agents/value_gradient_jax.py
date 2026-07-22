@@ -520,7 +520,10 @@ class ContinuousValueGradient:
         log_interval = self.training.log_interval
         init_log_interval = self.training.init_log_interval
         memory_clear_interval = self.training.memory_clear_interval
-        
+        # ~20 stdout progress lines over the run: tqdm's bar is suppressed on a non-tty (a batch
+        # job), so without this the SLURM log shows no per-episode progress until completion.
+        progress_print_interval = max(1, self.training.n_episodes // 20)
+
         iterator = tqdm.trange(self.training.n_episodes, desc="Training", leave=True)
         
         for episode in iterator:
@@ -607,7 +610,12 @@ class ContinuousValueGradient:
             
             # Update progress bar
             iterator.set_description(self._format_progress(episode, episode_metrics))
-            
+            # Periodic progress line to stdout (captured in the SLURM .out; episode_cost accumulates
+            # the reward, higher is better, hence labelled "return").
+            if episode % progress_print_interval == 0 or episode == self.training.n_episodes - 1:
+                print(f"    episode {episode + 1}/{self.training.n_episodes}  "
+                      f"return={float(episode_cost):.4g}  loss={float(episode_loss):.4g}", flush=True)
+
             # Log metrics
             if episode % log_interval == 0:
                 metrics_history['loss_episodic'].append(episode_loss)
