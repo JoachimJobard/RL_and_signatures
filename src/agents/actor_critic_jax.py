@@ -174,16 +174,20 @@ class ContinuousTimeActorCritic:
                   + (f' (A - gamma/2 I, gamma/2={gamma_half:.4f})' if self.discount.discounted else '') + '.')
 
     def _delayed_oracle_window(self) -> jnp.ndarray:
-        """Unscaled newest-first history window xi = [x(t), x(t-dt), ..., x(t-K dt)]
-        flattened, reconstructed from the env buffer (subsampled to control cadence).
-        Matches the (K+1)-tap layout the delayed-LQR gain/value expect."""
+        """Newest-first history window of the DEVIATION xi = [x(t)-x*, x(t-dt)-x*, ..., x(t-K dt)-x*]
+        flattened, reconstructed from the env buffer (subsampled to control cadence). The delayed-LQR
+        gain/value are synthesised for the linearisation about the regulation setpoint x* (the env's
+        x_target, 0 for the linear cells), so the oracle drives x -> x*. Feeding the RAW window instead
+        regulates x -> 0, which is correct only when x* = 0 and destabilises a plant whose target is
+        nonzero (Mackey-Glass x* = 1: the raw-window oracle drove x to 0, cost_reduction -4329%)."""
         buf = self.wrapper.state.buffer  # type: ignore
         data = np.asarray(buf.data)
         ptr = int(buf.ptr)
         ordered = np.roll(data, -ptr, axis=0)            # oldest .. newest
         newest_first = ordered[::-1]                      # newest .. oldest
         taps = newest_first[::self.env.resolution][:self.k_taps + 1]  # control cadence
-        return jnp.asarray(taps).reshape(-1)
+        x_star = np.asarray(getattr(self.env, "x_target", 0.0), dtype=float).reshape(-1)  # setpoint (0 if none)
+        return jnp.asarray(taps - x_star).reshape(-1)
     
     def _init_episode_state(
         self, x0: jnp.ndarray | None, eval_callback: Callable[..., Any] | None = None
