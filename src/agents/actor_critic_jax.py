@@ -204,9 +204,11 @@ class ContinuousTimeActorCritic:
 
     def _init_signatures(self) -> None:
         max_delay = float(jnp.max(self.env.delay)) if self.env.delay is not None else 0
-        window_size_from_delay = int(np.ceil(max_delay / self.env.step_size)) + 1 if max_delay > 0 else 10
         if not self.signature_conf.force_signature_window:
-            self.signature_conf.window_size = window_size_from_delay
+            # Single source (factory.signature_window_size, +3), matched to the value gradient
+            # (was +1 here -- a cross-learner window confound at fixed representation).
+            from src.representations.factory import signature_window_size
+            self.signature_conf.window_size = signature_window_size(self.env)
         else:
             print(f"force_signature_window is True: setting window_size to {self.signature_conf.window_size} to cover max delay of {max_delay}")
         # Representation backbone: signature / raw_history / markovian, selected by

@@ -59,8 +59,10 @@ class ContinuousValueGradient:
             self.signature_conf.window_size = self._compute_window_size()
 
     def _compute_window_size(self) -> int:
-        max_delay = self.env.delay.max() if self.env.delay is not None else 0.0
-        return int(np.ceil(max_delay / self.env.step_size)) + 3 if max_delay > 0 else 10
+        # Single source (factory.signature_window_size, +3). Numerically identical to the previous
+        # inline formula, so the value gradient is unchanged; the actor-critic now shares it.
+        from src.representations.factory import signature_window_size
+        return signature_window_size(self.env)
 
     def _init_episode_state(self) -> None:
         self.episode = 0

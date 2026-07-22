@@ -25,6 +25,17 @@ from src.representations.signature import SignatureRepresentation
 from src.utils.dynamic_signature import DequeBuffer
 
 
+def signature_window_size(env) -> int:
+    """Representation window (in control-cadence taps) that covers the plant's maximum delay:
+    ``ceil(max_delay / step_size) + 3``, or ``10`` for a non-delayed plant. THE single source for
+    the window auto-derivation. Used at config time (main_unified, so the logged window equals the
+    one actually run) and by every learner's agent, so two learners never derive different windows
+    -- the previous value-gradient(+3)/actor-critic(+1) split was a cross-learner confound at fixed
+    representation."""
+    max_delay = float(env.max_delay) if getattr(env, "max_delay", None) is not None else 0.0
+    return int(np.ceil(max_delay / float(env.step_size))) + 3 if max_delay > 0 else 10
+
+
 def make_representation(
     kind: str,
     window_length: int,

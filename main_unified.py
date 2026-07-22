@@ -318,6 +318,18 @@ def main(cfg: DictConfig) -> None:
     run_dir = resolve_run_dir(__file__, config_tag, seed=master_seed, debug=debug,
                               subdir=str(experiment_group) if experiment_group else None)
 
+    # Log the signature window the agents ACTUALLY run. When force_signature_window is false the
+    # window is auto-derived from the plant delay (signature_window_size); derive it HERE, at config
+    # time, and write it into cfg BEFORE the run context and config.yaml are saved -- otherwise they
+    # record the config default (e.g. 40), never the derived value (e.g. 23). This is also the single
+    # source of the window: both learners consume it, removing the old value-gradient(+3)/actor-
+    # critic(+1) split, a cross-learner confound at fixed representation.
+    _sig_cfg = cfg.agent.get("signature", None)
+    if _sig_cfg is not None and not bool(_sig_cfg.get("force_signature_window", False)):
+        from src.training.train import build_environment
+        from src.representations.factory import signature_window_size
+        cfg.agent.signature.window_size = signature_window_size(build_environment(cfg))
+
     # --- Self-contained run context: persist + log ---
     context = capture_run_context(
         master_seed=master_seed,
