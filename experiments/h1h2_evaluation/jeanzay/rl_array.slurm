@@ -8,7 +8,7 @@
 #
 # Maps SLURM_ARRAY_TASK_ID -> (cell, rep, seed) from CELLS_STR x REPS_STR x SEEDS_STR
 # (cell outer, rep middle, seed inner) and runs main_unified.py on the SAME plants as the
-# oracle harness (double_integrator / linear_dde_scalar / platoon_h1h2 / MG cells).
+# oracle harness (harmonic_oscillator / linear_dde_scalar / platoon_h1h2 / MG cells).
 #
 # AGENT selects the learner: `value_gradient` (ContinuousValueGradient, no actor; the
 # default and the agent behind data/main_unified) or `actor_critic` (ContinuousTimeActorCritic, the
@@ -81,7 +81,7 @@ CELL=${CELLS[$ci]}; REP=${REPS[$ri]}; SEED=${SEEDS[$si]}
 # is off and the finiteness guards are in. MAXT/TSIM are time horizons (dt-invariant); steps per
 # episode = MAXT/dt, so mg_chaotic is ~1200 steps at 340 taps -- the heaviest cell by far.
 case "$CELL" in
-    markovian)          ENV=double_integrator; WIN=10;  MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;   # tau=0: WIN arbitrary (redundant history of a Markov plant; H1 must fail)
+    markovian)          ENV=harmonic_oscillator; WIN=10;  MAXT=15; TSIM=15; X0="[1.0,0.5]" ;; # tau=0: WIN arbitrary (redundant history of a Markov plant; H1 must fail)
     linear_dde)         ENV=linear_dde_scalar; WIN=20;  MAXT=20; TSIM=20; X0="[0.8]" ;;        # tau=1.0 / dt=0.05
     hopfield_linear)    ENV=hopfield_linear;   WIN=10;  MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;    # tau=0.5 / dt=0.05
     hopfield_nonlinear) ENV=hopfield_nonlinear; WIN=10; MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;    # tau=0.5 / dt=0.05

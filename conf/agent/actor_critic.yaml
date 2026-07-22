@@ -28,8 +28,9 @@ training:
   # learners apply the SAME rule to the control. The array does not override clip_action, so the
   # previous 10.0 made this agent the only one clipping. Measured at seed 0 over 20 episodes: the
   # bound never binds on linear_dde / hopfield_linear / hopfield_nonlinear (max |u| 0.36-0.44) nor
-  # on double_integrator/{markovian,signature} (max |u| 0.35), but binds on 152/2973 = 5.113% of
-  # steps on double_integrator/raw_history, whose pre-clip |u| reaches 2014.44. That is ONE ARM of
+  # on the markovian/signature arms of the markovian double-integrator control cell (config since
+  # removed) (max |u| 0.35), but binds on 152/2973 = 5.113% of steps on its raw_history arm, whose
+  # pre-clip |u| reaches 2014.44. That is ONE ARM of
   # the H1 contrast on the falsification control cell, so the clamp acted on the comparison rather
   # than on both sides of it. Setting null is bit-inert wherever it did not bind.
   clip_action: null

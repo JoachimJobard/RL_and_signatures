@@ -1,11 +1,9 @@
-# Marginally-stable harmonic oscillator (isolation control for the actor-explosion pathology):
-# dx/dt = [[0,-1],[1,0]] x + [[0],[1]] u, no delay. Eigenvalues +/- i (purely imaginary), so under
-# zero control the state OSCILLATES with bounded amplitude rather than diverging -- unlike the
-# double-integrator (eigenvalues 0,0), whose state grows without bound under weak control. Every
-# other field (B, Q, R, step_size, resolution) is IDENTICAL to double_integrator.yaml, so switching
-# double_integrator -> harmonic_oscillator changes ONLY open-loop stability. Purpose: test whether
-# the AC/PG advantage explosion is caused by the plant's instability (bounded here => bounded
-# advantages => the actor should be able to stabilise) or is intrinsic to the actor mechanism.
+# Marginally-stable harmonic oscillator -- the markovian (no-delay) ODE cell, H1-negative control:
+# dx/dt = [[0,-1],[1,0]] x + [[0],[1]] u, no delay (A1 = 0). Eigenvalues +/- i (purely imaginary), so
+# under zero control the state OSCILLATES with bounded amplitude rather than diverging. As a
+# no-delay plant the optimal value depends on x(t) only, so history is irrelevant and H1 must FAIL
+# here: this cell is the falsification control against which the delayed cells are read.
+# It is the A1 = 0 special case of the general family dx/dt = A x + B u + A1 x(t - delay).
 # Controllable: [B, AB] = [[0,-1],[1,0]] has rank 2.
 environment_params:
   _target_: src.envs.env_rk_jax.JAXDDEEnv
@@ -30,8 +28,8 @@ environment_params:
   Q:
     _target_: numpy.eye
     N: 2
-  # R = 0.1, identical to double_integrator so the ONLY difference between the two plants is A
-  # (open-loop stability).
+  # R = 0.1, uniform with the delayed cells (all 0.1), so R sets the magnitude of any H1 effect,
+  # never its direction. On this markovian cell history is useless whatever R is.
   R:
     _target_: numpy.array
     object: [[0.1]]

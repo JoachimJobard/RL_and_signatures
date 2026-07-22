@@ -46,7 +46,7 @@ hi=$(( r / NCD ));                  cdi=$(( r % NCD ))
 AGENT=${LEARNERS[$li]}; SIGMA=${SIGMAS[$si]}; PAIR=${TS[$ti]}; K=${ROLLOUTS[$ki]}; PDECAY=${DECAY[$di]}; HORIZON=${HORIZONS[$hi]}; CDECAY=${CDECAYS[$cdi]}
 ALR=${PAIR%%:*}; CLR=${PAIR##*:}
 
-PLANT="${PLANT:-double_integrator}"   # double_integrator (unstable) or harmonic_oscillator (marginally stable)
+PLANT="${PLANT:-harmonic_oscillator}"   # harmonic_oscillator (marginally stable): markovian ODE, H1-negative control
 echo "Task $SLURM_ARRAY_TASK_ID: agent=$AGENT env=$PLANT sigma=$SIGMA actor_lr=$ALR critic_lr=$CLR rollouts=$K decay_p=$PDECAY (markovian, seed 42)"
 
 # markovian representation (natural for a Markov plant), dt=0.05. PLANT selects the plant; the two LQR

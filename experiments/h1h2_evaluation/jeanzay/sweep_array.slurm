@@ -41,7 +41,7 @@ AGENT=${LEARNERS[$li]}; CELL=${CELLS[$ci]}; REP=${REPS[$ri]}; LRSCALE=${LRS[$lri
 
 # Per-cell env / window / horizon -- identical table to rl_array.slurm (uniform dt=0.05).
 case "$CELL" in
-    markovian)          ENV=double_integrator; WIN=10;  MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
+    markovian)          ENV=harmonic_oscillator; WIN=10;  MAXT=15; TSIM=15; X0="[1.0,0.5]" ;;
     linear_dde)         ENV=linear_dde_scalar; WIN=20;  MAXT=20; TSIM=20; X0="[0.8]" ;;
     hopfield_nonlinear) ENV=hopfield_nonlinear; WIN=10; MAXT=15; TSIM=15; X0="[0.5,0.0]" ;;
     mg_chaotic)         ENV=MG_1D_chaotic;     WIN=340; MAXT=60; TSIM=60; X0="[0.8]" ;;

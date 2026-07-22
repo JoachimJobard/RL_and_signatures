@@ -428,8 +428,9 @@ class ContinuousTimeActorCritic:
         # clip_action None/<=0 means NO clipping. The default is null so that this agent and
         # the value gradient apply the SAME rule to the control; the previous default (10.0)
         # was applied here and nowhere in the value gradient, and it bound on 152/2973 =
-        # 5.113% of steps on double_integrator/raw_history (pre-clip |u| = 2014.44) whilst
-        # binding on 0/3020 of double_integrator/{markovian,signature}. It therefore acted on
+        # 5.113% of steps on the raw_history arm of the markovian double-integrator control cell
+        # (config since removed; pre-clip |u| = 2014.44) whilst binding on 0/3020 of its
+        # {markovian,signature} arms. It therefore acted on
         # ONE ARM of the H1 contrast (raw_history against markovian) on the falsification
         # control cell, where the raw-history window of a Markovian plant is collinear, its
         # feature Gram near-singular and its greedy control consequently unbounded -- the

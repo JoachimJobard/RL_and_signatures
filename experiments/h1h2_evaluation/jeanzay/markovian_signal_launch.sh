@@ -19,7 +19,7 @@ DATA_ROOT="${RL_SIGNATURES_DATA_ROOT:-${SCRATCH:?SCRATCH not set}/rl_campaigns/$
 SWEEP_PARTITION="${SWEEP_PARTITION:-visu}"       # visu: empty nodes, no queue; 4 h cap is ample
 SWEEP_TIME="${SWEEP_TIME:-03:00:00}"
 ACCOUNT="${ACCOUNT:-akz@cpu}"
-PLANT="${PLANT:-double_integrator}"                  # double_integrator (unstable) | harmonic_oscillator (marginally stable)
+PLANT="${PLANT:-harmonic_oscillator}"                # harmonic_oscillator (marginally stable): markovian ODE, H1-negative control
 
 # value_gradient included as the model-informed reference (should stabilise either plant); AC + PG
 # are the model-free learners under test.
