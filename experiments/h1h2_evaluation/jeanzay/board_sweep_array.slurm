@@ -18,6 +18,12 @@ set -euo pipefail
 source "$PATH_CONTENT_ROOT/bash_scripts/cluster/jeanzay/_environment.sh"
 jeanzay_print_diagnostics
 
+# Each task uses ~1 core (measured: TotalCPU ~= Elapsed on 8 alloc CPUs -- the episode loop is
+# sequential and per-step ops are tiny). Pin every numeric backend to a single thread so packing
+# many 1-CPU tasks per node cannot oversubscribe threads.
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+export XLA_FLAGS="${XLA_FLAGS:-} --xla_cpu_multi_thread_eigen=false"
+
 read -ra LEARNERS <<< "$LEARNERS_STR"
 read -ra KINDS    <<< "$KINDS_STR"
 NL=${#LEARNERS[@]}; NK=${#KINDS[@]}

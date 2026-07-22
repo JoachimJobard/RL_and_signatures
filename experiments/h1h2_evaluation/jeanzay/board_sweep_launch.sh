@@ -43,7 +43,7 @@ echo "env = $PLANT | horizon = $MAX_TIME | partition = $SWEEP_PARTITION (non-bil
 JOB=$(sbatch --parsable \
     --account="$ACCOUNT" --partition="$SWEEP_PARTITION" \
     --array=0-$(( N_TASKS - 1 )) \
-    --ntasks=1 --cpus-per-task=4 --hint=nomultithread \
+    --ntasks=1 --cpus-per-task=1 --hint=nomultithread \
     --time="$SWEEP_TIME" \
     --output="$SLURM_LOG_DIR/slurm-%A_%a.out" --error="$SLURM_LOG_DIR/slurm-%A_%a.err" \
     --export=ALL,"$EXPORTS" \
