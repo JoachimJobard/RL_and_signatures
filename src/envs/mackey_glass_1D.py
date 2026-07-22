@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 import jax
+import numpy as np
 
 
 from src.envs.env_rk_jax import EnvState, JAXDDEEnv, JAXEnvWrapper
@@ -52,6 +53,20 @@ class MackeyGlass1DEnv(JAXDDEEnv):
             self.natural_equilibrium = 0.0
 
 
+
+    def linearised_delayed_matrices(self):
+        """Jacobian linearisation of the Mackey-Glass plant about the natural equilibrium x*.
+        The plant dx/dt = -mu x + f(x(t-tau)) + u, with f(y) = p y / (1 + y^n), linearises to the
+        linear DDE dx/dt = A x + A1 x(t-tau) + u about x*, with A = -mu and
+        A1 = f'(x*) = p (1 + (1 - n) x*^n) / (1 + x*^n)^2. Supplies the (linearised) delayed-LQR
+        oracle: exact for the linearised plant, a near-optimal LINEAR delayed reference near x* for
+        the nonlinear one -- NOT the exact nonlinear optimum. For n=10, mu=0.1, p=0.2 (x*=1) this
+        gives A=-0.1, A1=-0.4."""
+        xs = float(self.natural_equilibrium)
+        A_lin = np.array([[-float(self.mu)]])
+        f_prime = float(self.p) * (1.0 + (1.0 - self.n) * xs ** self.n) / (1.0 + xs ** self.n) ** 2
+        A1_lin = np.array([[f_prime]])
+        return A_lin, A1_lin
 
     def get_B(self, x):
         """State-independent input matrix B(x) = [[1.0]] (u enters as +u)."""

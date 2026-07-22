@@ -33,9 +33,18 @@ def delayed_lqr_for_env(env: JAXDDEEnv, discount_beta: float = 1.0) -> DelayedLQ
     ``discount_beta`` (per-step, in ``(0, 1]``) selects the objective: ``1.0`` gives
     the undiscounted infinite-horizon oracle; ``exp(-gamma dt)`` gives the discounted
     oracle on the SAME objective as an agent discounting at rate ``gamma``,
-    which is the fairness anchor for a discounted comparison."""
+    which is the fairness anchor for a discounted comparison.
+
+    A NONLINEAR delayed env (e.g. Mackey-Glass) whose base (A, A1) are zero -- the
+    nonlinearity living in its overridden ``dynamics`` -- supplies its Jacobian
+    linearisation about the equilibrium via ``linearised_delayed_matrices``; the
+    delayed-LQR is then built on that linearisation (a LINEAR delayed reference)."""
+    if hasattr(env, "linearised_delayed_matrices"):
+        A, A1 = env.linearised_delayed_matrices()
+    else:
+        A, A1 = np.array(env.A), np.array(env.A1)
     return augmented_discrete_lqr(
-        np.array(env.A), np.array(env.A1), np.array(env.B),
+        A, A1, np.array(env.B),
         np.array(env.Q), np.array(env.R),
         delay=float(env.max_delay), dt=float(env.step_size),
         discount_beta=discount_beta,

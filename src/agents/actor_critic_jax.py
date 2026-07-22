@@ -135,20 +135,27 @@ class ContinuousTimeActorCritic:
             return
         is_linear_delayed = (type(self.env).__name__ == "JAXDDEEnv"
                              and float(self.env.max_delay) > 0)
-        if is_linear_delayed:
+        # Nonlinear delayed plants (Mackey-Glass, ...) supply a Jacobian linearisation about their
+        # equilibrium via linearised_delayed_matrices; the delayed-LQR built on it is a LINEAR
+        # delayed reference (exact for the linearised plant, near-optimal near the equilibrium) and
+        # replaces the meaningless non-delayed CARE that ignores the delay entirely.
+        has_linearisation = (hasattr(self.env, "linearised_delayed_matrices")
+                             and float(self.env.max_delay) > 0)
+        if is_linear_delayed or has_linearisation:
             from src.solvers.oracle_agent import delayed_lqr_for_env
+            _lin = " (linearised)" if has_linearisation and not is_linear_delayed else ""
             # Same-objective oracle: match the agent's continuous-time discount rate gamma via the
             # per-step factor beta = exp(-gamma dt). Undiscounted (beta=1) when the agent is
             # undiscounted, so the oracle is optimal for the SAME cost the agent minimises.
             beta = float(np.exp(-float(self.env.step_size) * self.discount.gamma)) if self.discount.discounted else 1.0
             self.lqr = delayed_lqr_for_env(self.env, discount_beta=beta)
             if self.discount.discounted:
-                print(f"[oracle] discounted delayed-LQR: gamma={self.discount.gamma}, beta={beta:.4f}")
+                print(f"[oracle] discounted delayed-LQR{_lin}: gamma={self.discount.gamma}, beta={beta:.4f}")
             self.K_aug = jnp.array(self.lqr.gain)
             self.P_aug = jnp.array(self.lqr.P)
             self.k_taps = int(self.lqr.k_taps)
             self._delayed_oracle = True
-            print(f"[oracle] delayed-LQR: {self.k_taps} taps, "
+            print(f"[oracle] delayed-LQR{_lin}: {self.k_taps} taps, "
                   f"closed-loop spectral radius {self.lqr.closed_loop_spectral_radius():.4f}")
         else:
             # Same-objective (discounted) non-delayed oracle: the discounted LQR is the ordinary LQR
