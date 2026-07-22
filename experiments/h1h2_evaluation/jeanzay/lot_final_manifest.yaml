@@ -1,0 +1,44 @@
+# =============================================================================
+# LOT FINAL -- manifeste de provenance (registre append-only)
+# Comparaison AC / PG / VG x {markovian, raw_history, signature} x {DDE, ODE}.
+# Traçabilité : chaque phase -> groupe SCRATCH -> job Slurm -> commit git.
+# Les runs vivent dans $SCRATCH/rl_campaigns/RL_and_signatures/data/main_unified/<group>/ ;
+# les figures/résumés finaux seront rapatriés (voir 'archivage' en bas).
+# =============================================================================
+
+config:
+  tau: 2.0                       # gamma = 1/tau = 0.5
+  T: 10.0                        # max_time = T_sim = 5*tau (T_1% = 4.6*tau = 9.2 < 10)
+  x0:  {DDE: [1.0], ODE: [1.0, 0.0]}
+  n_episodes: {selection: 300, seeds: 1000}   # sélection = classement seulement (rapide) ; seeds = rapport
+  grid_alpha0: [0.01, 0.03, 0.1, 0.3, 1, 3, 10, 30, 100]   # grille fine commune (demi-décade)
+  AC_critic_lr_axis: [0.01, 0.1, 1]           # AC = 2D (actor_lr x critic_lr) ; PG/VG = 1D
+  rollouts_per_update: 1
+  force_signature_window: false               # fenêtre auto-dérivée (couvre le délai : 21 sur la DDE)
+  noise: {type: OU, sigma: 0.5, tau_n: 1.0}
+  cost: {R: 0.1, Q: identity}
+  oracle: {DDE: "delayed-LQR actualisé (beta=exp(-dt/tau))", ODE: "CARE décalée A-gamma/2 I"}
+  metrics: ["%opt (actualisé, vs oracle même-objectif)", "résidu max|x| sur [30,40]"]
+  seed_selection: 42             # tenu à part
+  seed_axis: [TBD]               # 5 seeds frais (Phase 2)
+  cpus_per_task: 1               # runs mono-thread (mesuré : TotalCPU ~= Elapsed)
+
+phase1_selection:                # 300 ép., seed 42, git 88c6eeb
+  DDE:
+    PG_VG:      {group: board_sweep_20260722_092304, job: 28691}
+    AC_clr0.01: {group: board_sweep_20260722_092307, job: 28692}
+    AC_clr0.1:  {group: board_sweep_20260722_092309, job: 28693}
+    AC_clr1:    {group: board_sweep_20260722_092311, job: 28695}
+  ODE:
+    PG_VG:      {group: board_sweep_20260722_092313, job: 28696}
+    AC_clr0.01: {group: board_sweep_20260722_092315, job: 28734}
+    AC_clr0.1:  {group: board_sweep_20260722_092317, job: 28735}
+    AC_clr1:    {group: board_sweep_20260722_092319, job: 28737}
+
+best_alpha0:   {}                # à remplir après mesure de la Phase 1 (meilleur (alpha0[, critic_lr]) par cellule)
+
+phase2_seeds:  {}                # à remplir : groupes des 5 seeds au meilleur alpha0 figé (1000 ép.)
+
+archivage:                       # à faire quand le lot est complet
+  structure: "$SCRATCH/.../lot_final_<date>/{DDE,ODE}/{selection,seeds}/  + ce manifeste"
+  rapatriement: "figures + résumés (mean±std) + best_alpha0 -> repo ; exclure optimiseur/checkpoints de reprise"
