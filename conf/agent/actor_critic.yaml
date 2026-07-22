@@ -83,14 +83,14 @@ training:
 discount:
   # Infinite-horizon DISCOUNTED, matching the paper (AnonymousSubmission2027.tex l.372):
   # V^u(x(t)) = int_t^inf e^{-gamma(s-t)} r ds, with the stationary discounted HJB gamma V = sup_u{...}.
-  # The TD error becomes delta = r + Vdot - gamma V (code: r + Vdot - V/tau), so gamma = 1/tau.
+  # The TD error becomes delta = r + Vdot - gamma V (code: r + Vdot - gamma*V), gamma the rate.
   # discounted was 'false' only as the inherited dataclass default (initial commit a02cc92), never
   # reconciled with the paper -- undiscounted hands the STATIONARY critic V_theta(x) a non-stationary
   # (finite T) or unbounded (non-regulating policy) target, which is ill-posed. Discounting gives a
   # bounded, stationary target -x'P_gamma x (shifted Riccati A -> A - gamma/2 I) and a soft horizon
-  # ~1/gamma, so episodes truncate at T ~ 3-5 tau.
+  # ~1/gamma, so episodes truncate at T ~ 3-5/gamma.
   discounted: true
-  tau: 2.0                 # gamma = 1/tau = 0.5 (effective horizon ~2; use T = 5*tau = 10)
+  gamma: 0.5               # discount rate (tau = 1/gamma = 2; effective horizon ~2; use T = 5/gamma = 10)
   V_target: 0.0
   V_bad: -10.0
 

@@ -29,7 +29,7 @@
 #
 # INHERITANCE. Composed from conf/agent/actor_critic.yaml so that every parameter matched to the
 # value gradient -- clip_action (null), critic_lr (1e-3), noise.length_scale (0.002), noise.sigma,
-# noise.schedule, discount.tau (1.0), divergence_threshold -- is inherited rather than copied, and
+# noise.schedule, discount.gamma (0.5), divergence_threshold -- is inherited rather than copied, and
 # cannot drift out of step with it. Only actor_target is overridden.
 defaults:
   - actor_critic

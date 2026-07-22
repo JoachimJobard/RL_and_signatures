@@ -96,8 +96,8 @@ def augmented_discrete_lqr(
         dt: control time step; ``K = round(delay/dt)`` history taps are used.
         discount_beta: per-step discount ``beta in (0, 1]`` for the DISCOUNTED
             objective ``J = sum_k beta^k (x_k' Q x_k + u_k' R u_k) dt``; use
-            ``beta = exp(-gamma dt) = exp(-dt/tau)`` to match the agents'
-            continuous-time discount rate ``gamma = 1/tau``. Default ``1.0`` is the
+            ``beta = exp(-gamma dt)`` to match the agents' continuous-time discount
+            rate ``gamma``. Default ``1.0`` is the
             undiscounted infinite-horizon oracle (unchanged behaviour).
 
     Returns:

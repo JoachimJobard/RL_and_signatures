@@ -24,7 +24,7 @@ training:
 # =============================================================================
 discount:
   discounted: false
-  tau: 1.2
+  gamma: 0.8333333333333334  # = 1/1.2 (discount rate)
   V_bad: -10.0
   V_target: 0.0
 

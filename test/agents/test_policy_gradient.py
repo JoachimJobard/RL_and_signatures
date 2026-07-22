@@ -88,16 +88,16 @@ def test_return_to_go_satisfies_its_backward_recursion():
 
 
 def test_discounted_return_to_go_satisfies_its_backward_recursion():
-    """R_t = r_t dt + exp(-dt/tau) R_{t+1}, the discounted analogue, checked exactly."""
+    """R_t = r_t dt + exp(-gamma dt) R_{t+1}, the discounted analogue, checked exactly."""
     agent = _build()
     agent.discount.discounted = True
-    agent.discount.tau = 2.0
+    agent.discount.gamma = 0.5
     rng = np.random.default_rng(1)
     rates = jnp.asarray(rng.normal(size=20))
     dt = 0.25
     R = np.asarray(agent.monte_carlo_returns(rates, dt))
     r = np.asarray(rates)
-    decay = float(np.exp(-dt / 2.0))
+    decay = float(np.exp(-dt * 0.5))
     np.testing.assert_allclose(R[:-1], r[:-1] * dt + decay * R[1:], rtol=1e-6, atol=1e-9)
 
 
@@ -112,7 +112,7 @@ def test_discounting_shortens_the_effective_horizon():
     dt = 0.1
     undiscounted = np.asarray(agent.monte_carlo_returns(rates, dt))[0]
     agent.discount.discounted = True
-    agent.discount.tau = 1.0
+    agent.discount.gamma = 1.0
     discounted = np.asarray(agent.monte_carlo_returns(rates, dt))[0]
     assert discounted < undiscounted, (
         f"discounted return {discounted} should be below the undiscounted {undiscounted}"

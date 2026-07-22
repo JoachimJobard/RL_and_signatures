@@ -137,13 +137,13 @@ class ContinuousTimeActorCritic:
                              and float(self.env.max_delay) > 0)
         if is_linear_delayed:
             from src.solvers.oracle_agent import delayed_lqr_for_env
-            # Same-objective oracle: match the agent's continuous-time discount gamma = 1/tau via
-            # the per-step factor beta = exp(-gamma dt) = exp(-dt/tau). Undiscounted (beta=1) when
-            # the agent is undiscounted, so the oracle is optimal for the SAME cost the agent minimises.
-            beta = float(np.exp(-float(self.env.step_size) / self.discount.tau)) if self.discount.discounted else 1.0
+            # Same-objective oracle: match the agent's continuous-time discount rate gamma via the
+            # per-step factor beta = exp(-gamma dt). Undiscounted (beta=1) when the agent is
+            # undiscounted, so the oracle is optimal for the SAME cost the agent minimises.
+            beta = float(np.exp(-float(self.env.step_size) * self.discount.gamma)) if self.discount.discounted else 1.0
             self.lqr = delayed_lqr_for_env(self.env, discount_beta=beta)
             if self.discount.discounted:
-                print(f"[oracle] discounted delayed-LQR: tau={self.discount.tau}, beta={beta:.4f}")
+                print(f"[oracle] discounted delayed-LQR: gamma={self.discount.gamma}, beta={beta:.4f}")
             self.K_aug = jnp.array(self.lqr.gain)
             self.P_aug = jnp.array(self.lqr.P)
             self.k_taps = int(self.lqr.k_taps)
@@ -152,11 +152,11 @@ class ContinuousTimeActorCritic:
                   f"closed-loop spectral radius {self.lqr.closed_loop_spectral_radius():.4f}")
         else:
             # Same-objective (discounted) non-delayed oracle: the discounted LQR is the ordinary LQR
-            # of the shifted system A - (gamma/2) I with gamma = 1/tau, i.e. P_gamma = CARE(A - gamma/2 I,
+            # of the shifted system A - (gamma/2) I, i.e. P_gamma = CARE(A - gamma/2 I,
             # B, Q, R), matching the agent's discounted cost. gamma=0 (undiscounted) leaves A unchanged.
             A_np = np.array(self.env.A); B_np = np.array(self.env.B)
             Q_np = np.array(self.env.Q); R_np = np.array(self.env.R)
-            gamma_half = (0.5 / self.discount.tau) if self.discount.discounted else 0.0
+            gamma_half = (0.5 * self.discount.gamma) if self.discount.discounted else 0.0
             A_shift = A_np - gamma_half * np.eye(A_np.shape[0])
             P = scipy.linalg.solve_continuous_are(A_shift, B_np, Q_np, R_np)
             self.P = jnp.array(P)
@@ -681,7 +681,7 @@ class ContinuousTimeActorCritic:
         
         # Compute V dot and TD error (keep as JAX arrays)
         ctx.V_dot = (ctx.V_next - ctx.V_t) / ctx.dt
-        ctx.td_error = ctx.reward + ctx.V_dot - (ctx.V_t / self.discount.tau if self.discount.discounted else 0.0)
+        ctx.td_error = ctx.reward + ctx.V_dot - (ctx.V_t * self.discount.gamma if self.discount.discounted else 0.0)
         
         # update networks (returns JAX arrays, no float() sync)
         loss_critic, actor_grad_norm, critic_grad_norm = self._update_networks(ctx)
@@ -705,14 +705,14 @@ class ContinuousTimeActorCritic:
         critic = self.critic
         optimizer = self.critic_optimizer
         discounted = self.discount.discounted
-        tau = self.discount.tau
-        
+        gamma = self.discount.gamma
+
         def critic_loss(critic_params, features_t, features_next, reward, dt):
             V_t = critic.apply(critic_params, features_t).squeeze() # type: ignore
             V_next = critic.apply(jax.lax.stop_gradient(critic_params), features_next).squeeze() # type: ignore
             td_error = reward + (V_next - V_t) / dt
             if discounted:
-                td_error = td_error - V_t / tau
+                td_error = td_error - V_t * gamma
             return 0.5 * td_error ** 2 * dt, td_error
         
         @jax.jit
@@ -941,15 +941,15 @@ class ContinuousTimeActorCritic:
             R_t = int_t^T r(s) ds  ~=  sum_{k >= t} r_k dt,
 
         and, when ``discount.discounted`` is set, its exponentially weighted analogue
-        R_t = int_t^T exp(-(s-t)/tau) r(s) ds, satisfying the backward recursion
-        R_t = r_t dt + exp(-dt/tau) R_{t+1}.
+        R_t = int_t^T exp(-gamma(s-t)) r(s) ds, satisfying the backward recursion
+        R_t = r_t dt + exp(-gamma dt) R_{t+1}.
 
         Exposed publicly (rather than as a private helper) because it is the part of the
         estimator that is checkable against a closed form, and the tests do check it.
         """
         rates = jnp.asarray(reward_rates)
         if getattr(self.discount, "discounted", False):
-            decay = float(np.exp(-dt / self.discount.tau))
+            decay = float(np.exp(-dt * self.discount.gamma))
 
             def backward_step(carry, r_k):
                 carry = r_k * dt + decay * carry

@@ -9,7 +9,7 @@ via `from_legacy_params()` for backward compatibility with CTACJAX etc.
 
 Hydra YAML layout (agent config):
     training:   { n_episodes, max_time, actor_lr, ... }
-    discount:   { discounted, tau, V_target, V_bad }
+    discount:   { discounted, gamma, V_target, V_bad }
     noise:      { sigma, schedule, decay, smooth, length_scale }
     signature:  { depth, window_size, time_augmentation, ... }
     network:    { std_init, normalize_entries }
@@ -119,9 +119,9 @@ class TrainingConfig:
 
 @dataclass
 class DiscountConfig:
-    """Doya continuous-time discounting: δ = r + V̇ − V/τ."""
+    """Doya continuous-time discounting: δ = r + V̇ − γV (γ the discount rate)."""
     discounted: bool = False
-    tau: float = 1.0                 # discount time constant
+    gamma: float = 1.0               # discount rate (gamma = 1/tau, the reciprocal time constant)
     V_target: float = 0.0
     V_bad: float = -1.0
 
@@ -308,7 +308,7 @@ def from_legacy_params(
 
     discount = DiscountConfig(
         discounted=discounted,
-        tau=tp.get('tau', 1.0),
+        gamma=tp.get('gamma', (1.0 / tp['tau']) if 'tau' in tp else 1.0),  # back-compat: pre-rename configs stored the time constant tau
         V_target=tp.get('V_target', 0.0),
         V_bad=tp.get('V_bad', -1.0),
     )

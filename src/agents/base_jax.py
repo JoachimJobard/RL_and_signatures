@@ -141,7 +141,7 @@ class CTACJAX(ContinuousTimeActorCritic):
         """Create JIT-compiled critic update for state-based input."""
         critic = self.critic
         critic_optimizer = self.critic_optimizer
-        tau = self.discount.tau
+        gamma = self.discount.gamma
         discounted = self.discount.discounted
         semi_gradient = self.algorithm.semi_gradient
 
@@ -154,7 +154,7 @@ class CTACJAX(ContinuousTimeActorCritic):
                 else:
                     V_next = critic.apply(params, x_next).squeeze() # type: ignore
                 V_dot = (V_next - V_t) / dt
-                discount_term = V_t / tau if discounted else 0.0
+                discount_term = V_t * gamma if discounted else 0.0
                 td_error = reward + V_dot - discount_term
                 loss = 0.5 * td_error ** 2 * dt
                 return loss, td_error
@@ -267,7 +267,7 @@ class CTACJAX(ContinuousTimeActorCritic):
         
         # Compute V dot and TD error (keep as JAX arrays)
         ctx.V_dot = (ctx.V_next - ctx.V_t) / ctx.dt
-        ctx.td_error = ctx.reward + ctx.V_dot - (ctx.V_t / self.discount.tau if self.discount.discounted else 0.0)
+        ctx.td_error = ctx.reward + ctx.V_dot - (ctx.V_t * self.discount.gamma if self.discount.discounted else 0.0)
         
         # update networks
         loss_critic, actor_grad_norm, critic_grad_norm = self._update_networks(ctx)

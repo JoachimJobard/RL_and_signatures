@@ -270,7 +270,7 @@ class ContinuousValueGradient:
         critic = self.critic
         optimizer = self.optimizer
         discounted = self.discount.discounted
-        tau = self.discount.tau
+        gamma = self.discount.gamma
         tau_polyak = self.training.tau_polyak
         
         def critic_loss(critic_params, target_params, features_t, features_next, reward, dt):
@@ -278,7 +278,7 @@ class ContinuousValueGradient:
             V_next = critic.apply(jax.lax.stop_gradient(target_params), features_next).squeeze() # type: ignore
             td_error = reward + (V_next - V_t) / dt
             if discounted:
-                td_error = td_error - V_t / tau
+                td_error = td_error - V_t * gamma
             return 0.5 * td_error ** 2 * dt, td_error
         @jax.jit
         def update_fn(critic_params, target_params, opt_state, features_t, features_next, reward, dt):
@@ -307,8 +307,8 @@ class ContinuousValueGradient:
         if getattr(self, "_lstd", False):
             # Accumulate the LSTD system; the critic is solved at episode end. The
             # continuous-time TD residual is delta = r + theta^T[(phi_next-phi_t)/dt
-            # - phi_t/tau], so the fixed point E[phi*delta]=0 gives M theta = -b with
-            # M = sum phi_t[(phi_next-phi_t)/dt - phi_t/tau]^T, b = sum phi_t r.
+            # - gamma*phi_t], so the fixed point E[phi*delta]=0 gives M theta = -b with
+            # M = sum phi_t[(phi_next-phi_t)/dt - gamma*phi_t]^T, b = sum phi_t r.
             #
             # CENTRED features phi_c = phi - mu (running mean, frozen per episode). The
             # signature's time-augmentation channel contributes a large DETERMINISTIC
@@ -322,7 +322,7 @@ class ContinuousValueGradient:
             phi_t = np.asarray(features_t, dtype=np.float64).reshape(-1)
             phi_n = np.asarray(features_next, dtype=np.float64).reshape(-1)
             phi_c = phi_t - self._lstd_mu                          # centred test feature
-            diff = (phi_n - phi_t) / float(dt) - phi_c / float(self.discount.tau)
+            diff = (phi_n - phi_t) / float(dt) - phi_c * float(self.discount.gamma)
             self._lstd_M += np.outer(phi_c, diff)
             self._lstd_b += phi_c * float(reward)
             self._lstd_C += np.outer(phi_c, phi_c)                 # centred 2nd moment (PCA)

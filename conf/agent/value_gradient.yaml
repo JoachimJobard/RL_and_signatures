@@ -49,7 +49,7 @@ discount:
   # the sole remaining hundredfold gap against conf/agent/actor_critic.yaml (1.0), which would have
   # meant the two learners weighing horizons of order 100 s and 1 s on episodes lasting 15-60 s.
   #
-  # The change is INERT and that was verified, not assumed: tau enters only the discounted branch
+  # The change is INERT and that was verified, not assumed: gamma enters only the discounted branch
   # of the temporal-difference residual (value_gradient_jax.py:264, :659; actor_critic_jax.py:580,
   # :610, :736), and discount.discounted is false; its one unconditional use, the LSTD accumulator
   # at value_gradient_jax.py:309, is unreachable because algorithm.lstd resolves to False. The
@@ -57,7 +57,7 @@ discount:
   #
   # This is a latent foot-gun disarmed, not a live defect fixed: enabling discount.discounted or
   # algorithm.lstd would have armed the hundredfold gap silently.
-  tau: 2.0             # gamma = 1/tau = 0.5, uniform with actor_critic.yaml
+  gamma: 0.5           # discount rate (tau = 1/gamma = 2), uniform with actor_critic.yaml
   V_target: 0.0
   V_bad: -10.0
 

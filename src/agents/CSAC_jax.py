@@ -137,7 +137,7 @@ class CSAC:
         self.tau_polyak = self.training.tau_polyak
         # Discount
         self.discounted = self.discount.discounted
-        self.discount_factor_tau = self.discount.tau
+        self.discount_factor_tau = 1.0 / self.discount.gamma  # CSAC keeps the time constant internally (1/gamma); its update reads 1/tau_discount_factor
         # Noise
         self.sigma = self.noise.sigma
         self.decay_noise = self.noise.decay

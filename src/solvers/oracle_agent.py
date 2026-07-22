@@ -31,8 +31,8 @@ def delayed_lqr_for_env(env: JAXDDEEnv, discount_beta: float = 1.0) -> DelayedLQ
     matrices (A, A1, B, Q, R), its max delay, and its control step.
 
     ``discount_beta`` (per-step, in ``(0, 1]``) selects the objective: ``1.0`` gives
-    the undiscounted infinite-horizon oracle; ``exp(-dt/tau)`` gives the discounted
-    oracle on the SAME objective as an agent discounting at rate ``gamma = 1/tau``,
+    the undiscounted infinite-horizon oracle; ``exp(-gamma dt)`` gives the discounted
+    oracle on the SAME objective as an agent discounting at rate ``gamma``,
     which is the fairness anchor for a discounted comparison."""
     return augmented_discrete_lqr(
         np.array(env.A), np.array(env.A1), np.array(env.B),
