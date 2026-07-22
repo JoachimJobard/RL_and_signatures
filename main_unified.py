@@ -198,18 +198,28 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
         save_training_metrics(metrics, run_dir / "training_metrics.pkl")
 
     # --- Build the figures FROM the (saved) data — identical to what replot produces ---
-    fig_comparison = plot_agent_vs_no_control_from_data(eval_data)
-    wandb.log({"Agent vs No Control": fig_comparison})
-    _save_figure(fig_comparison, run_dir / "figure_agent_vs_no_control")
+    # A DIVERGED run (guard-aborted) can leave non-finite values in the evaluation trajectory whose
+    # axis limits break Matplotlib's tick locator (ValueError: arange: cannot compute length in
+    # ticker._raw_ticks). The data is already persisted above, so a figure failure must NOT abort the
+    # run: it is logged and skipped so the cost print, the wandb summary, and the checkpoint below
+    # still execute and the task exits cleanly. Such a figure is regenerable via --replot. This guards
+    # only the plotting; a divergence itself is already reported by the guard and the negative cost.
+    try:
+        fig_comparison = plot_agent_vs_no_control_from_data(eval_data)
+        wandb.log({"Agent vs No Control": fig_comparison})
+        _save_figure(fig_comparison, run_dir / "figure_agent_vs_no_control")
 
-    fig_multi = plot_multiple_trajectories_from_data(multi_data)
-    wandb.log({"Multiple Trajectories": fig_multi})
-    _save_figure(fig_multi, run_dir / "figure_multiple_trajectories")
+        fig_multi = plot_multiple_trajectories_from_data(multi_data)
+        wandb.log({"Multiple Trajectories": fig_multi})
+        _save_figure(fig_multi, run_dir / "figure_multiple_trajectories")
 
-    if metrics.get("state_counts", None) is not None:
-        fig_visiting = get_statistics_visited_states(metrics, agent.discretization_state)  # type: ignore
-        wandb.log({"Visited States Distribution": fig_visiting})
-        _save_figure(fig_visiting, run_dir / "figure_visited_states")
+        if metrics.get("state_counts", None) is not None:
+            fig_visiting = get_statistics_visited_states(metrics, agent.discretization_state)  # type: ignore
+            wandb.log({"Visited States Distribution": fig_visiting})
+            _save_figure(fig_visiting, run_dir / "figure_visited_states")
+    except Exception as figure_error:
+        print(f"    [WARNING] figure generation failed (non-fatal; eval.pkl/multi.pkl already "
+              f"saved, regenerable via --replot): {type(figure_error).__name__}: {figure_error}")
 
     for k, v in eval_metrics.items():
         wandb.run.summary[k] = v  # type: ignore
