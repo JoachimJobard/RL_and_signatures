@@ -1,0 +1,45 @@
+# Delayed harmonic oscillator -- the linear DDE cell (H1 POSITIVE), delay tau = 1:
+# dx/dt = [[0,-1],[1,0]] x + [[0],[1]] u - x(t-1). The SAME A, B as the markovian
+# harmonic_oscillator, plus an isotropic delayed coupling A1 = -I at delay 1. It is the
+# A1 != 0 extension of harmonic_oscillator (A1 = 0): same A, B, add the delay, history
+# becomes necessary. delay = [1, 1] applies the lag component-wise to both channels.
+#
+# The delay DESTABILISES the marginally-stable oscillator: the rightmost characteristic
+# root is Re lambda = 0.191 > 0 (measured by Chebyshev collocation, N=28), so the
+# uncontrolled state grows -- control is genuinely necessary -- yet the DISCOUNTED
+# no-control cost stays finite (Re lambda < gamma/2 = 0.25 at the campaign gamma = 0.5).
+# History is genuinely needed (H1 HOLDS): the markovian-oracle cost gap is +102%
+# (undiscounted markovian_oracle_gap) and the delayed-LQR kernel ratio
+# ||K_hist|| / ||K_now|| = 0.140; the delayed-LQR stabilises it (closed-loop discrete
+# spectral radius 0.963 < 1). a1 = -1 chosen as the rounded (integer) value that is both
+# sufficiently non-Markovian and discounted-cost-finite (see the a1 sweep, 2026-07-22).
+# Controllable: [B, AB] = [[0,-1],[1,0]] has rank 2.
+environment_params:
+  _target_: src.envs.env_rk_jax.JAXDDEEnv
+  A:
+    _target_: numpy.array
+    object: [[0.0, -1.0], [1.0, 0.0]]
+    dtype: float64
+  B:
+    _target_: numpy.array
+    object: [[0.0], [1.0]]
+    dtype: float64
+  A1:
+    _target_: numpy.array
+    object: [[-1.0, 0.0], [0.0, -1.0]]
+    dtype: float64
+  delay:
+    _target_: numpy.array
+    object: [1.0, 1.0]
+    dtype: float64
+  Q:
+    _target_: numpy.eye
+    N: 2
+  # R = 0.1, uniform with harmonic_oscillator and the other cells (R sets the magnitude of
+  # any H1 effect, never its direction).
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+    dtype: float64
+  step_size: 0.05
+  resolution: 4
