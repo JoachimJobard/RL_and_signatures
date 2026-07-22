@@ -42,7 +42,7 @@ training:
 # Discount
 # =============================================================================
 discount:
-  discounted: false
+  discounted: true    # infinite-horizon discounted, matches the paper (was false: un-audited default)
   # Restored to the normal value. 1.0 is the DiscountConfig default (src/configs.py:54) and Doya's
   # own setting (2000, Figure 2 caption: tau = 1.0), and is what every other agent config carries
   # (1.0 or 1.2). Only this file and conf/agent/csac.yaml held 100.0 -- a hundredfold outlier, and
@@ -57,7 +57,7 @@ discount:
   #
   # This is a latent foot-gun disarmed, not a live defect fixed: enabling discount.discounted or
   # algorithm.lstd would have armed the hundredfold gap silently.
-  tau: 1.0
+  tau: 2.0             # gamma = 1/tau = 0.5, uniform with actor_critic.yaml
   V_target: 0.0
   V_bad: -10.0
 
@@ -65,7 +65,7 @@ discount:
 # Noise
 # =============================================================================
 noise:
-  sigma: 0.1
+  sigma: 0.5   # exploration OU noise (uniform)
   schedule: constant
   decay: false
   # Ornstein-Uhlenbeck exploration (Doya 2000): correlation exp(-dt/tau_n) over a step, dt-

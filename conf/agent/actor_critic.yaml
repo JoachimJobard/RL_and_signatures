@@ -89,7 +89,7 @@ discount:
   # bounded, stationary target -x'P_gamma x (shifted Riccati A -> A - gamma/2 I) and a soft horizon
   # ~1/gamma, so episodes truncate at T ~ 3-5 tau.
   discounted: true
-  tau: 1.0                 # gamma = 1/tau = 1  (effective horizon ~1; use T ~ 5)
+  tau: 2.0                 # gamma = 1/tau = 0.5 (effective horizon ~2; use T = 5*tau = 10)
   V_target: 0.0
   V_bad: -10.0
 
@@ -97,7 +97,7 @@ discount:
 # Noise (exploration)
 # =============================================================================
 noise:
-  sigma: 0.1
+  sigma: 0.5   # exploration OU noise (uniform across AC/PG/VG)
   schedule: constant      # 'constant', 'linear_decay', 'adaptive'
   decay: false
   smooth: true            # GP-sampled smooth noise
