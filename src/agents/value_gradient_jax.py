@@ -1,4 +1,5 @@
 from typing import Any, Callable
+import os
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -497,9 +498,183 @@ class ContinuousValueGradient:
         action, _ = self._select_action_jit(self.critic_params, data_path, self.env.R, self.wrapper.state.x)
         return jnp.array(action)
 
+    # =========================================================================
+    # Whole-episode lax.scan rollout (value-gradient fast path)
+    # =========================================================================
+    #
+    # Unlike the Monte-Carlo policy gradient, the value-gradient CONTROL depends on the critic
+    # (u = 1/2 R^-1 B^T dV/dx(t)), so the critic and the control co-evolve within an episode and
+    # both feed the trajectory. That co-evolution is expressed by carrying the critic (parameters,
+    # target parameters, optimiser state) alongside the environment state, the on-device history
+    # window and the PRNG key in a single jax.lax.scan over the whole episode. The control extraction
+    # reuses self._select_action_jit and the sequential critic update reuses self._jit_critic_update,
+    # so the numerics -- the gradient-through-critic control and the Adam trajectory -- are preserved
+    # term for term; only the per-step Python dispatch and the per-step host synchronisation (the
+    # divergence test in _is_episode_done) are removed.
+
+    def _vg_fast_rollout_enabled(self) -> bool:
+        """Whether the whole-episode lax.scan rollout is applicable to this configuration.
+
+        Excluded (transparent fallback to the untouched Python loop): the LSTD critic (its per-step
+        accumulation is a host-side numpy solve, not a jittable update); the state-dependent
+        'adaptive' exploration schedule; and any OPT-IN mid-episode trim (divergence_threshold) that
+        would make the episode length data-dependent. The always-on finiteness / diverge-abort
+        guards are reproduced by a post-rollout check, inert on a stable trajectory.
+        PG_FAST_ROLLOUT=0 forces the fallback (shared toggle with the actor-critic fast path)."""
+        if os.environ.get("PG_FAST_ROLLOUT", "1") == "0":
+            return False
+        if bool(getattr(self, "_lstd", False)):
+            return False
+        if str(getattr(self.noise, "schedule", "constant")) != "constant":
+            return False
+        trim = getattr(self.training, "divergence_threshold", None)
+        if trim is not None and trim > 0:
+            return False
+        return True
+
+    def _horizon_num_steps(self, t0: float) -> int:
+        """Control-step count of the fixed-horizon episode, replicating env.step's float64 clock
+        accumulation (resolution sub-steps of solver_step_size per control step) and the pre-step
+        horizon test of _is_episode_done in host float64, in the same order. Data-independent (the
+        horizon test reads only the clock), hence constant across episodes."""
+        solver = float(self.env.solver_step_size)
+        resolution = int(self.env.resolution)
+        max_time = float(self.training.max_time)
+        t = np.float64(t0)
+        n = 0
+        while not ((t - np.float64(t0)) >= max_time):
+            for _ in range(resolution):
+                t = t + np.float64(solver)
+            n += 1
+            if n > 10_000_000:
+                raise RuntimeError("horizon step count runaway; refusing to build an unbounded scan")
+        return n
+
+    def _make_vg_rollout_fn(self, n_steps: int) -> Callable:
+        """Build the jitted whole-episode value-gradient rollout for a fixed step count."""
+        env = self.env
+        dt = float(self.env.step_size)
+        scale = self.training.scale
+        R = self.env.R
+        action_dim = int(self.env.B.shape[1])
+        critic_feature_fn = self.representation_buffer.representation.feature_fn
+        select_action = self._select_action_jit     # reused -> identical gradient-through-critic control
+        critic_update = self._jit_critic_update      # reused -> identical Adam / target trajectory
+        # OU / GP exploration pre-samples the whole episode and is indexed by time; white noise is
+        # drawn per step from the threaded PRNG key. Mirror _select_action's key discipline exactly:
+        # the pre-sampled path does NOT split the key per step, the white-noise path does.
+        pre_sampled = bool(getattr(self.noise, "ou", False) or self.noise.smooth)
+
+        @jax.jit
+        def rollout(critic_params, target_params, critic_opt_state, env_state, window, key, ou_traj, sigma):
+            ou_last = ou_traj.shape[0] - 1
+
+            def body(carry, _):
+                env_state, window, key, cp, tp, co = carry
+                u, end_gradient = select_action(cp, window, R, env_state.x)
+                if pre_sampled:
+                    t_idx = jnp.clip(jnp.round(env_state.t / dt).astype(jnp.int32), 0, ou_last)
+                    noise = ou_traj[t_idx]
+                else:
+                    key, subkey = jax.random.split(key)
+                    noise = jax.random.normal(subkey, shape=(action_dim,)) * sigma
+                action = u + noise
+                new_env_state, x_next, reward = env.step(env_state, action)
+                x_next_scaled = x_next / scale
+                window_next = jnp.concatenate([window[1:], x_next_scaled[None, :]], axis=0)
+                features_t = critic_feature_fn(window)
+                features_next = critic_feature_fn(window_next)
+                cp, tp, co, c_loss, _td, cgnorm = critic_update(
+                    cp, tp, co, features_t, features_next, reward, dt)
+                outs = (noise, reward, features_t, c_loss, cgnorm,
+                        jnp.linalg.norm(end_gradient), x_next)
+                return (new_env_state, window_next, key, cp, tp, co), outs
+
+            init = (env_state, window, key, critic_params, target_params, critic_opt_state)
+            (final_env, _w, final_key, final_cp, final_tp, final_co), ys = jax.lax.scan(
+                body, init, None, length=n_steps)
+            return final_env, final_key, final_cp, final_tp, final_co, ys
+
+        return rollout
+
+    def _vg_post_rollout_guard(self, x_init: jnp.ndarray, x_nexts: jnp.ndarray) -> None:
+        """Reproduce the always-on finiteness / diverge-abort semantics of _is_episode_done over the
+        whole rollout at once. Inert on a stable trajectory; on a diverging one it sets the same
+        _diverged / _diverge_reason and emits the same loud report (detected post-scan)."""
+        states = jnp.concatenate([jnp.atleast_2d(jnp.asarray(x_init)), x_nexts], axis=0)
+        all_finite = bool(jnp.all(jnp.isfinite(states)))
+        if not all_finite:
+            n_nan = int(jnp.sum(jnp.isnan(states)))
+            n_inf = int(jnp.sum(jnp.isinf(states)))
+            report_clamp_activation(
+                "nonfinite_state_termination/value_gradient",
+                code_location="src/agents/value_gradient_jax.py:_vg_post_rollout_guard",
+                bound_description="the state must be finite (no NaN, no inf component)",
+                most_extreme_raw_value=float("nan") if n_nan else float("inf"),
+                number_of_affected_elements=n_nan + n_inf,
+                additional_context=(f"{n_nan} NaN and {n_inf} infinite component(s) over the rollout; "
+                                    f"the plant has diverged. Detected post-scan (fixed-horizon fast path)."),
+                alters_the_value=False,
+            )
+        abort = getattr(self.training, "diverge_abort_threshold", None)
+        if abort is not None and abort > 0 and not self._diverged and all_finite:
+            max_norm = float(jnp.max(jnp.linalg.norm(states, axis=1)))
+            if max_norm > abort:
+                self._diverged = True
+                self._diverge_reason = f"||x||={max_norm:.3e} > {abort:.1e} (fast-path rollout)"
+                report_clamp_activation(
+                    "diverge_abort/value_gradient",
+                    code_location="src/agents/value_gradient_jax.py:_vg_post_rollout_guard",
+                    bound_description=f"run aborts when ||x|| exceeds {abort:.1e}",
+                    most_extreme_raw_value=max_norm,
+                    number_of_affected_elements=1,
+                    additional_context=f"the plant is diverging ({self._diverge_reason}); aborting the run.",
+                    alters_the_value=False,
+                )
+
+    def _run_vg_episode_fast(self, episode: int, x_init: jnp.ndarray):
+        """Run one value-gradient episode via the whole-episode lax.scan. Setup (reset,
+        _fill_buffer_initial, _on_episode_start) has already run in train(). Returns the same
+        accumulators the Python loop produced: (episode_loss, episode_cost, actor_grad_sum,
+        critic_grad_sum, n_steps, per_step_actor_grad, features_per_step, noise_per_step)."""
+        t0 = float(self.wrapper.state.t)
+        n_steps = self._horizon_num_steps(t0)
+        if getattr(self, "_vg_rollout_n", None) != n_steps or getattr(self, "_jit_vg_rollout", None) is None:
+            self._jit_vg_rollout = self._make_vg_rollout_fn(n_steps)
+            self._vg_rollout_n = n_steps
+        window0 = jnp.asarray(self.representation_buffer.buffer.to_array())
+        action_dim = int(self.env.B.shape[1])
+        if self.episode_noise_trajectory is not None:
+            ou_traj = jnp.asarray(self.episode_noise_trajectory)
+        else:
+            ou_traj = jnp.zeros((max(n_steps, 1), action_dim), dtype=window0.dtype)
+
+        final_env, final_key, final_cp, final_tp, final_co, ys = self._jit_vg_rollout(
+            self.critic_params, self.target_params, self.critic_opt_state,
+            self.wrapper.state, window0, self.key, ou_traj, self._sigma_effective)
+        noises, rewards, features_t_all, c_losses, cgnorms, agnorms, x_nexts = ys
+
+        self.wrapper.state = final_env
+        self.key = final_key
+        self.critic_params = final_cp
+        self.target_params = final_tp
+        self.critic_opt_state = final_co
+        self.step_counter += n_steps
+        self._path_data_dirty = True
+
+        dt = float(self.env.step_size)
+        episode_cost = jnp.sum(rewards) * dt
+        episode_loss = jnp.sum(c_losses) * dt
+        critic_grad_sum = jnp.sum(cgnorms)
+        actor_grad_sum = jnp.sum(agnorms)
+
+        self._vg_post_rollout_guard(x_init, x_nexts)
+        return (episode_loss, episode_cost, actor_grad_sum, critic_grad_sum,
+                n_steps, agnorms, features_t_all, noises)
+
     def train(self) -> dict:
         """Main training loop.
-        
+
         Returns:
             Dictionary of training metrics
         """
@@ -524,8 +699,14 @@ class ContinuousValueGradient:
         # job), so without this the SLURM log shows no per-episode progress until completion.
         progress_print_interval = max(1, self.training.n_episodes // 20)
 
+        # Whole-episode lax.scan fast path (value gradient): decided once from the static config.
+        self._use_vg_fast_rollout = self._vg_fast_rollout_enabled()
+        if self._use_vg_fast_rollout:
+            print("[rollout] value gradient: whole-episode lax.scan fast path enabled "
+                  "(set PG_FAST_ROLLOUT=0 to force the per-step Python loop).")
+
         iterator = tqdm.trange(self.training.n_episodes, desc="Training", leave=True)
-        
+
         for episode in iterator:
             # Episode initialization
             self.episode = episode
@@ -550,38 +731,50 @@ class ContinuousValueGradient:
             # overwrite phi with an uncontrolled-evolution path (the system would drift
             # into its attractor before control) and advance the episode clock.
             self._t_episode_start = float(self.wrapper.state.t)  # = t0 = 0
-            # Episode accumulators (as JAX arrays to avoid sync)
-            episode_loss = jnp.array(0.0)
-            episode_cost = jnp.array(0.0)
-            actor_grad_sum = jnp.array(0.0)
-            critic_grad_sum = jnp.array(0.0)
-            all_sigs_grads = []
-            n_steps = 0
-            
-            # Episode loop
-            while not self._is_episode_done(x_t):
-                x_t, step_metrics, ctx = self._train_step(x_t)
-                
-                # Accumulate as JAX arrays (no sync)
-                episode_loss = episode_loss + step_metrics.loss
-                episode_cost = episode_cost + step_metrics.reward
-                critic_grad_sum = critic_grad_sum + step_metrics.critic_gradient
-                actor_grad_sum = actor_grad_sum + step_metrics.actor_gradient
-                all_sigs_grads.append(step_metrics.actor_gradient)
-                n_steps += 1
-                
-                # Memory management
-                if n_steps % memory_clear_interval == 0:
-                    self.wrapper._data.clear()
-                    self.wrapper._time.clear()
-                # Log detailed metrics less frequently to avoid overhead
-                if episode % 200 == 0 and n_steps % 10 == 0:
-                    metrics_history['signature_weights'].append(
-                        np.asarray(ctx.features_t).flatten()
-                    )
-                    metrics_history['noise'].append(
-                        np.asarray(ctx.noise).flatten()
-                    )
+            if self._use_vg_fast_rollout:
+                # Whole-episode lax.scan fast path. Same computation, same numbers; the per-step
+                # Python dispatch and host synchronisation are removed.
+                (episode_loss, episode_cost, actor_grad_sum, critic_grad_sum,
+                 n_steps, all_sigs_grads, feat_hist, noise_hist) = self._run_vg_episode_fast(episode, x_t)
+                # Reproduce the Python loop's occasional signature/noise logging cadence.
+                if episode % 200 == 0:
+                    for k in range(1, n_steps + 1):
+                        if k % 10 == 0:
+                            metrics_history['signature_weights'].append(np.asarray(feat_hist[k - 1]).flatten())
+                            metrics_history['noise'].append(np.asarray(noise_hist[k - 1]).flatten())
+            else:
+                # Episode accumulators (as JAX arrays to avoid sync)
+                episode_loss = jnp.array(0.0)
+                episode_cost = jnp.array(0.0)
+                actor_grad_sum = jnp.array(0.0)
+                critic_grad_sum = jnp.array(0.0)
+                all_sigs_grads = []
+                n_steps = 0
+
+                # Episode loop
+                while not self._is_episode_done(x_t):
+                    x_t, step_metrics, ctx = self._train_step(x_t)
+
+                    # Accumulate as JAX arrays (no sync)
+                    episode_loss = episode_loss + step_metrics.loss
+                    episode_cost = episode_cost + step_metrics.reward
+                    critic_grad_sum = critic_grad_sum + step_metrics.critic_gradient
+                    actor_grad_sum = actor_grad_sum + step_metrics.actor_gradient
+                    all_sigs_grads.append(step_metrics.actor_gradient)
+                    n_steps += 1
+
+                    # Memory management
+                    if n_steps % memory_clear_interval == 0:
+                        self.wrapper._data.clear()
+                        self.wrapper._time.clear()
+                    # Log detailed metrics less frequently to avoid overhead
+                    if episode % 200 == 0 and n_steps % 10 == 0:
+                        metrics_history['signature_weights'].append(
+                            np.asarray(ctx.features_t).flatten()
+                        )
+                        metrics_history['noise'].append(
+                            np.asarray(ctx.noise).flatten()
+                        )
             # Episode metrics (convert to float only at episode end)
             episode_metrics = {
                 'loss': float(episode_loss),
