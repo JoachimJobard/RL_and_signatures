@@ -35,6 +35,15 @@ eval:
   log_interval: 5            # Wandb logging subsampling
   snapshot_interval: 100      # Evaluate trajectory every N episodes (wandb slider)
   burning_steps: 0
+  # OPT-IN discount-truncation horizon (results-CHANGING; OFF by default). When set to a
+  # discount tolerance eps in (0,1), the explicit horizon (agent.training.max_time and eval.T_sim)
+  # is REPLACED by T = (1/gamma) ln(1/eps), N = ceil(T/dt): the time after which the discounted
+  # tail of the infinite-horizon objective J = int_0^inf e^{-gamma s} c(s) ds is bounded by
+  # (c_max/gamma) e^{-gamma T} = (c_max/gamma) eps. Larger eps => shorter T (faster, coarser);
+  # smaller eps => longer T (slower, tighter). Requires a discounted objective (gamma>0). The same
+  # eps (hence the same T) applies to every variant of a cell -- never set it per variant. Leave
+  # null to keep the explicit, pre-registered T_sim/max_time unchanged (the default).
+  discount_tolerance: null
 
 # =============================================================================
 # Hydra Configuration
