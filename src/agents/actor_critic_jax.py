@@ -1150,7 +1150,13 @@ class ContinuousTimeActorCritic:
         """
         if os.environ.get("PG_FAST_ROLLOUT", "1") == "0":
             return False
-        if not self._actor_target_is_monte_carlo:
+        # Both once-per-episode actors qualify: the Monte-Carlo policy gradient (advantage = the
+        # realised return R_t) and the AVERAGED actor-critic (advantage = the recorded TD errors
+        # delta_t). In both the actor is FIXED across the episode, so the rollout is critic-
+        # independent. The ONLINE TD actor-critic updates the actor per step -- the actor then
+        # co-evolves with the critic and feeds the trajectory -- so it is excluded here and uses the
+        # untouched Python loop.
+        if not self._actor_updates_once_per_episode:
             return False
         if str(getattr(self.noise, "schedule", "constant")) != "constant":
             return False  # 'adaptive' couples sigma to the critic; 'linear_decay' varies per-episode
@@ -1218,9 +1224,11 @@ class ContinuousTimeActorCritic:
                 # DequeBuffer.append semantics on a full window: drop oldest, append newest.
                 window_next = jnp.concatenate([window[1:], x_next_scaled[None, :]], axis=0)
                 critic_feat_next = critic_feature_fn(window_next)
-                cparams, copt, c_loss, _td, cgnorm = critic_update(
+                cparams, copt, c_loss, td_error, cgnorm = critic_update(
                     cparams, copt, critic_feat_t, critic_feat_next, reward, dt)
-                outs = (actor_feat_t, noise, reward, critic_feat_t, c_loss, cgnorm, x_next)
+                # td_error is recorded for the averaged actor-critic (advantage = delta_t); the
+                # Monte-Carlo policy gradient ignores it (advantage = the return R_t).
+                outs = (actor_feat_t, noise, reward, critic_feat_t, c_loss, cgnorm, x_next, td_error)
                 return (new_env_state, window_next, key, cparams, copt), outs
 
             init = (env_state, window, key, critic_params, critic_opt_state)
@@ -1293,7 +1301,7 @@ class ContinuousTimeActorCritic:
         final_env, final_key, final_cp, final_co, ys = self._jit_pg_rollout(
             self.actor_params, self.critic_params, self.critic_opt_state,
             self.wrapper.state, window0, self.key, ou_traj, self._sigma_effective)
-        actor_feats, noises, rewards, critic_feats, c_losses, cgnorms, x_nexts = ys
+        actor_feats, noises, rewards, critic_feats, c_losses, cgnorms, x_nexts, td_errors = ys
 
         # Commit the threaded state so downstream code (next reset, eval) is consistent.
         self.wrapper.state = final_env
@@ -1317,8 +1325,12 @@ class ContinuousTimeActorCritic:
         # are computed identically.
         self._mc_episode_features = list(actor_feats)
         self._mc_episode_noise = list(noises)
-        self._mc_episode_reward_rate = list(rewards)
-        self._mc_episode_td = []
+        if self._actor_target_is_monte_carlo:
+            self._mc_episode_reward_rate = list(rewards)   # advantage = return-to-go R_t
+            self._mc_episode_td = []
+        else:
+            self._mc_episode_reward_rate = []               # averaged actor-critic: advantage = delta_t
+            self._mc_episode_td = list(td_errors)
         monte_carlo_grad_norm = self._monte_carlo_actor_update(episode)
         actor_grad_sum = monte_carlo_grad_norm * max(n_steps, 1)
 
@@ -1538,7 +1550,8 @@ class ContinuousTimeActorCritic:
         # static configuration. Every other learner/config transparently uses the Python loop.
         self._use_pg_fast_rollout = self._pg_fast_rollout_enabled()
         if self._use_pg_fast_rollout:
-            print("[rollout] Monte-Carlo policy gradient: whole-episode lax.scan fast path enabled "
+            _which = "Monte-Carlo policy gradient" if self._actor_target_is_monte_carlo else "averaged actor-critic"
+            print(f"[rollout] {_which}: whole-episode lax.scan fast path enabled "
                   "(set PG_FAST_ROLLOUT=0 to force the per-step Python loop).")
 
         iterator = tqdm.trange(self.training.n_episodes, desc="Training", leave=True)
