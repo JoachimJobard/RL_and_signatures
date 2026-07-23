@@ -1114,6 +1114,218 @@ class ContinuousTimeActorCritic:
             return jnp.array(0.0)   # (warm-up is an AC fix; PG's actor never reads the critic)
         return self._batched_actor_step(features_batch, noise_batch, advantage)
 
+    # =========================================================================
+    # Whole-episode lax.scan rollout (Monte-Carlo policy gradient fast path)
+    # =========================================================================
+    #
+    # The REINFORCE rollout is INDEPENDENT of the critic: action selection reads only the actor
+    # parameters (fixed across an episode) and the pre-sampled exploration noise, never the value
+    # function, so the sequence of states, rewards and features an episode produces does not depend
+    # on the critic updates taken along the way. That independence is what licenses replacing the
+    # Python per-step loop -- which dispatches ~6 jitted calls and forces one device->host
+    # synchronisation (the divergence test in _is_episode_done) PER control step -- by a single
+    # jax.lax.scan over the whole episode, carrying the environment state, the on-device history
+    # window, the PRNG key and the critic (parameters + optimiser state). The stacked per-step
+    # records are then fed to the UNCHANGED once-per-episode actor update.
+    #
+    # The computation is preserved term for term: action selection reuses self._jit_select_action;
+    # the sequential critic update reuses self._jit_critic_update (so its Adam moment/step counter
+    # advance exactly as in the online loop); the history window is advanced by the same
+    # concatenate-and-drop-oldest semantics the DequeBuffer implements; the PRNG stream is threaded
+    # through the same per-step jax.random.split. Only the Python-level dispatch, the per-step host
+    # synchronisation, and the per-step config lookups are removed.
+
+    def _pg_fast_rollout_enabled(self) -> bool:
+        """Whether the whole-episode lax.scan rollout is applicable to this configuration.
+
+        Restricted to the pure Monte-Carlo policy gradient in the standard campaign setting: the
+        actor must not read the critic (so the rollout is critic-independent), the exploration must
+        not be state-dependent, no state augmentation, and no OPT-IN mid-episode trimming
+        (divergence_threshold) that would make the episode length data-dependent. The ALWAYS-ON
+        finiteness / diverge-abort guards are reproduced by a post-rollout check (below); they never
+        fire on a stable trajectory, so the fast path is bit-identical there and the mandate's
+        divergence handling ("without changing results for stable runs") is met. Any configuration
+        failing a condition transparently falls back to the untouched Python loop.
+        The PG_FAST_ROLLOUT=0 environment variable forces the fallback (used to A/B the two paths).
+        """
+        if os.environ.get("PG_FAST_ROLLOUT", "1") == "0":
+            return False
+        if not self._actor_target_is_monte_carlo:
+            return False
+        if str(getattr(self.noise, "schedule", "constant")) != "constant":
+            return False  # 'adaptive' couples sigma to the critic; 'linear_decay' varies per-episode
+        if self.algorithm.actor_oracle or self.algorithm.critic_oracle:
+            return False
+        if self.signature_conf.state_augmentation:
+            return False
+        trim = getattr(self.training, "divergence_threshold", None)
+        if trim is not None and trim > 0:
+            return False  # opt-in mid-episode trim makes the episode length data-dependent
+        return True
+
+    def _horizon_num_steps(self, t0: float) -> int:
+        """Number of control steps the fixed-horizon episode runs from clock time ``t0``.
+
+        Replicates, in host float64 in the SAME order, the time accumulation of env.step (the RK4
+        sub-step loop adds solver_step_size ``resolution`` times per control step) and the pre-step
+        horizon test ``t >= max_time`` of _is_episode_done. IEEE-754 double addition is identical on
+        host and device, so this yields exactly the step count the Python loop would run (verified:
+        201 for max_time=10, dt=0.05). The count is data-independent (the horizon test reads only
+        the clock), hence constant across episodes and computed once per run."""
+        solver = float(self.env.solver_step_size)
+        resolution = int(self.env.resolution)
+        max_time = float(self.training.max_time)
+        t = np.float64(t0)
+        n = 0
+        while not (t >= max_time):
+            for _ in range(resolution):
+                t = t + np.float64(solver)
+            n += 1
+            if n > 10_000_000:
+                raise RuntimeError("horizon step count runaway; refusing to build an unbounded scan")
+        return n
+
+    def _make_pg_rollout_fn(self, n_steps: int) -> Callable:
+        """Build the jitted whole-episode rollout for a fixed control-step count ``n_steps``."""
+        env = self.env
+        dt = float(self.env.step_size)          # reward-integration / TD step (matches _train_step)
+        scale = self.training.scale
+        action_dim = int(self.env.B.shape[1])
+        critic_feature_fn = self.representation_buffer.representation.feature_fn
+        if self.representation_buffer.actor_representation is not None:
+            actor_feature_fn = self.representation_buffer.actor_representation.feature_fn
+        else:
+            actor_feature_fn = critic_feature_fn
+        select_action = self._jit_select_action     # reused verbatim -> identical action + RNG stream
+        critic_update = self._jit_critic_update      # reused verbatim -> identical Adam trajectory
+
+        @jax.jit
+        def rollout(actor_params, critic_params, critic_opt_state, env_state, window, key, ou_traj, sigma):
+            zeros_action = jnp.zeros((action_dim,), dtype=window.dtype)
+            ou_last = ou_traj.shape[0] - 1
+
+            def body(carry, _):
+                env_state, window, key, cparams, copt = carry
+                actor_feat_t = actor_feature_fn(window)      # actor input BEFORE the append
+                critic_feat_t = critic_feature_fn(window)    # == current_signature (critic input)
+                # OU index = round(t/dt), matching _select_action's int(round(t/step_size)).
+                t_idx = jnp.clip(jnp.round(env_state.t / dt).astype(jnp.int32), 0, ou_last)
+                ou_val = ou_traj[t_idx]
+                action, mu, noise, key, _cur = select_action(
+                    actor_params, actor_feat_t, key, sigma, zeros_action, dt, ou_val)
+                new_env_state, x_next, reward = env.step(env_state, action)
+                x_next_scaled = x_next / scale
+                # DequeBuffer.append semantics on a full window: drop oldest, append newest.
+                window_next = jnp.concatenate([window[1:], x_next_scaled[None, :]], axis=0)
+                critic_feat_next = critic_feature_fn(window_next)
+                cparams, copt, c_loss, _td, cgnorm = critic_update(
+                    cparams, copt, critic_feat_t, critic_feat_next, reward, dt)
+                outs = (actor_feat_t, noise, reward, critic_feat_t, c_loss, cgnorm, x_next)
+                return (new_env_state, window_next, key, cparams, copt), outs
+
+            init = (env_state, window, key, critic_params, critic_opt_state)
+            (final_env, final_window, final_key, final_cp, final_co), ys = jax.lax.scan(
+                body, init, None, length=n_steps)
+            return final_env, final_key, final_cp, final_co, ys
+
+        return rollout
+
+    def _pg_post_rollout_guard(self, x_init: jnp.ndarray, x_nexts: jnp.ndarray) -> None:
+        """Reproduce the ALWAYS-ON finiteness / diverge-abort semantics of _is_episode_done over a
+        whole rollout at once. Inert on a stable trajectory; on a diverging one it sets the same
+        _diverged / _diverge_reason flags and emits the same loud report, so the run-abort contract
+        is preserved (the only difference from the Python loop is that the abort is detected after
+        the fixed-length scan rather than mid-episode -- immaterial once the run is aborting)."""
+        # Raw (unscaled) states the Python loop's _is_episode_done norm-checks: x_init .. x_N.
+        states = jnp.concatenate([jnp.atleast_2d(jnp.asarray(x_init)), x_nexts], axis=0)
+        all_finite = bool(jnp.all(jnp.isfinite(states)))
+        if not all_finite:
+            n_nan = int(jnp.sum(jnp.isnan(states)))
+            n_inf = int(jnp.sum(jnp.isinf(states)))
+            report_clamp_activation(
+                "nonfinite_state_termination/actor_critic",
+                code_location="src/agents/actor_critic_jax.py:_pg_post_rollout_guard",
+                bound_description="the state must be finite (no NaN, no inf component)",
+                most_extreme_raw_value=float("nan") if n_nan else float("inf"),
+                number_of_affected_elements=n_nan + n_inf,
+                additional_context=(
+                    f"{n_nan} NaN and {n_inf} infinite component(s) over the rollout; the plant has "
+                    f"diverged. Detected post-scan (fixed-horizon fast path)."),
+                alters_the_value=False,
+            )
+        abort = getattr(self.training, "diverge_abort_threshold", None)
+        if abort is not None and abort > 0 and not self._diverged and all_finite:
+            max_norm = float(jnp.max(jnp.linalg.norm(states, axis=1)))
+            if max_norm > abort:
+                self._diverged = True
+                self._diverge_reason = f"||x||={max_norm:.3e} > {abort:.1e} (fast-path rollout)"
+                report_clamp_activation(
+                    "diverge_abort/actor_critic",
+                    code_location="src/agents/actor_critic_jax.py:_pg_post_rollout_guard",
+                    bound_description=f"run aborts when ||x|| exceeds {abort:.1e}",
+                    most_extreme_raw_value=max_norm,
+                    number_of_affected_elements=1,
+                    additional_context=f"the plant is diverging ({self._diverge_reason}); aborting the run.",
+                    alters_the_value=False,
+                )
+
+    def _run_pg_episode_fast(self, episode: int, x_init: jnp.ndarray):
+        """Run one Monte-Carlo policy-gradient episode via the whole-episode lax.scan.
+
+        The episode SETUP (reset, _fill_buffer_initial, _on_episode_start, burn-in/preheat) has
+        already run in train(); this consumes the resulting state. Returns the same accumulators the
+        Python loop produced: (episode_loss, episode_cost, actor_grad_sum, critic_grad_sum, n_steps,
+        critic_features_per_step, noise_per_step)."""
+        t0 = float(self.wrapper.state.t)
+        n_steps = self._horizon_num_steps(t0)
+        if getattr(self, "_pg_rollout_n", None) != n_steps or getattr(self, "_jit_pg_rollout", None) is None:
+            self._jit_pg_rollout = self._make_pg_rollout_fn(n_steps)
+            self._pg_rollout_n = n_steps
+        window0 = jnp.asarray(self.representation_buffer._full_window())
+        action_dim = int(self.env.B.shape[1])
+        if self.episode_noise_trajectory is not None:
+            ou_traj = jnp.asarray(self.episode_noise_trajectory)
+        else:
+            # White-noise exploration: select_action draws its own noise and ignores this array; a
+            # single-row placeholder keeps the gather in-bounds without affecting the result.
+            ou_traj = jnp.zeros((max(n_steps, 1), action_dim), dtype=window0.dtype)
+
+        final_env, final_key, final_cp, final_co, ys = self._jit_pg_rollout(
+            self.actor_params, self.critic_params, self.critic_opt_state,
+            self.wrapper.state, window0, self.key, ou_traj, self._sigma_effective)
+        actor_feats, noises, rewards, critic_feats, c_losses, cgnorms, x_nexts = ys
+
+        # Commit the threaded state so downstream code (next reset, eval) is consistent.
+        self.wrapper.state = final_env
+        self.key = final_key
+        self.critic_params = final_cp
+        self.critic_opt_state = final_co
+        self.step_counter += n_steps
+
+        dt = float(self.env.step_size)
+        episode_cost = jnp.sum(rewards) * dt
+        episode_loss = jnp.sum(c_losses) * dt
+        critic_grad_sum = jnp.sum(cgnorms)
+
+        # State-visit histogram: the same x_next values in the same order as the Python loop.
+        for k in range(n_steps):
+            self.state_counter.add(x_nexts[k])
+
+        # Feed the per-step records to the UNCHANGED once-per-episode actor update, exactly as the
+        # Python loop's _update_networks appended them. Reusing the existing path (rather than a
+        # bespoke stacked call) guarantees the actor step, the return-to-go and the SNR diagnostics
+        # are computed identically.
+        self._mc_episode_features = list(actor_feats)
+        self._mc_episode_noise = list(noises)
+        self._mc_episode_reward_rate = list(rewards)
+        self._mc_episode_td = []
+        monte_carlo_grad_norm = self._monte_carlo_actor_update(episode)
+        actor_grad_sum = monte_carlo_grad_norm * max(n_steps, 1)
+
+        self._pg_post_rollout_guard(x_init, x_nexts)
+        return (episode_loss, episode_cost, actor_grad_sum, critic_grad_sum,
+                n_steps, critic_feats, noises)
+
     def _update_networks(self, ctx: StepContextSignature) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Update actor and critic networks using JIT-compiled JAX autodiff."""
         step = self.step_counter
@@ -1322,6 +1534,13 @@ class ContinuousTimeActorCritic:
         # job), so without this the SLURM log shows no per-episode progress until completion.
         progress_print_interval = max(1, self.training.n_episodes // 20)
 
+        # Whole-episode lax.scan fast path (Monte-Carlo policy gradient): decided once from the
+        # static configuration. Every other learner/config transparently uses the Python loop.
+        self._use_pg_fast_rollout = self._pg_fast_rollout_enabled()
+        if self._use_pg_fast_rollout:
+            print("[rollout] Monte-Carlo policy gradient: whole-episode lax.scan fast path enabled "
+                  "(set PG_FAST_ROLLOUT=0 to force the per-step Python loop).")
+
         iterator = tqdm.trange(self.training.n_episodes, desc="Training", leave=True)
         
         for episode in iterator:
@@ -1356,43 +1575,56 @@ class ContinuousTimeActorCritic:
                     action = jnp.zeros(self.env.B.shape[1]) #preheat with zero action
                     t, x_t, _ = self.wrapper.step(self.wrapper.state, action) #type: ignore
                     self.representation_buffer.append(x_t / self.training.scale)
-            # Episode accumulators (as JAX arrays to avoid sync)
-            episode_loss = jnp.array(0.0)
-            episode_cost = jnp.array(0.0)
-            actor_grad_sum = jnp.array(0.0)
-            critic_grad_sum = jnp.array(0.0)
-            n_steps = 0
-            
-            # Episode loop
-            while not self._is_episode_done(x_t):
-                x_t, step_metrics, ctx = self._train_step(x_t)
-                
-                # Accumulate as JAX arrays (no sync)
-                episode_loss = episode_loss + step_metrics.loss
-                episode_cost = episode_cost + step_metrics.reward
-                actor_grad_sum = actor_grad_sum + step_metrics.actor_gradient
-                critic_grad_sum = critic_grad_sum + step_metrics.critic_gradient
-                n_steps += 1
-                
-                # Memory management
-                if n_steps % memory_clear_interval == 0:
-                    self.wrapper._data.clear()
-                    self.wrapper._time.clear()
-                # Only log signatures occasionally to avoid slowdown
-                if episode % 200 == 0 and n_steps % 10 == 0:
-                    metrics_history['signature_weights'].append(
-                        np.asarray(ctx.features_t).flatten()
-                    )
-                    metrics_history['noise'].append(
-                        np.asarray(ctx.noise).flatten()
-                    )
-            # Once-per-episode actor (Monte-Carlo return OR averaged TD): the episode is over, so
-            # the single averaged update is performed here. A no-op for the online TD actor.
-            monte_carlo_grad_norm = self._monte_carlo_actor_update(episode)
-            if self._actor_updates_once_per_episode:
-                # One update per episode, so report its gradient norm directly rather than the
-                # per-step mean (which would be this value divided by n_steps and misleading).
-                actor_grad_sum = monte_carlo_grad_norm * max(n_steps, 1)
+            if self._use_pg_fast_rollout:
+                # Whole-episode lax.scan fast path (Monte-Carlo policy gradient). Same computation,
+                # same numbers; the per-step Python dispatch and host synchronisation are removed.
+                (episode_loss, episode_cost, actor_grad_sum, critic_grad_sum,
+                 n_steps, feat_hist, noise_hist) = self._run_pg_episode_fast(episode, x_t)
+                # Reproduce the Python loop's occasional signature/noise logging cadence
+                # (episode % 200 == 0, every 10th step) from the stacked records.
+                if episode % 200 == 0:
+                    for k in range(1, n_steps + 1):
+                        if k % 10 == 0:
+                            metrics_history['signature_weights'].append(np.asarray(feat_hist[k - 1]).flatten())
+                            metrics_history['noise'].append(np.asarray(noise_hist[k - 1]).flatten())
+            else:
+                # Episode accumulators (as JAX arrays to avoid sync)
+                episode_loss = jnp.array(0.0)
+                episode_cost = jnp.array(0.0)
+                actor_grad_sum = jnp.array(0.0)
+                critic_grad_sum = jnp.array(0.0)
+                n_steps = 0
+
+                # Episode loop
+                while not self._is_episode_done(x_t):
+                    x_t, step_metrics, ctx = self._train_step(x_t)
+
+                    # Accumulate as JAX arrays (no sync)
+                    episode_loss = episode_loss + step_metrics.loss
+                    episode_cost = episode_cost + step_metrics.reward
+                    actor_grad_sum = actor_grad_sum + step_metrics.actor_gradient
+                    critic_grad_sum = critic_grad_sum + step_metrics.critic_gradient
+                    n_steps += 1
+
+                    # Memory management
+                    if n_steps % memory_clear_interval == 0:
+                        self.wrapper._data.clear()
+                        self.wrapper._time.clear()
+                    # Only log signatures occasionally to avoid slowdown
+                    if episode % 200 == 0 and n_steps % 10 == 0:
+                        metrics_history['signature_weights'].append(
+                            np.asarray(ctx.features_t).flatten()
+                        )
+                        metrics_history['noise'].append(
+                            np.asarray(ctx.noise).flatten()
+                        )
+                # Once-per-episode actor (Monte-Carlo return OR averaged TD): the episode is over, so
+                # the single averaged update is performed here. A no-op for the online TD actor.
+                monte_carlo_grad_norm = self._monte_carlo_actor_update(episode)
+                if self._actor_updates_once_per_episode:
+                    # One update per episode, so report its gradient norm directly rather than the
+                    # per-step mean (which would be this value divided by n_steps and misleading).
+                    actor_grad_sum = monte_carlo_grad_norm * max(n_steps, 1)
 
             # Episode metrics (convert to float only at episode end)
             episode_metrics = {
