@@ -43,7 +43,8 @@ echo "Task $SLURM_ARRAY_TASK_ID: $LEARNER $KIND actor_lr=$ACTOR_LR critic_lr=$CR
 COMMON="agent=$LEARNER env=$PLANT agent.signature.kind=$KIND \
   ++agent.noise.sigma=${SIGMA:-0.5} ++agent.discount.discounted=true ++agent.discount.gamma=$GAMMA \
   agent.training.n_episodes=$N_EPISODES agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM \
-  ++agent.training.monitor_snr=false ++agent.training.rollouts_per_update=1 seed=$SEED experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
+  ++agent.training.monitor_snr=${MONITOR_SNR:-false} ++agent.training.patience=${PATIENCE:-0} ++agent.training.eval_interval=${EVAL_INTERVAL:-50} \
+  ++agent.training.rollouts_per_update=1 seed=$SEED experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
 case $LEARNER in
   actor_critic)
     EXTRA="++agent.training.actor_optimizer=adam ++agent.training.critic_optimizer=adam ++agent.training.actor_lr=$ACTOR_LR ++agent.training.critic_lr=$CRITIC_LR ++agent.training.lr_decay_power=0.8 ++agent.training.critic_lr_decay_power=0.6";;
@@ -51,7 +52,11 @@ case $LEARNER in
   value_gradient)  EXTRA="++agent.training.critic_lr=$CRITIC_LR ++agent.training.critic_lr_decay_power=0.6";;
 esac
 
-python main_unified.py $COMMON $EXTRA run_tag="${LEARNER}_${KIND}_lr${SWEPT}"
+# actor_critic sweeps a 2-D (actor_lr, critic_lr) grid: append critic_lr so two configs sharing
+# actor_lr but differing in critic_lr cannot collide on the same run directory. VG/PG keep the
+# single-rate tag (backward-compatible with the _lr<rate> aggregation pattern).
+if [ "$LEARNER" = "actor_critic" ]; then RUN_TAG="${LEARNER}_${KIND}_lr${SWEPT}_c${CRITIC_LR}"; else RUN_TAG="${LEARNER}_${KIND}_lr${SWEPT}"; fi
+python main_unified.py $COMMON $EXTRA run_tag="$RUN_TAG"
 STATUS=$?
 echo "Task $SLURM_ARRAY_TASK_ID finished with exit code $STATUS"
 exit $STATUS
