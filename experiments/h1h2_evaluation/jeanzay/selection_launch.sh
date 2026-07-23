@@ -97,6 +97,7 @@ for SIGMA in $SIGMAS; do
       else
         echo "FAILED to submit $PLANT sigma=$SIGMA after retries -- leaving its (empty) group dir; rerun to retry" >&2
       fi
+      sleep "${SUBMIT_SPACING:-25}"   # space submissions: a burst of six 127-task arrays can re-choke a recovering slurmdbd
     fi
   done
 done
