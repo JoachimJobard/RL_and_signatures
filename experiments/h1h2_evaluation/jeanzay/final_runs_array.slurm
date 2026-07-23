@@ -41,7 +41,7 @@ if [ "$LEARNER" = "value_gradient" ]; then SWEPT=$CRITIC_LR; else SWEPT=$ACTOR_L
 echo "Task $SLURM_ARRAY_TASK_ID: $LEARNER $KIND actor_lr=$ACTOR_LR critic_lr=$CRITIC_LR seed=$SEED (env=$PLANT, gamma=$GAMMA)"
 
 COMMON="agent=$LEARNER env=$PLANT agent.signature.kind=$KIND \
-  ++agent.noise.sigma=0.5 ++agent.discount.discounted=true ++agent.discount.gamma=$GAMMA \
+  ++agent.noise.sigma=${SIGMA:-0.5} ++agent.discount.discounted=true ++agent.discount.gamma=$GAMMA \
   agent.training.n_episodes=$N_EPISODES agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM \
   ++agent.training.monitor_snr=false ++agent.training.rollouts_per_update=1 seed=$SEED experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
 case $LEARNER in

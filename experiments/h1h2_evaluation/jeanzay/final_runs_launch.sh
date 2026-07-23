@@ -58,6 +58,7 @@ for spec in "${CELLS[@]}"; do
 
   EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT"
   EXPORTS+=",MANIFEST_FILE=$MANIFEST,PLANT=$PLANT,MAX_TIME=$MAX_TIME,T_SIM=$T_SIM,GAMMA=$GAMMA,N_EPISODES=$N_EPISODES"
+  EXPORTS+=",SIGMA=${SIGMA:-0.5}"   # exploration-noise stddev; default 0.5, overridable for a stability probe
 
   SBATCH=(sbatch --parsable --account="$ACCOUNT" --partition="$CELL_PART")
   [ "$CELL_QOS" != "-" ] && SBATCH+=(--qos="$CELL_QOS")
