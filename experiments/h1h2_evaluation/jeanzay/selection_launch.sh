@@ -21,7 +21,7 @@
 #
 # Usage (Jean Zay login, after git pull):
 #   bash experiments/h1h2_evaluation/jeanzay/selection_launch.sh
-#   DRYRUN=1 bash .../selection_launch.sh        # print sbatch lines, do not submit
+#   DRYRUN=1 bash .../selection_launch.sh        # print sbatch lines, do not submit, create nothing
 #   SIGMAS="0.5" bash .../selection_launch.sh     # single sigma
 # =============================================================================
 set -euo pipefail
@@ -45,6 +45,19 @@ CELLS=(
   "MG_1D_limit_cycle   85 85 0.10 15:00:00 cpu_p1 qos_cpu-t3"
 )
 
+# sbatch with bounded retry: Jean Zay's submit RPC intermittently returns "Resource temporarily
+# unavailable" under scheduler load. Retry a few times before giving up, so one transient error does
+# not abort the whole multi-array launch (which would leave a partial submission at a fixed TS).
+submit() {
+  local attempt jobid
+  for attempt in 1 2 3 4 5 6; do
+    if jobid=$("$@" 2>/dev/null); then printf '%s' "$jobid"; return 0; fi
+    echo "  submit attempt $attempt hit a transient scheduler error; retrying in 20s" >&2
+    sleep 20
+  done
+  return 1
+}
+
 # Regenerate the per-cell selection manifests for the requested seeds (idempotent for the defaults).
 python "$JZ_DIR/selection_manifest.py" "$SEEDS"
 
@@ -58,9 +71,9 @@ for SIGMA in $SIGMAS; do
 
     GROUP="selection_${PLANT}_s${STAG}_${TS}"
     EXPDIR="$DATA_ROOT/data/main_unified/$GROUP"
-    SLURM_LOG_DIR="$EXPDIR/slurm"; mkdir -p "$SLURM_LOG_DIR"
-    MANIFEST="$EXPDIR/tasks.tsv"; cp "$SRC" "$MANIFEST"    # copy into run dir for provenance
-    NT=$(wc -l < "$MANIFEST")
+    SLURM_LOG_DIR="$EXPDIR/slurm"
+    MANIFEST="$EXPDIR/tasks.tsv"
+    NT=$(wc -l < "$SRC")
 
     EXPORTS="PATH_CONTENT_ROOT=$PATH_CONTENT_ROOT,EXPERIMENT_GROUP=$GROUP,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT"
     EXPORTS+=",MANIFEST_FILE=$MANIFEST,PLANT=$PLANT,MAX_TIME=$MAX_TIME,T_SIM=$T_SIM,GAMMA=$GAMMA,N_EPISODES=$N_EPISODES"
@@ -77,8 +90,13 @@ for SIGMA in $SIGMAS; do
       echo "[dryrun] $PLANT sigma=$SIGMA -> $CELL_PART ($BILLED): $NT tasks, time=$WALLTIME, group=$GROUP"
       echo "         ${SBATCH[*]}"
     else
-      JOB=$("${SBATCH[@]}")
-      echo "submitted $PLANT sigma=$SIGMA -> $CELL_PART ($BILLED): job $JOB ($NT tasks, time=$WALLTIME, group=$GROUP)"
+      mkdir -p "$SLURM_LOG_DIR"                     # only for a real submission
+      cp "$SRC" "$MANIFEST"                          # copy manifest into run dir for provenance
+      if JOB=$(submit "${SBATCH[@]}"); then
+        echo "submitted $PLANT sigma=$SIGMA -> $CELL_PART ($BILLED): job $JOB ($NT tasks, time=$WALLTIME, group=$GROUP)"
+      else
+        echo "FAILED to submit $PLANT sigma=$SIGMA after retries -- leaving its (empty) group dir; rerun to retry" >&2
+      fi
     fi
   done
 done
