@@ -25,6 +25,23 @@ import jax
 import jax.numpy as jnp
 
 
+@jax.jit
+def _ou_scan(a: jax.Array, n0: jax.Array, innovations: jax.Array) -> jax.Array:
+    """Exact-discretisation OU recursion n_{k+1} = a n_k + xi_k, as a STABLE jitted scan.
+
+    Only the linear recursion is jitted; the scalar prelude (a, innovation_std, n0) is computed
+    eagerly by the caller and passed in as operands, so no scalar arithmetic is re-fused here and
+    the result is bit-for-bit identical to the previous in-line ``jax.lax.scan``. Wrapping it in
+    ``jax.jit`` gives a cached executable keyed on the operand shapes, removing the per-episode
+    re-lowering an eager ``lax.scan`` would otherwise incur.
+    """
+    def step(prev, xi):
+        cur = a * prev + xi
+        return cur, cur
+    _, path = jax.lax.scan(step, n0, innovations)
+    return path
+
+
 def sample_ou_trajectory(
     n_points: int,
     action_dim: int,
@@ -63,9 +80,4 @@ def sample_ou_trajectory(
     n0 = sigma * jax.random.normal(key0, shape=(action_dim,))
     innovations = innovation_std * jax.random.normal(key_rest, shape=(n_points, action_dim))
 
-    def step(prev, xi):
-        cur = a * prev + xi
-        return cur, cur
-
-    _, path = jax.lax.scan(step, n0, innovations)
-    return path
+    return _ou_scan(a, n0, innovations)

@@ -3,6 +3,7 @@ Continuous-Time Actor-Critic (CTAC) - Modular Implementation
 
 """
 
+import os
 import jax
 import numpy as np
 import tqdm
@@ -96,6 +97,15 @@ class ContinuousTimeActorCritic:
         self._last_actor_diag: dict[str, float] = {}
         self._jit_select_action = self._make_select_action_fn()
         self._jit_compute_values = self._make_compute_values_fn()
+        # Stable jitted wrappers for the two whole-episode reductions that were previously invoked
+        # as EAGER ``jax.lax.scan`` calls. An eager control-flow primitive is re-lowered on every
+        # Python-level call, so with JAX_LOG_COMPILES=1 each of these compiled once PER EPISODE
+        # (60 recompilations over a 30-episode run) even though their input shapes are constant.
+        # Wrapping the scan in ``jax.jit`` gives a stable callable whose XLA executable is cached on
+        # the argument avals, so each compiles ONCE for the whole run. The computation -- and hence
+        # every number produced -- is unchanged; only the redundant re-lowering is removed.
+        self._jit_mc_returns_discounted = jax.jit(self._mc_returns_discounted_impl)
+        self._jit_mc_returns_undiscounted = jax.jit(self._mc_returns_undiscounted_impl)
         # Validate algorithm.actor_target once, at construction, rather than on the hot path: an
         # unknown value must fail loudly at start-up, not silently fall through to the default.
         self._reset_monte_carlo_episode_buffer()
@@ -983,15 +993,26 @@ class ContinuousTimeActorCritic:
         """
         rates = jnp.asarray(reward_rates)
         if getattr(self.discount, "discounted", False):
-            decay = float(np.exp(-dt * self.discount.gamma))
-
-            def backward_step(carry, r_k):
-                carry = r_k * dt + decay * carry
-                return carry, carry
-
-            _, returns = jax.lax.scan(backward_step, 0.0, rates, reverse=True)
-            return returns
+            # ``decay`` and ``dt`` are passed as traced operands (not baked-in literals) so the
+            # cached executable is independent of gamma; the numerics are identical to the previous
+            # in-line scan with the literal decay.
+            decay = jnp.asarray(np.exp(-dt * self.discount.gamma), dtype=rates.dtype)
+            return self._jit_mc_returns_discounted(rates, decay, jnp.asarray(dt, dtype=rates.dtype))
         # Undiscounted: R_t = sum_{k >= t} r_k dt, by a reversed cumulative sum.
+        return self._jit_mc_returns_undiscounted(rates, jnp.asarray(dt, dtype=rates.dtype))
+
+    @staticmethod
+    def _mc_returns_discounted_impl(rates: jnp.ndarray, decay: jnp.ndarray, dt: jnp.ndarray) -> jnp.ndarray:
+        """Backward return recursion R_t = r_t dt + decay R_{t+1}, decay = exp(-gamma dt)."""
+        def backward_step(carry, r_k):
+            carry = r_k * dt + decay * carry
+            return carry, carry
+        _, returns = jax.lax.scan(backward_step, jnp.zeros((), dtype=rates.dtype), rates, reverse=True)
+        return returns
+
+    @staticmethod
+    def _mc_returns_undiscounted_impl(rates: jnp.ndarray, dt: jnp.ndarray) -> jnp.ndarray:
+        """Undiscounted return-to-go R_t = sum_{k>=t} r_k dt by a reversed cumulative sum."""
         return jnp.flip(jnp.cumsum(jnp.flip(rates))) * dt
 
     def _reset_monte_carlo_episode_buffer(self) -> None:
@@ -1157,6 +1178,12 @@ class ContinuousTimeActorCritic:
             n_points = len(np.arange(0, self.training.max_time + 5 * self.env.step_size,
                                      self.env.step_size))
             self.key, subkey = jax.random.split(self.key)
+            # NOTE: kept as an EAGER lax.scan (not wrapped in jax.jit) deliberately. The OU path
+            # feeds the exploration noise into the rollout, so it must stay bit-for-bit identical to
+            # the reference implementation; wrapping the whole sampler in jit lets XLA fuse the
+            # scalar prelude (sqrt(1-a^2) etc.) with a 1-ULP change, which -- although inert on a
+            # stable trajectory -- is amplified by a near-divergent cell. The eager scan re-lowers
+            # per episode but that cost is negligible and carries no numerical risk.
             self.episode_noise_trajectory = sample_ou_trajectory(
                 n_points, self.env.B.shape[1], float(self.env.step_size),
                 float(self.noise.tau_n), float(self._sigma_effective), subkey)
