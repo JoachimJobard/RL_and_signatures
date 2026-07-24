@@ -47,6 +47,14 @@ CELLS=(
   "harmonic_oscillator 10 10 0.5  04:00:00 visu   -"
   "linear_dde_scalar   10 10 0.5  08:00:00 cpu_p1 qos_cpu-t3"
   "MG_1D_limit_cycle   85 85 0.10 15:00:00 cpu_p1 qos_cpu-t3"
+  # Same plant and same horizon/discount as the line above; ONLY the control cadence differs
+  # (step_size 0.05 instead of 0.25), so the H1 verdict can be read at the cadence of the other two
+  # cells. Walltime from a measured probe (job 145536, cpu_p1/qos_cpu-dev, 10 episodes per config):
+  # the slowest arm is VG+signature at 15.9 s/episode -> 8.8 h for the 2000-episode cap, so 15:00:00
+  # holds and qos_cpu-t3 (20 h cap) still suffices -- no need for qos_cpu-t4. Note the cost ordering
+  # is signature (15.9 s/ep) > actor-critic signature (7.9) > raw history (3.7) > markovian (3.1):
+  # at a 123-tap window the signature transform dominates, not the 7749-monomial raw-history gather.
+  "MG_1D_limit_cycle_dt0p05 85 85 0.10 15:00:00 cpu_p1 qos_cpu-t3"
 )
 
 # sbatch with bounded retry: Jean Zay's submit RPC intermittently returns "Resource temporarily
