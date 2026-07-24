@@ -31,6 +31,7 @@ if [ "$LEARNER" = "oracle" ]; then
   python main_unified.py agent=actor_critic env=$PLANT agent.signature.kind=markovian \
     ++agent.algorithm.actor_oracle=true ++agent.discount.discounted=true ++agent.discount.gamma=$GAMMA \
     agent.training.n_episodes=20 agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM \
+    eval.x0_test=${EVAL_X0:-[1.0,1.0]} \
     ++agent.training.monitor_snr=false seed=$SEED experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled \
     debug=false run_tag="oracle_reference"
   ST=$?; echo "Task $SLURM_ARRAY_TASK_ID (oracle) finished with exit code $ST"; exit $ST
@@ -40,9 +41,14 @@ fi
 if [ "$LEARNER" = "value_gradient" ]; then SWEPT=$CRITIC_LR; else SWEPT=$ACTOR_LR; fi
 echo "Task $SLURM_ARRAY_TASK_ID: $LEARNER $KIND actor_lr=$ACTOR_LR critic_lr=$CRITIC_LR seed=$SEED (env=$PLANT, gamma=$GAMMA)"
 
+# eval.x0_test is passed per cell (EVAL_X0). It must match the env dimension (main_unified now hard-
+# errors on a mismatch instead of silently drawing a random per-seed IC). It sets BOTH the fixed
+# training initial condition (via conform_initial_state) and the in-training eval; for the delayed
+# cells the reported metric is recomputed afterwards from the checkpoint on the developed attractor.
 COMMON="agent=$LEARNER env=$PLANT agent.signature.kind=$KIND \
   ++agent.noise.sigma=${SIGMA:-0.5} ++agent.discount.discounted=true ++agent.discount.gamma=$GAMMA \
   agent.training.n_episodes=$N_EPISODES agent.training.max_time=$MAX_TIME eval.T_sim=$T_SIM \
+  eval.x0_test=${EVAL_X0:-[1.0,1.0]} \
   ++agent.training.monitor_snr=${MONITOR_SNR:-false} ++agent.training.patience=${PATIENCE:-0} ++agent.training.eval_interval=${EVAL_INTERVAL:-50} \
   ++agent.training.rollouts_per_update=1 seed=$SEED experiment_group=$EXPERIMENT_GROUP wandb.mode=disabled"
 case $LEARNER in

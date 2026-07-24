@@ -29,7 +29,12 @@ experiment_group: null        # shared parent sub-folder grouping all tasks of o
 # Evaluation Settings
 # =============================================================================
 eval:
-  x0_test: [1.0, 1.0]         # Initial state for evaluation (overridden by env if needed)
+  # Evaluation initial condition. This 2D default fits ONLY the 2D cells (harmonic). Every cell of a
+  # different state dimension MUST override eval.x0_test to its own N-vector (the launcher passes it
+  # per cell): a dimension mismatch is now a hard error (main_unified), never a silent random
+  # fallback. For the delayed cells the eval starts the system on its developed attractor via
+  # eval.burning_steps, so J0 is the cost of the cycle/chaos and is identical across seeds.
+  x0_test: [1.0, 1.0]
   T_sim: 15.0                 # Simulation time for evaluation
   n_eval_trajectories: 5      # Number of different initial conditions to test
   log_interval: 5            # Wandb logging subsampling

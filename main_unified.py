@@ -154,12 +154,21 @@ def run_experiment(cfg: DictConfig, run_dir: Path, derived_seeds: dict) -> None:
     x0_test = np.array(cfg.eval.x0_test)
     T_sim = cfg.eval.T_sim
 
-    # Ensure x0_test matches environment dimension
+    # The evaluation initial condition must be set deliberately, per cell, to the env's dimension.
+    # Silently substituting a RANDOM, seed-derived x0 on a dimension mismatch (the previous
+    # behaviour) is what made the eval initial condition vary per seed on every 1D cell: J0 then
+    # swings by up to ~800x across seeds, the %opt denominator is uncontrolled, and the
+    # representation ranking can flip with the draw. Refuse it: a mismatch is a configuration error,
+    # not something to paper over. Set eval.x0_test to the full N-vector for the cell (the launcher
+    # passes it per cell), together with eval.burning_steps to place the delayed cells on their
+    # developed attractor before the cost window opens.
     if len(x0_test) != agent.env.N:
-        print(f"  Warning: x0_test dim ({len(x0_test)}) != env dim ({agent.env.N})")
-        print("  Using random initial state")
-        rng = np.random.default_rng(derived_seeds["eval_x0_fallback"])
-        x0_test = rng.standard_normal(agent.env.N)
+        raise SystemExit(
+            f"eval.x0_test has dimension {len(x0_test)} but env '{cfg.env.environment_params._target_}' "
+            f"has state dimension {agent.env.N}. Set eval.x0_test to an explicit {agent.env.N}-vector "
+            f"for this cell (do NOT rely on a fallback). The default [1.0, 1.0] is 2D and only fits the "
+            f"2D cells; the 1D cells must set their own eval.x0_test (and eval.burning_steps)."
+        )
 
     # --- Collect evaluation data ONCE: it is the single source for both the saved
     #     artefacts and the figures, so every figure is rebuildable a posteriori. ---

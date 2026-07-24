@@ -1,0 +1,16 @@
+# Frozen selection for MG_1D_limit_cycle_dt0p05, re-selected on the CLEAN relative optimality eta
+# (agents and oracle re-evaluated on the developed limit cycle, 2026-07-24). sigma = 0.3 (19/27 useful
+# vs 17/27 at 0.5). lr per combo by useful-seed count then median eta over the useful seeds.
+MG_1D_limit_cycle_dt0p05:
+  value_gradient:
+    markovian: {critic_lr: 0.1}
+    raw_history: {critic_lr: 0.03}
+    signature: {critic_lr: 0.03}
+  policy_gradient:
+    markovian: {actor_lr: 0.1}
+    raw_history: {actor_lr: 0.01}
+    signature: {actor_lr: 1}
+  actor_critic:
+    markovian: {actor_lr: 0.3, critic_lr: 0.01}
+    raw_history: {actor_lr: 0.3, critic_lr: 1}
+    signature: {actor_lr: 3, critic_lr: 0.01}
