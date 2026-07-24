@@ -22,7 +22,11 @@ Usage:  python selection_manifest.py "<seed0 seed1 ...>"
 import os
 import sys
 
-CELLS = ["harmonic_oscillator", "linear_dde_scalar", "MG_1D_limit_cycle"]
+CELLS = ["harmonic_oscillator", "linear_dde_scalar", "MG_1D_limit_cycle",
+         # Same plant as MG_1D_limit_cycle at the uniform control cadence of the other two cells
+         # (step_size 0.05 instead of the inherited 0.25); see conf/env/MG_1D_limit_cycle_dt0p05.yaml.
+         # The grid is identical, so the cadence is the only thing that differs between the two.
+         "MG_1D_limit_cycle_dt0p05"]
 KINDS = ["markovian", "raw_history", "signature"]
 
 # Learning-rate grids (identical across representations within a learner; run at each sigma).

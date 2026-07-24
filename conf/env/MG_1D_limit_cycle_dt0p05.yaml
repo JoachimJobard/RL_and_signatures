@@ -1,0 +1,51 @@
+# Mackey-Glass 1D, LIMIT-CYCLE regime, at the UNIFORM CONTROL CADENCE of the other H1 cells.
+#   dx/dt = -mu x + p x(t-tau)/(1 + x(t-tau)^n) + u
+#
+# Why this cell exists. The plant is IDENTICAL to MG_1D_limit_cycle (tau = 6, mu = 0.1, n = 10,
+# p = 0.2, x_target = 1, Q = 1, R = 0.1); only the control cadence differs. The parent cell runs at
+# step_size = 0.25, a value introduced with the cell on 2026-06-10 (commit 382a657) when it was the
+# PRIMARY H2 cell, and the one parameter never revisited when the H1 campaign redid the horizon
+# (40 -> 85), the budget (500 -> 2000) and the window (hand-set 28 -> derived). This cell re-runs the
+# same physics at step_size = 0.05, the cadence of harmonic_oscillator and linear_dde_scalar, so that
+# the H1 verdict on the nonlinear delayed plant can be read at a cadence uniform with the other cells
+# instead of at an inherited one.
+#
+# Consequences to keep in mind when comparing against the parent cell:
+#   - The representation window is DERIVED, not set here: src/representations/factory.py
+#     ::signature_window_size returns ceil(max_delay / step_size) + 3, so the window goes from 27 taps
+#     (at dt = 0.25) to 123 taps here.
+#   - RawHistoryRepresentation builds every degree-1..2 monomial over window_length * n_state, i.e.
+#     d + d(d+1)/2 features: 405 at the parent cadence, 7749 here. SignatureRepresentation.feature_dim
+#     is the signature size, a function of depth and channel count only, so it is UNCHANGED. The
+#     markovian representation is 2 features at either cadence. Raw history may prove intractable at
+#     this width; report it as such rather than tuning it away.
+#   - The configured learning rate is a continuous-time RATE: both learners multiply it by step_size
+#     when building the optimiser (value_gradient_jax.py:114, actor_critic_jax.py:296/304), the TD
+#     residual is formed as (V_next - V_t)/dt and the loss carries the dt Riemann weight. Rates
+#     therefore transfer across cadences to first order -- but the full selection sweep is re-run here
+#     per protocol rather than relying on that argument.
+#   - resolution = 4 matches the other cells, giving a solver step of 0.05/4 = 0.0125 (the parent cell
+#     integrates at 0.25/5 = 0.05). Integration is therefore strictly finer here, not coarser.
+#
+# Regime (unchanged from the parent cell, verified in conf/env/MG_1D_limit_cycle.yaml): tau = 6 lies
+# above the Hopf bifurcation (tau_c ~ 4.71) and well below the chaotic onset (tau ~ 16); the
+# uncontrolled plant is a clean bounded limit cycle, x in [0.83, 1.14] about the equilibrium x* = 1.
+# x_target = 1.0 = x*, so the task is to suppress the delay-born limit cycle to its equilibrium.
+environment_params:
+  _target_: src.envs.mackey_glass_1D.MackeyGlass1DEnv
+
+  delay: 6.0
+  mu: 0.1
+  n: 10
+  p: 0.2
+  x_target: 1.0      # the delay-destabilised equilibrium x* = (p/mu - 1)^(1/n) = 1
+
+  Q:
+    _target_: numpy.eye
+    N: 1
+  R:
+    _target_: numpy.array
+    object: [[0.1]]
+
+  step_size: 0.05    # control/TD cadence, uniform with harmonic_oscillator and linear_dde_scalar
+  resolution: 4      # RK4 sub-steps per control step (solver step 0.0125), uniform with those cells

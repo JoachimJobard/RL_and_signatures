@@ -32,6 +32,10 @@ ACCOUNT="${ACCOUNT:-akz@cpu}"
 SEEDS="${SEEDS:-40 41 42}"       # the selection seeds (disjoint from the test seeds 0..4)
 SIGMAS="${SIGMAS:-0.3 0.5}"      # per-cell exploration grid; one array per sigma
 DRYRUN="${DRYRUN:-0}"
+# Optional space-separated PLANT filter, e.g. ONLY_CELLS="MG_1D_limit_cycle_dt0p05". Empty = every
+# cell in CELLS. Added so a single cell can be (re)swept without resubmitting the cells whose
+# selection is already frozen -- relaunching those would silently create a second, competing group.
+ONLY_CELLS="${ONLY_CELLS:-}"
 JZ_DIR="$PATH_CONTENT_ROOT/experiments/h1h2_evaluation/jeanzay"
 TS=$(date +%Y%m%d_%H%M%S)
 
@@ -66,6 +70,7 @@ for SIGMA in $SIGMAS; do
   STAG=$(echo "$SIGMA" | tr -d '.')      # 0.3 -> "03" for the group name
   for spec in "${CELLS[@]}"; do
     read -r PLANT MAX_TIME T_SIM GAMMA WALLTIME CELL_PART CELL_QOS <<< "$spec"
+    if [ -n "$ONLY_CELLS" ] && ! grep -qw -- "$PLANT" <<< "$ONLY_CELLS"; then continue; fi
     SRC="$JZ_DIR/selection_tasks_${PLANT}.tsv"
     [ -s "$SRC" ] || { echo "skip $PLANT (no/empty selection manifest)"; continue; }
 
