@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#
+# Keep the experiment-registry Markdown index in sync with its JSONL ledger.
+#
+# experiment_registry.md is a DERIVED artefact rendered from experiment_registry.jsonl by
+# render_registry_index.py. This hook fails the commit when the commit touches the ledger, the
+# generator, or the index AND the checked-in Markdown does not match a fresh render — i.e. someone
+# appended to the JSONL and forgot to regenerate. The stale Markdown is regenerated in place so the
+# fix is a single `git add`.
+#
+# Activate once per clone:   git config core.hooksPath .githooks
+#
+set -euo pipefail
+
+LEDGER="documents/methodology/experiment_registry.jsonl"
+INDEX="documents/methodology/experiment_registry.md"
+GEN="documents/methodology/render_registry_index.py"
+
+# Only act when this commit touches the ledger, the generator, or the index.
+if ! git diff --cached --name-only \
+     | grep -qE '^documents/methodology/(experiment_registry\.(jsonl|md)|render_registry_index\.py)$'; then
+  exit 0
+fi
+
+command -v python3 >/dev/null 2>&1 || {
+  echo "pre-commit: python3 not found; skipping registry-index freshness check" >&2
+  exit 0
+}
+
+# Regenerate from the working-tree ledger; if the index changes, the checked-in copy was stale.
+python3 "$GEN" >/dev/null
+
+if ! git diff --quiet -- "$INDEX"; then
+  echo "pre-commit: $INDEX was stale and has been regenerated from $LEDGER." >&2
+  echo "            Review and stage it, then re-commit:" >&2
+  echo "                git add $INDEX" >&2
+  exit 1
+fi
+
+exit 0
