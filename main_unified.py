@@ -308,7 +308,16 @@ def main(cfg: DictConfig) -> None:
     # --- Smoke-test guard ---
     debug = bool(cfg.get("debug", False))
     n_episodes = int(_training_cfg(cfg).get("n_episodes", 0))
-    if not debug and 0 < n_episodes < SMOKE_TEST_N_EPISODES_THRESHOLD:
+    # An analytic-oracle run performs NO policy learning: actor_oracle substitutes the closed-form
+    # optimal control for the actor, so its episode count is a simulation budget, not a training
+    # budget, and the smoke-test threshold is meaningless for it. Without this exemption the oracle
+    # reference line that every sweep manifest carries (20 episodes at debug=false) fails the guard,
+    # which has now cost two campaigns a separate hand-run oracle pass. Flagging the oracle
+    # debug=true instead is NOT the fix: that would bury the campaign's %opt denominator in a
+    # _debug_-prefixed directory, excluded from aggregation and swept by the debug cleanup.
+    algorithm_block = cfg.agent.get("algorithm", None) or {}
+    is_analytic_oracle_run = bool(algorithm_block.get("actor_oracle", False))
+    if not debug and not is_analytic_oracle_run and 0 < n_episodes < SMOKE_TEST_N_EPISODES_THRESHOLD:
         raise SystemExit(
             f"Refusing a real run with n_episodes={n_episodes} "
             f"(< {SMOKE_TEST_N_EPISODES_THRESHOLD}). Set debug=true to flag it as exploratory."
