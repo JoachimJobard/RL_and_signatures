@@ -2,13 +2,18 @@
 # Jean Zay -- launch the 10-seed FINAL for the uniform-cadence MG cell (MG_1D_limit_cycle_dt0p05,
 # step_size 0.05), at the CLEAN-eta-frozen learning rates (frozen_dt0p05_clean.yaml, sigma = 0.3).
 #
-# The run is TRAINED at eval.x0_test = [1.0] -- the same training initial condition as the dt=0.25
-# finals -- so that the only difference between the two campaigns is the control cadence. The
-# reported relative optimality eta is NOT read from the native eval (which sits at the equilibrium,
-# J0 ~ 0): it is recomputed afterwards from each checkpoint on the developed limit cycle, via
-# experiments/h1h2_evaluation/reeval/reeval_group.py with x0 = 0.8, burn = 2000 (100 time units at
-# dt = 0.05), exactly as the dt=0.25 finals were re-evaluated. Both campaigns are therefore evaluated
-# on the cycle from identical training, isolating the cadence.
+# The run is TRAINED at eval.x0_test = [0.8], a fixed OFF-EQUILIBRIUM point. This is deliberate: at
+# x = 1 (the unstable equilibrium x*) the in-training eval is degenerate -- the uncontrolled state and
+# the agent both sit near x* so J0 ~ J_agent and the cost reduction is ~0 for every checkpoint, which
+# makes the patience early-stopping and the best-checkpoint restore uninformative. From x = 0.8 the
+# cycle develops, J0 is substantial, and the checkpoint selection discriminates. The reported relative
+# optimality eta is NOT read from this native eval: it is recomputed afterwards from each checkpoint on
+# the developed limit cycle, via experiments/h1h2_evaluation/reeval/reeval_group.py with x0 = 0.8,
+# burn = 2000 (100 time units at dt = 0.05), exactly as the dt=0.25 finals were re-evaluated -- so both
+# campaigns are REPORTED on the cycle. (The dt=0.25 finals trained at x* = 1 with a random-IC eval that
+# the fix removed and cannot be reproduced; the training initial condition therefore differs slightly,
+# but both develop the cycle via exploration and both are reported on the cycle, so the comparison is
+# the cycle eta.)
 #
 # Partition: cpu_p1 / qos_cpu-t3 (BILLED, 20 h cap). Walltime 15:00:00 from the measured timing probe
 # (job 145536): the slowest arm is value-gradient + signature at 15.9 s/episode -> 8.8 h for the
@@ -29,7 +34,7 @@ SRC="$JZ/final_tasks_MG_1D_limit_cycle_dt0p05.tsv"
 
 EXPORTS="PATH_CONTENT_ROOT=$REPO,EXPERIMENT_GROUP=$GROUP,RL_SIGNATURES_DATA_ROOT=$DATA_ROOT"
 EXPORTS+=",MANIFEST_FILE=$EXPDIR/tasks.tsv,PLANT=MG_1D_limit_cycle_dt0p05,MAX_TIME=85,T_SIM=85,GAMMA=0.10"
-EXPORTS+=",N_EPISODES=2000,SIGMA=0.3,PATIENCE=10,EVAL_INTERVAL=50,MONITOR_SNR=false,EVAL_X0=[1.0]"
+EXPORTS+=",N_EPISODES=2000,SIGMA=0.3,PATIENCE=10,EVAL_INTERVAL=50,MONITOR_SNR=false,EVAL_X0=[0.8]"
 NT=$(wc -l < "$SRC")
 SBATCH=(sbatch --parsable --account=akz@cpu --partition=cpu_p1 --qos=qos_cpu-t3
   --array=0-$((NT - 1)) --ntasks=1 --cpus-per-task=1 --hint=nomultithread --time=15:00:00
