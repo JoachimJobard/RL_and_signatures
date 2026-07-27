@@ -1,0 +1,41 @@
+# Frozen final selection from the verified sweep (2026-07-23). sigma per cell chosen by
+# max total useful seeds; lr per combo by useful count then median %opt|useful.
+harmonic_oscillator:
+  value_gradient:
+    markovian: {critic_lr: 1}
+    raw_history: {critic_lr: 0.03}
+    signature: {critic_lr: 1}
+  policy_gradient:
+    markovian: {actor_lr: 10}
+    raw_history: {actor_lr: 0.1}
+    signature: {actor_lr: 1}
+  actor_critic:
+    markovian: {actor_lr: 3, critic_lr: 1}
+    raw_history: {actor_lr: 0.3, critic_lr: 0.01}
+    signature: {actor_lr: 3, critic_lr: 1}
+linear_dde_scalar:
+  value_gradient:
+    markovian: {critic_lr: 0.1}
+    raw_history: {critic_lr: 0.3}
+    signature: {critic_lr: 1}
+  policy_gradient:
+    markovian: {actor_lr: 10}
+    raw_history: {actor_lr: 0.1}
+    signature: {actor_lr: 1}
+  actor_critic:
+    markovian: {actor_lr: 30, critic_lr: 1}
+    raw_history: {actor_lr: 0.3, critic_lr: 0.01}
+    signature: {actor_lr: 3, critic_lr: 0.01}
+MG_1D_limit_cycle:
+  value_gradient:
+    markovian: {critic_lr: 0.03}
+    raw_history: {critic_lr: 0.03}
+    signature: {critic_lr: 0.03}
+  policy_gradient:
+    markovian: {actor_lr: 0.1}
+    raw_history: {actor_lr: 0.1}
+    signature: {actor_lr: 0.1}
+  actor_critic:
+    markovian: {actor_lr: 30, critic_lr: 1}
+    raw_history: {actor_lr: 0.3, critic_lr: 0.01}
+    signature: {actor_lr: 0.3, critic_lr: 0.01}
